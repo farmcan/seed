@@ -23,6 +23,7 @@ def download_url(
     library_root: Path,
     max_height: int = 360,
     max_filesize_mb: int | None = 100,
+    cookies_from_browser: str | None = None,
 ) -> DownloadResult:
     init_library(library_root)
     raw_dir = library_root / "raw"
@@ -32,23 +33,14 @@ def download_url(
         if download.get("status") == "finished" and download.get("filename"):
             downloaded_files.append(Path(download["filename"]))
 
-    options = {
-        "format": f"bv*[height<={max_height}]+ba/b[height<={max_height}]/best",
-        "merge_output_format": "mp4",
-        "noplaylist": True,
-        "outtmpl": str(raw_dir / "%(extractor_key)s-%(id)s-%(title).80B.%(ext)s"),
-        "paths": {"home": str(raw_dir)},
-        "progress_hooks": [capture_download],
-        "quiet": False,
-        "restrictfilenames": True,
-        "writeinfojson": True,
-    }
-    if max_filesize_mb is not None:
-        options["max_filesize"] = max_filesize_mb * 1024 * 1024
-
-    cookies_env = COOKIES_ENV_BY_PLATFORM.get(platform)
-    if cookies_env and os.getenv(cookies_env):
-        options["cookiefile"] = os.environ[cookies_env]
+    options = _build_download_options(
+        platform=platform,
+        raw_dir=raw_dir,
+        max_height=max_height,
+        max_filesize_mb=max_filesize_mb,
+        cookies_from_browser=cookies_from_browser,
+        progress_hooks=[capture_download],
+    )
 
     try:
         with YoutubeDL(options) as ydl:
@@ -68,11 +60,42 @@ def download_url(
 
     return DownloadResult(
         title=info.get("title"),
-        owner=info.get("uploader") or info.get("channel"),
+        owner=info.get("uploader") or info.get("channel") or info.get("uploader_id"),
         webpage_url=info.get("webpage_url") or url,
         raw_path=raw_path,
         metadata_path=metadata_path,
     )
+
+
+def _build_download_options(
+    *,
+    platform: Platform,
+    raw_dir: Path,
+    max_height: int,
+    max_filesize_mb: int | None,
+    cookies_from_browser: str | None,
+    progress_hooks: list | None = None,
+) -> dict:
+    options = {
+        "format": f"bv*[height<={max_height}]+ba/b[height<={max_height}]/best",
+        "merge_output_format": "mp4",
+        "noplaylist": True,
+        "outtmpl": "%(extractor_key)s-%(id)s-%(title).80B.%(ext)s",
+        "paths": {"home": str(raw_dir)},
+        "progress_hooks": progress_hooks or [],
+        "quiet": False,
+        "restrictfilenames": True,
+        "writeinfojson": True,
+    }
+    if max_filesize_mb is not None:
+        options["max_filesize"] = max_filesize_mb * 1024 * 1024
+
+    cookies_env = COOKIES_ENV_BY_PLATFORM.get(platform)
+    if cookies_env and os.getenv(cookies_env):
+        options["cookiefile"] = os.environ[cookies_env]
+    if cookies_from_browser:
+        options["cookiesfrombrowser"] = (cookies_from_browser.lower(), None, None, None)
+    return options
 
 
 def _select_media_path(downloaded_files: list[Path], raw_dir: Path) -> Path | None:

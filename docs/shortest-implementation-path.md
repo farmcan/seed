@@ -19,7 +19,7 @@
 | --- | --- | --- |
 | CLI | Python + Typer | 快速实现批处理命令，易和下载/转写库集成。 |
 | 数据格式 | Markdown + YAML | 人能读，Agent 能读，Git diff 友好。 |
-| 下载 | yt-dlp 优先，XHS-Downloader 可选外部工具 | Bilibili 支持更成熟；小红书风险隔离。 |
+| 下载 | yt-dlp 优先，XHS-Downloader 可选外部工具 | Bilibili 和小红书都先走同一个轻量路径；GPL 工具只作为外部进程，避免 license 混入。 |
 | 转写 | faster-whisper 优先，Whisper 兜底 | 批量处理速度更好。 |
 | LLM 调用 | 先抽象 provider 接口 | 后续可切 OpenAI、DeepSeek、Qwen 或本地模型。 |
 | 检索 | 先用文件系统 + ripgrep | 初期知识量小，避免过早上向量库。 |
@@ -52,6 +52,13 @@
 - 若没有字幕，抽音频后转写。
 - 支持合集/分 P/UP 空间的 manifest，但每次下载前要求 `authorized=true`。
 - 保留 `download-archive`，避免重复抓取。
+
+### M2.5：小红书半自动
+
+- 默认走 `yt-dlp` 内置 `XiaoHongShu` extractor。
+- 优先使用带 `xsec_token` 的新鲜分享链接，公开页面失效时提示需要 cookie。
+- 支持 `XIAOHONGSHU_COOKIES_FILE` 或显式 `--cookies-from-browser chrome/safari/firefox`。
+- 不把小红书专用 GPL 下载器代码并入仓库；如需增强稳定性，采用外部命令适配器调用 `JoeanAmier/XHS-Downloader`。
 
 ### M3：Skill 生成
 

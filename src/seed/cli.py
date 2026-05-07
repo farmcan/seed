@@ -37,6 +37,13 @@ def ingest_url(
         int | None,
         typer.Option("--max-filesize-mb", help="Skip downloads larger than this size."),
     ] = 100,
+    cookies_from_browser: Annotated[
+        str | None,
+        typer.Option(
+            "--cookies-from-browser",
+            help="Explicitly load cookies from a browser such as chrome, safari, or firefox.",
+        ),
+    ] = None,
     root: Annotated[Path, typer.Option("--root")] = Path("library"),
 ) -> None:
     if download and not authorized:
@@ -50,6 +57,7 @@ def ingest_url(
             library_root=root,
             max_height=max_height,
             max_filesize_mb=max_filesize_mb,
+            cookies_from_browser=cookies_from_browser,
         )
         if result.owner and owner == "unknown":
             owner = result.owner
