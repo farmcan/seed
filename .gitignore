@@ -1,0 +1,27 @@
+.DS_Store
+.env
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/
+
+# Local/private knowledge assets. Keep structure, not content.
+library/raw/*
+library/transcripts/*
+library/notes/*
+library/distilled/*
+library/skills/*
+library/checks/*
+!library/**/.gitkeep
+
+# Large media outputs.
+*.mp4
+*.mov
+*.m4a
+*.mp3
+*.wav
+*.webm

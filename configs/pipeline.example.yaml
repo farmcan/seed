@@ -1,0 +1,18 @@
+library_root: library
+
+sources:
+  bilibili:
+    adapter: yt-dlp
+    cookies_env: BILIBILI_COOKIES_FILE
+  xiaohongshu:
+    adapter: manual-or-custom
+    cookies_env: XIAOHONGSHU_COOKIES_FILE
+
+distillation:
+  output_language: zh
+  default_sections:
+    - core_ideas
+    - repeatable_methods
+    - decision_rules
+    - failure_modes
+    - agent_checks
