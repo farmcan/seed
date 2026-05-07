@@ -8,6 +8,7 @@ from rich.console import Console
 
 from seed.library import init_library, save_methodology, save_source_record, slugify
 from seed.models import Methodology, Platform, SourceRecord
+from seed.sources.yt_dlp_adapter import download_url
 
 
 app = typer.Typer(help="Personal content-to-methodology distillation toolkit.")
@@ -27,14 +28,33 @@ def init_library_cmd(
 def ingest_url(
     url: Annotated[str, typer.Argument(help="Content URL to record or ingest.")],
     platform: Annotated[Platform, typer.Option("--platform")],
-    owner: Annotated[str, typer.Option("--owner")],
+    owner: Annotated[str, typer.Option("--owner")] = "unknown",
     title: Annotated[str | None, typer.Option("--title")] = None,
     authorized: Annotated[bool, typer.Option("--authorized")] = False,
     download: Annotated[bool, typer.Option("--download/--no-download")] = False,
+    max_height: Annotated[int, typer.Option("--max-height", help="Maximum video height.")] = 360,
+    max_filesize_mb: Annotated[
+        int | None,
+        typer.Option("--max-filesize-mb", help="Skip downloads larger than this size."),
+    ] = 100,
     root: Annotated[Path, typer.Option("--root")] = Path("library"),
 ) -> None:
     if download and not authorized:
         raise typer.BadParameter("--download requires --authorized")
+
+    result = None
+    if download:
+        result = download_url(
+            url,
+            platform=platform,
+            library_root=root,
+            max_height=max_height,
+            max_filesize_mb=max_filesize_mb,
+        )
+        if result.owner and owner == "unknown":
+            owner = result.owner
+        if result.title and title is None:
+            title = result.title
 
     record = SourceRecord(
         url=url,
@@ -42,11 +62,15 @@ def ingest_url(
         owner=owner,
         title=title,
         authorized=authorized,
+        raw_path=result.raw_path if result else None,
+        metadata_path=result.metadata_path if result else None,
     )
     path = save_source_record(root, record)
     console.print(f"recorded source at {path}")
-    if download:
-        console.print("download adapter is intentionally not implemented in the seed bootstrap")
+    if result and result.raw_path:
+        console.print(f"downloaded media at {result.raw_path}")
+    if result and result.metadata_path:
+        console.print(f"saved metadata at {result.metadata_path}")
 
 
 @app.command("distill-note")

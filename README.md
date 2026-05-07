@@ -39,10 +39,11 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 seed init-library
 seed ingest-url "https://www.bilibili.com/video/..." --platform bilibili --owner "some-up" --authorized --no-download
+seed ingest-url "https://www.bilibili.com/video/..." --platform bilibili --authorized --download --max-height 360 --max-filesize-mb 100
 seed distill-note library/transcripts/example.md --owner "some-up" --topic "增长方法论"
 ```
 
-`ingest-url` 默认不下载视频，只记录来源。需要下载时显式传入 `--download`，并确保你对内容保存和分析有合法授权。
+`ingest-url` 默认不下载视频，只记录来源。需要下载时显式传入 `--download`，并确保你对内容保存和分析有合法授权。下载文件会进入 `library/raw/`，同名 `.info.json` 保存平台元数据。Bilibili 优先使用 `yt-dlp`；如果网页层被 412 拦截，会回退到公开 playurl API，并用 `ffmpeg` 合成低清晰度 mp4。
 
 ## 未来路线
 

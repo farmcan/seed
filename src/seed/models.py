@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 
@@ -22,8 +22,17 @@ class SourceRecord(BaseModel):
     title: str | None = None
     authorized: bool = False
     raw_path: Path | None = None
+    metadata_path: Path | None = None
     transcript_path: Path | None = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class DownloadResult(BaseModel):
+    title: str | None = None
+    owner: str | None = None
+    webpage_url: str | None = None
+    raw_path: Path | None = None
+    metadata_path: Path | None = None
 
 
 class Methodology(BaseModel):
