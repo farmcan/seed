@@ -6,9 +6,17 @@ from typing import Annotated
 import typer
 from rich.console import Console
 
+from seed.asr.openai_provider import DEFAULT_TRANSCRIBE_MODEL, transcribe_openai_audio
 from seed.library import init_library, save_methodology, save_source_record, slugify
+from seed.media import extract_audio, ensure_upload_size
 from seed.models import Methodology, Platform, SourceRecord
 from seed.sources.yt_dlp_adapter import download_url
+from seed.summarizers.codex_runner import (
+    DEFAULT_SKILL_PATH,
+    run_codex_summary,
+    summary_output_path,
+)
+from seed.transcripts import transcript_output_path, write_transcript_markdown
 
 
 app = typer.Typer(help="Personal content-to-methodology distillation toolkit.")
@@ -100,3 +108,67 @@ def distill_note(
     )
     path = save_methodology(root, methodology)
     console.print(f"created draft methodology at {path}")
+
+
+@app.command("transcribe-media")
+def transcribe_media(
+    media_path: Annotated[Path, typer.Argument(help="Downloaded video/audio file.")],
+    provider: Annotated[str, typer.Option("--provider")] = "openai",
+    model: Annotated[str, typer.Option("--model")] = DEFAULT_TRANSCRIBE_MODEL,
+    language: Annotated[str | None, typer.Option("--language")] = None,
+    title: Annotated[str | None, typer.Option("--title")] = None,
+    prompt: Annotated[str | None, typer.Option("--prompt")] = "中文短视频、口播、课程或访谈内容。",
+    max_upload_mb: Annotated[int, typer.Option("--max-upload-mb")] = 24,
+    root: Annotated[Path, typer.Option("--root")] = Path("library"),
+) -> None:
+    if provider != "openai":
+        raise typer.BadParameter("Only --provider openai is implemented")
+
+    audio_path = extract_audio(media_path, root)
+    ensure_upload_size(audio_path, max_upload_mb=max_upload_mb)
+    text = transcribe_openai_audio(audio_path, model=model, language=language, prompt=prompt)
+    output_path = transcript_output_path(library_root=root, media_path=media_path, title=title)
+    write_transcript_markdown(
+        output_path,
+        text=text,
+        media_path=media_path,
+        audio_path=audio_path,
+        provider=provider,
+        model=model,
+        title=title,
+        language=language,
+    )
+    console.print(f"extracted audio at {audio_path}")
+    console.print(f"created transcript at {output_path}")
+
+
+@app.command("summarize-transcript")
+def summarize_transcript(
+    transcript_path: Annotated[Path, typer.Argument(help="Transcript markdown file.")],
+    title: Annotated[str | None, typer.Option("--title")] = None,
+    owner: Annotated[str | None, typer.Option("--owner")] = None,
+    platform: Annotated[str | None, typer.Option("--platform")] = None,
+    skill_path: Annotated[Path, typer.Option("--skill-path")] = DEFAULT_SKILL_PATH,
+    codex_model: Annotated[str | None, typer.Option("--codex-model")] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
+    root: Annotated[Path, typer.Option("--root")] = Path("library"),
+) -> None:
+    output_path = summary_output_path(
+        library_root=root,
+        transcript_path=transcript_path,
+        title=title,
+    )
+    if dry_run:
+        output_path = output_path.with_suffix(".prompt.md")
+    run_codex_summary(
+        transcript_path=transcript_path,
+        output_path=output_path,
+        skill_path=skill_path,
+        title=title,
+        owner=owner,
+        platform=platform,
+        model=codex_model,
+        cwd=Path.cwd(),
+        dry_run=dry_run,
+    )
+    console.print(f"created {'prompt' if dry_run else 'summary'} at {output_path}")
