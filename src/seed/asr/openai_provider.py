@@ -7,13 +7,13 @@ from typing import Any
 from openai import OpenAI
 
 
-DEFAULT_TRANSCRIBE_MODEL = os.getenv("SEED_ASR_MODEL", "gpt-4o-mini-transcribe")
+DEFAULT_OPENAI_TRANSCRIBE_MODEL = os.getenv("SEED_OPENAI_ASR_MODEL", "gpt-4o-mini-transcribe")
 
 
 def transcribe_openai_audio(
     audio_path: Path,
     *,
-    model: str = DEFAULT_TRANSCRIBE_MODEL,
+    model: str = DEFAULT_OPENAI_TRANSCRIBE_MODEL,
     language: str | None = None,
     prompt: str | None = None,
 ) -> str:

@@ -41,14 +41,14 @@ seed init-library
 seed ingest-url "https://www.bilibili.com/video/..." --platform bilibili --owner "some-up" --authorized --no-download
 seed ingest-url "https://www.bilibili.com/video/..." --platform bilibili --authorized --download --max-height 360 --max-filesize-mb 100
 seed ingest-url "https://www.xiaohongshu.com/explore/..." --platform xiaohongshu --authorized --download --cookies-from-browser chrome
-seed transcribe-media library/raw/example.mp4 --title "example"
+seed transcribe-media library/raw/example.mp4 --title "example" --provider dashscope
 seed summarize-transcript library/transcripts/example.transcript.md --title "example" --platform bilibili
 seed distill-note library/transcripts/example.md --owner "some-up" --topic "增长方法论"
 ```
 
 `ingest-url` 默认不下载视频，只记录来源。需要下载时显式传入 `--download`，并确保你对内容保存和分析有合法授权。下载文件会进入 `library/raw/`，同名 `.info.json` 保存平台元数据。Bilibili 优先使用 `yt-dlp`；如果网页层被 412 拦截，会回退到公开 playurl API，并用 `ffmpeg` 合成低清晰度 mp4。小红书优先使用 `yt-dlp` 内置的 `XiaoHongShu` extractor；如果公开页面拿不到格式，可以传入新鲜分享链接、`XIAOHONGSHU_COOKIES_FILE`，或显式使用 `--cookies-from-browser`。
 
-ASR 默认使用 OpenAI Audio Transcriptions API，模型为 `gpt-4o-mini-transcribe`。需要先配置 `OPENAI_API_KEY`。总结阶段通过 `codex exec` 非交互进程读取 transcript 和 `skills/video-note-summarizer/SKILL.md`，输出 Markdown 到 `library/notes/`。
+ASR 默认使用 DashScope/Qwen，模型为 `qwen3-asr-flash`，需要先配置 `DASHSCOPE_API_KEY` 或 `QWEN_API_KEY`。也可以传 `--provider openai --model gpt-4o-mini-transcribe` 使用 OpenAI。转写前会用 `ffmpeg` 抽取 16 kHz 单声道 MP3，兼容 DashScope 和 OpenAI。`--prompt` 只在需要术语表或上下文偏置时显式传入。总结阶段通过 `codex exec` 非交互进程读取 transcript 和 `skills/video-note-summarizer/SKILL.md`，输出 Markdown 到 `library/notes/`。
 
 ## 未来路线
 

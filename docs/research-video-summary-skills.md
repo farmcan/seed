@@ -33,17 +33,23 @@ Seed 的 `skills/video-note-summarizer/SKILL.md` 综合了三类结构：
 Seed 增加两个命令：
 
 ```bash
-seed transcribe-media library/raw/demo.mp4 --title "demo"
+seed transcribe-media library/raw/demo.mp4 --title "demo" --provider dashscope
 seed summarize-transcript library/transcripts/demo.transcript.md --title "demo" --platform bilibili
 ```
 
 架构边界：
 
 - 下载层：只负责平台视频落盘。
-- ASR 层：只负责音频转文字，默认 OpenAI，后续可接 Deepgram/AssemblyAI。
+- ASR 层：只负责音频转文字，默认 DashScope/Qwen，保留 OpenAI 作为可选 provider。
 - Transcript 层：只负责本地 markdown artifact。
 - Summary 层：只负责启动 Codex subprocess 并写 summary。
 - Skill 层：只放总结工作流和输出结构。
+
+## ASR Provider 策略
+
+- 默认：`--provider dashscope`，模型 `qwen3-asr-flash`，读取 `DASHSCOPE_API_KEY` 或 `QWEN_API_KEY`。
+- 备选：`--provider openai`，模型 `gpt-4o-mini-transcribe`，读取 `OPENAI_API_KEY`。
+- 当前 DashScope 实现走 OpenAI-compatible chat completions，使用本地 MP3 音频 base64 data URL，适合压缩后的短音频。更长音频后续应接 `qwen3-asr-flash-filetrans` 异步接口，需要先把音频放到可公网访问的 OSS URL。
 
 ## Sources
 
@@ -54,3 +60,5 @@ seed summarize-transcript library/transcripts/demo.transcript.md --title "demo" 
 - Armory: https://github.com/Mathews-Tom/armory
 - OpenClaw video summary skill: https://github.com/Telhassani/openclaw-skill-video-summary
 - OpenAI Speech to text: https://platform.openai.com/docs/guides/speech-to-text
+- Qwen-ASR API reference: https://www.alibabacloud.com/help/en/model-studio/qwen-asr-api-reference
+- Qwen speech recognition: https://www.alibabacloud.com/help/en/model-studio/qwen-speech-recognition

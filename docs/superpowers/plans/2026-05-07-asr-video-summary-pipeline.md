@@ -6,7 +6,7 @@
 
 **Architecture:** Keep platform download, ASR, and summarization independent. `media` handles ffmpeg and file sizing, `asr` exposes provider-specific transcription behind one function, `summarizers` launches Codex, and `skills/video-note-summarizer` stores reusable summarization instructions.
 
-**Tech Stack:** Python 3.11+, Typer CLI, ffmpeg/ffprobe, OpenAI Audio Transcriptions API, Codex CLI, Markdown/YAML local artifacts.
+**Tech Stack:** Python 3.11+, Typer CLI, ffmpeg/ffprobe, DashScope/Qwen ASR, optional OpenAI Audio Transcriptions API, Codex CLI, Markdown/YAML local artifacts.
 
 ---
 
@@ -15,7 +15,8 @@
 - `danielmiessler/Fabric` is the strongest prompt-pattern reference: MIT, about 41k stars, includes `summarize`, `extract_wisdom`, and YouTube transcript processing patterns.
 - `Mathews-Tom/armory` is a useful skill reference: MIT, about 225 stars, includes `youtube-analysis` with structured transcript analysis, video type patterns, timestamps, key concepts, technical terms, and takeaways.
 - `Telhassani/openclaw-skill-video-summary` is a useful output-format reference: MIT, low stars, has Obsidian-style frontmatter and sections like Summary, Ideas, Insights, Quotes, Habits, Key Points, Takeaways.
-- OpenAI official speech-to-text docs list `whisper-1`, `gpt-4o-mini-transcribe`, `gpt-4o-transcribe`, and `gpt-4o-transcribe-diarize`; upload limit is 25 MB. First implementation uses `gpt-4o-mini-transcribe` by default and fails clearly if compressed audio exceeds the limit.
+- OpenAI official speech-to-text docs list `whisper-1`, `gpt-4o-mini-transcribe`, `gpt-4o-transcribe`, and `gpt-4o-transcribe-diarize`; upload limit is 25 MB.
+- DashScope/Qwen is the default ASR provider for Chinese-first videos. Current implementation uses `qwen3-asr-flash` via DashScope's OpenAI-compatible API.
 
 ## Files
 

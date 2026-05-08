@@ -8,14 +8,15 @@ from seed.media import build_extract_audio_command, ensure_upload_size
 def test_build_extract_audio_command():
     command = build_extract_audio_command(
         Path("input.mp4"),
-        Path("output.m4a"),
+        Path("output.mp3"),
         bitrate="48k",
         sample_rate=16000,
     )
 
     assert command[:5] == ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error"]
     assert "-vn" in command
-    assert command[-1] == "output.m4a"
+    assert "libmp3lame" in command
+    assert command[-1] == "output.mp3"
 
 
 def test_ensure_upload_size_raises_when_too_large(tmp_path):

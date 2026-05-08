@@ -12,7 +12,7 @@ DEFAULT_SAMPLE_RATE = 16000
 
 def audio_output_path(media_path: Path, library_root: Path) -> Path:
     init_library(library_root)
-    return library_root / "raw" / f"{slugify(media_path.stem)}.asr.m4a"
+    return library_root / "raw" / f"{slugify(media_path.stem)}.asr.mp3"
 
 
 def build_extract_audio_command(
@@ -35,6 +35,8 @@ def build_extract_audio_command(
         "1",
         "-ar",
         str(sample_rate),
+        "-c:a",
+        "libmp3lame",
         "-b:a",
         bitrate,
         str(audio_path),
