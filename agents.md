@@ -48,6 +48,10 @@ fetch-creator-videos
 ## 文档规则
 
 - Markdown 尽可能用中文描述。
+- 只要新增或改变主要功能，必须同步更新主入口文档：
+  - 已实现并需要长期说明的功能，更新 `docs/architecture.md`。
+  - 已实现但还有后续工作或限制的功能，更新 `docs/todos.md`。
+  - 依赖竞品、开源库或外部服务取舍的功能，更新 `docs/research-competitors.md`。
 - 除非有明确长期价值，不要新增文档；优先更新：
   - `docs/architecture.md`
   - `docs/todos.md`
