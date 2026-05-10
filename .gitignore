@@ -11,6 +11,7 @@ build/
 
 # Local/private knowledge assets. Keep structure, not content.
 library/raw/*
+library/frames/*
 library/transcripts/*
 library/notes/*
 library/distilled/*
