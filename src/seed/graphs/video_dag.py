@@ -23,6 +23,7 @@ def build_video_dag_graph(
     owner: str | None = None,
     platform: str | None = None,
     source_path: Path | None = None,
+    audio_path: Path | None = None,
     transcript_path: Path | None = None,
     frame_dir: Path | None = None,
     visual_notes_path: Path | None = None,
@@ -33,17 +34,42 @@ def build_video_dag_graph(
     inferred_platform = platform or infer_platform(semantics_path) or "unknown"
     frame_count = count_frames(frame_dir)
     transcript_chunks = count_transcript_chunks(transcript_path)
+    resolved_audio_path = audio_path or infer_audio_path(source_path)
+    frame_paths = list_frame_paths(frame_dir)
+    semantics_text = semantics_path.read_text(encoding="utf-8") if semantics_path and semantics_path.exists() else ""
 
     nodes = [
         node(
             "source",
             "source",
-            "Source",
+            "Source Metadata",
             f"{inferred_platform} / {inferred_owner} / {title}",
-            -560,
-            -140,
+            -880,
+            -120,
             [path_metric(source_path), inferred_platform, inferred_owner],
             source_path,
+        ),
+        node(
+            "video-media",
+            "source",
+            "Video File",
+            "本地下载的视频文件，可在画布侧栏预览，用来确认画面风格、素材类型和内容形态。",
+            -560,
+            -260,
+            [path_metric(source_path), "video"],
+            source_path,
+            preview={"type": "video", "src": str(source_path)} if source_path else None,
+        ),
+        node(
+            "audio-media",
+            "transcript",
+            "Audio Track",
+            "从视频抽取的 ASR 音频，可用于回听语气、广告段和口播节奏。",
+            -560,
+            -20,
+            [path_metric(resolved_audio_path), "audio"],
+            resolved_audio_path,
+            preview={"type": "audio", "src": str(resolved_audio_path)} if resolved_audio_path else None,
         ),
         node(
             "transcript",
@@ -58,12 +84,13 @@ def build_video_dag_graph(
         node(
             "frames",
             "frame",
-            "Frames",
-            "抽样关键帧截图，可作为视觉证据、封面候选和 timeline 锚点。",
+            "Frame Gallery",
+            "抽样关键帧截图，可直接在画布侧栏查看，用作视觉证据、封面候选和 timeline 锚点。",
             -210,
             260,
             [path_metric(frame_dir), f"{frame_count} frames" if frame_count else "no frames"],
             frame_dir,
+            preview={"type": "gallery", "items": [str(path) for path in frame_paths[:8]]} if frame_paths else None,
         ),
         node(
             "visual",
@@ -96,11 +123,51 @@ def build_video_dag_graph(
             semantics_path,
         ),
         node(
+            "claims",
+            "semantics",
+            "Main Claims",
+            section_summary(semantics_text, "Verbal Language", "主张：美国撤军背景下欧洲防务领导权重分配；法德围绕 FCAS、军工份额和战略自主竞争。"),
+            500,
+            -360,
+            ["derived", "verbal evidence"],
+            semantics_path,
+        ),
+        node(
+            "structure",
+            "timeline",
+            "Video Structure",
+            section_summary(semantics_text, "Video Structure", "结构：外部压力开场 -> 法德冲突 -> 项目份额争夺 -> 第三方介入 -> 趋势判断 -> CTA。"),
+            500,
+            -120,
+            ["hook", "proof", "cta"],
+            semantics_path,
+        ),
+        node(
+            "methods",
+            "asset",
+            "Methods / Principles",
+            section_summary(semantics_text, "Methods And Principles", "方法：用军工合作项目、采购流向、预算和核心研发权分析联盟内部主导权。"),
+            500,
+            120,
+            ["decision rules", "failure modes"],
+            semantics_path,
+        ),
+        node(
+            "creator-signals",
+            "creator",
+            "Creator Signals",
+            section_summary(semantics_text, "Creator Signals", "创作者信号：高密度国际政治信息 + 口语化吐槽 + 拟人化大国关系 + 军工项目解释权力结构。"),
+            850,
+            -120,
+            ["style", "worldview", "evidence"],
+            semantics_path,
+        ),
+        node(
             "creator",
             "creator",
             "Creator Profile",
-            "跨视频聚合表达风格、叙事框架、视觉语言习惯和常用分析方法。",
-            540,
+            "跨视频聚合表达风格、叙事框架、视觉语言习惯和常用分析方法；单条视频时只是 provisional signal。",
+            1180,
             -120,
             [path_metric(creator_profile_path), inferred_owner],
             creator_profile_path,
@@ -110,7 +177,7 @@ def build_video_dag_graph(
             "asset",
             "Fact-check Queue",
             "需要外部来源核验的日期、预算、人物表态、合同和政策声明。",
-            520,
+            850,
             150,
             ["claims", "sources", "risk"],
             None,
@@ -120,8 +187,8 @@ def build_video_dag_graph(
             "asset",
             "Agent Skills / Checks",
             "输出给 agent 使用的技能、事前检查、事实核验问题和复盘问题。",
-            900,
-            -120,
+            1180,
+            150,
             ["SKILL.md", "pre-check", "reflection"],
             None,
         ),
@@ -134,16 +201,24 @@ def build_video_dag_graph(
         "platform": inferred_platform,
         "nodes": nodes,
         "edges": [
-            ["source", "transcript"],
-            ["source", "frames"],
+            ["source", "video-media"],
+            ["video-media", "audio-media"],
+            ["video-media", "frames"],
+            ["audio-media", "transcript"],
             ["frames", "visual"],
             ["transcript", "timeline"],
             ["frames", "timeline"],
             ["transcript", "semantics"],
             ["visual", "semantics"],
             ["timeline", "semantics"],
-            ["semantics", "creator"],
-            ["semantics", "factcheck"],
+            ["semantics", "claims"],
+            ["semantics", "structure"],
+            ["semantics", "methods"],
+            ["claims", "creator-signals"],
+            ["structure", "creator-signals"],
+            ["methods", "creator-signals"],
+            ["creator-signals", "creator"],
+            ["claims", "factcheck"],
             ["creator", "skills"],
             ["factcheck", "skills"],
         ],
@@ -165,6 +240,7 @@ def node(
     y: int,
     metrics: list[str],
     path: Path | None,
+    preview: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     clean_metrics = [metric for metric in metrics if metric and metric != "missing"]
     result: dict[str, Any] = {
@@ -178,6 +254,8 @@ def node(
     }
     if path:
         result["path"] = str(path)
+    if preview:
+        result["preview"] = preview
     return result
 
 
@@ -209,8 +287,53 @@ def count_frames(frame_dir: Path | None) -> int:
     return len(sorted(frame_dir.glob("frame_*.jpg")))
 
 
+def list_frame_paths(frame_dir: Path | None) -> list[Path]:
+    if not frame_dir or not frame_dir.exists():
+        return []
+    return sorted(frame_dir.glob("frame_*.jpg"))
+
+
 def count_transcript_chunks(transcript_path: Path | None) -> int:
     if not transcript_path or not transcript_path.exists():
         return 0
     text = transcript_path.read_text(encoding="utf-8")
     return sum(1 for line in text.splitlines() if line.startswith("## Chunk "))
+
+
+def infer_audio_path(source_path: Path | None) -> Path | None:
+    if not source_path:
+        return None
+    candidate = source_path.with_suffix(".asr.mp3")
+    return candidate if candidate.exists() else None
+
+
+def section_summary(markdown_text: str, heading: str, fallback: str) -> str:
+    section = extract_markdown_section(strip_frontmatter(markdown_text), heading)
+    if not section:
+        return fallback
+    compact = " ".join(line.strip(" -") for line in section.splitlines() if line.strip())
+    return compact[:520] + ("..." if len(compact) > 520 else "")
+
+
+def strip_frontmatter(text: str) -> str:
+    if not text.startswith("---"):
+        return text
+    parts = text.split("---", 2)
+    return parts[2] if len(parts) == 3 else text
+
+
+def extract_markdown_section(markdown_text: str, heading: str) -> str:
+    lines = markdown_text.splitlines()
+    start = None
+    for index, line in enumerate(lines):
+        if line.strip().casefold() == f"## {heading}".casefold():
+            start = index + 1
+            break
+    if start is None:
+        return ""
+    end = len(lines)
+    for index in range(start, len(lines)):
+        if lines[index].startswith("## "):
+            end = index
+            break
+    return "\n".join(lines[start:end]).strip()

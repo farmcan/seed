@@ -62,7 +62,7 @@ ASR 默认使用 DashScope/Qwen，模型为 `qwen3-asr-flash`，需要先配置 
 
 UP 主聚合阶段通过 `aggregate-owner` 读取同一 owner 的多个 `library/semantics/*.video-semantics.md`，结合 `skills/creator-profile-aggregator/SKILL.md`，输出创作者画像和可复用方法论到 `library/distilled/`。
 
-本地可视化原型在 `tools/video-dag-canvas.html`，可直接用浏览器打开。它提供无限画布、DAG 节点拖拽、缩放、平移、节点编辑和 JSON 导出，用于展示视频分析链路中的 source、transcript、frames、visual notes、timeline、semantics、creator profile 和 agent assets。
+本地可视化原型在 `tools/video-dag-canvas.html`，可直接用浏览器打开。它提供无限画布、DAG 节点拖拽、缩放、平移、节点编辑和 JSON 导出，用于展示视频分析链路中的 source、video/audio media、frames、visual notes、timeline、semantics 子节点、creator signals、creator profile 和 agent assets。选择视频、音频或截图节点时，右侧 inspector 会直接预览本地素材。
 `build-video-dag` 会生成 `library/graphs/*.video-dag.json`，可在画布中用“导入”按钮直接加载；支持的浏览器环境也可以用 `tools/video-dag-canvas.html?graph=../library/graphs/example.video-dag.json` 自动加载。
 
 ## 未来路线

@@ -305,6 +305,56 @@
       margin-bottom: 14px;
     }
 
+    .preview {
+      display: none;
+      margin-bottom: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      background: #f8fafc;
+    }
+
+    .preview.active {
+      display: block;
+    }
+
+    .preview video,
+    .preview audio,
+    .preview img {
+      display: block;
+      width: 100%;
+      max-height: 220px;
+      object-fit: contain;
+      background: #0f172a;
+    }
+
+    .preview audio {
+      padding: 10px;
+      background: #f8fafc;
+    }
+
+    .preview-gallery {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px;
+      padding: 6px;
+    }
+
+    .preview-gallery img {
+      height: 96px;
+      border-radius: 6px;
+      background: #0f172a;
+    }
+
+    .path-link {
+      display: block;
+      padding: 8px 10px;
+      color: var(--muted);
+      font-size: 12px;
+      word-break: break-all;
+      border-top: 1px solid var(--line);
+    }
+
     .field label {
       display: block;
       margin-bottom: 6px;
@@ -468,6 +518,7 @@
         <div class="inspector-title" id="inspectorTitle">选择一个节点</div>
       </div>
       <div class="inspector-body">
+        <div class="preview" id="preview"></div>
         <div class="field">
           <label for="titleInput">标题</label>
           <input id="titleInput" type="text">
@@ -627,6 +678,7 @@
     const bodyInput = document.getElementById("bodyInput");
     const metricsInput = document.getElementById("metricsInput");
     const graphFileInput = document.getElementById("graphFileInput");
+    const preview = document.getElementById("preview");
 
     function selectedNode() {
       return state.graph.nodes.find((node) => node.id === state.selectedId) || state.graph.nodes[0];
@@ -720,10 +772,42 @@
       if (!node) return;
       inspectorType.textContent = node.type;
       inspectorTitle.textContent = node.title;
+      renderPreview(node);
       titleInput.value = node.title;
       typeInput.value = node.type;
       bodyInput.value = node.body;
       metricsInput.value = node.metrics.join("\n");
+    }
+
+    function renderPreview(node) {
+      preview.className = "preview";
+      preview.innerHTML = "";
+      const previewData = node.preview;
+      if (!previewData && !node.path) return;
+
+      if (previewData?.type === "video") {
+        preview.innerHTML = `<video controls src="${escapeAttr(resolveAssetUrl(previewData.src))}"></video>`;
+      } else if (previewData?.type === "audio") {
+        preview.innerHTML = `<audio controls src="${escapeAttr(resolveAssetUrl(previewData.src))}"></audio>`;
+      } else if (previewData?.type === "image") {
+        preview.innerHTML = `<img src="${escapeAttr(resolveAssetUrl(previewData.src))}" alt="">`;
+      } else if (previewData?.type === "gallery") {
+        const items = previewData.items || [];
+        preview.innerHTML = `<div class="preview-gallery">${items.map((item) => `<img src="${escapeAttr(resolveAssetUrl(item))}" alt="">`).join("")}</div>`;
+      }
+
+      if (node.path) {
+        const linkPath = resolveAssetUrl(node.path);
+        preview.insertAdjacentHTML("beforeend", `<a class="path-link" href="${escapeAttr(linkPath)}" target="_blank">${escapeHtml(node.path)}</a>`);
+      }
+      preview.classList.add("active");
+    }
+
+    function resolveAssetUrl(path) {
+      if (!path) return "";
+      if (/^(https?:|file:|data:)/.test(path)) return path;
+      if (path.startsWith("../")) return path;
+      return `../${path}`;
     }
 
     function renderStatus() {
@@ -933,6 +1017,10 @@
         .replaceAll(">", "&gt;")
         .replaceAll('"', "&quot;")
         .replaceAll("'", "&#039;");
+    }
+
+    function escapeAttr(value) {
+      return escapeHtml(value);
     }
 
     function clamp(value, min, max) {
