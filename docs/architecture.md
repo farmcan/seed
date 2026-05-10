@@ -1,14 +1,14 @@
-# Architecture
+# 架构
 
 `seed` 的主流程分为七层：
 
-1. Source capture：保存 URL、平台、UP/作者、发布时间、素材路径和元数据。
-2. Media language extraction：把视频拆成文字语言和视觉语言，分别生成 transcript 与 visual notes。
-3. Video semantics：融合口播、字幕、画面和屏幕文字，形成单条视频的稳定语义资产。
-4. Creator aggregation：按 UP/作者聚合多条视频语义，提炼创作者级表达风格、结构模板和方法论。
-5. Distillation：从聚合结果中提炼方法论、决策规则、反例和检查问题。
-6. Agent assets：输出 `SKILL.md`、checklist 和 prompt context，供 Agent 在任务前后使用。
-7. Reflection loop：记录 Agent 使用方法论后的结果，反向修订 skills 和 checks。
+1. 来源采集：保存 URL、平台、UP/作者、发布时间、素材路径和元数据。
+2. 媒体语言抽取：把视频拆成文字语言和视觉语言，分别生成 transcript 与 visual notes。
+3. 视频语义分析：融合口播、字幕、画面和屏幕文字，形成单条视频的稳定语义资产。
+4. 创作者聚合：按 UP/作者聚合多条视频语义，提炼创作者级表达风格、结构模板和方法论。
+5. 方法论蒸馏：从聚合结果中提炼方法论、决策规则、反例和检查问题。
+6. Agent 资产：输出 `SKILL.md`、checklist 和 prompt context，供 Agent 在任务前后使用。
+7. 反思闭环：记录 Agent 使用方法论后的结果，反向修订 skills 和 checks。
 
 ```text
 URL / book / note
@@ -23,7 +23,21 @@ URL / book / note
 
 平台下载适配器只负责采集和记录。内容理解、方法论提炼和 Agent 使用是独立层，避免把平台耦合扩散到整个系统。
 
-## Module Boundaries
+## 功能模块总览
+
+| 模块 | CLI | 主要代码 | 主要产物 |
+| --- | --- | --- | --- |
+| 来源采集 | `seed ingest-url` | `src/seed/sources/`, `src/seed/library.py` | `library/raw/*`, `library/notes/*.source.yaml` |
+| ASR 转写 | `seed transcribe-media` | `src/seed/media.py`, `src/seed/asr/`, `src/seed/transcripts.py` | `library/raw/*.asr.mp3`, `library/transcripts/*.transcript.md` |
+| 视觉语言 | `seed extract-frames`, `seed analyze-frames` | `src/seed/vision/` | `library/frames/*`, `library/notes/*.visual.md` |
+| 快速总结 | `seed summarize-transcript` | `src/seed/summarizers/` | `library/notes/*.summary.md` |
+| 视频语义 | `seed analyze-video-semantics` | `src/seed/semantics/analyzer.py` | `library/semantics/*.video-semantics.md` |
+| DAG 图谱 | `seed build-video-dag` | `src/seed/graphs/video_dag.py`, `tools/video-dag-canvas.html` | `library/graphs/*.video-dag.json` |
+| 创作者聚合 | `seed aggregate-owner` | `src/seed/semantics/aggregator.py` | `library/distilled/*.creator-profile.md` |
+
+当前视频 DAG 会展示本地视频、音频、关键帧截图、transcript、visual notes、timeline 占位、semantic 子节点、creator signals、fact-check queue 和 agent assets。选择视频、音频或截图节点时，HTML 画布右侧 inspector 可以直接预览本地素材。
+
+## 模块边界
 
 - `sources/`：平台采集适配器。只关心 URL、授权、下载、metadata，不做内容理解。
 - `asr/` 和 `media.py`：音频抽取和线上 ASR provider。只产出 transcript。
@@ -36,7 +50,7 @@ URL / book / note
 - `markdown.py`：统一读取 Markdown frontmatter、正文和 metadata 字段，避免不同 artifact 各写一套解析逻辑。
 - `cli.py`：只做参数接线、轻量校验和用户输出。业务逻辑应留在对应模块。
 
-## Artifact Boundaries
+## 产物边界
 
 - `library/raw/`：本地私有原始素材。
 - `library/transcripts/`：文字语言，来自 ASR 或人工整理。
