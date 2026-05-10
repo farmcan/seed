@@ -6,6 +6,7 @@ from pathlib import Path
 import yaml
 
 from seed.library import init_library, slugify
+from seed.markdown import read_markdown_body
 
 
 def visual_notes_output_path(
@@ -52,9 +53,4 @@ def write_visual_notes_markdown(
 
 
 def read_visual_notes_text(path: Path) -> str:
-    text = path.read_text(encoding="utf-8")
-    if text.startswith("---"):
-        parts = text.split("---", 2)
-        if len(parts) == 3:
-            return parts[2].strip()
-    return text.strip()
+    return read_markdown_body(path)

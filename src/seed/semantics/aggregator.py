@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 
+from seed.agents.codex import run_codex_prompt
 from seed.library import init_library, slugify
-from seed.summarizers.codex_runner import build_codex_exec_command
+from seed.markdown import find_markdown_field
 
 
 DEFAULT_CREATOR_PROFILE_SKILL_PATH = Path("skills/creator-profile-aggregator/SKILL.md")
@@ -29,14 +29,8 @@ def find_video_semantics_files(
 
 
 def semantics_matches_owner(text: str, owner: str) -> bool:
-    target = owner.casefold()
-    for line in text.splitlines():
-        normalized = line.strip().casefold()
-        if normalized.startswith("- owner:") and normalized.removeprefix("- owner:").strip() == target:
-            return True
-        if normalized.startswith("owner:") and normalized.removeprefix("owner:").strip() == target:
-            return True
-    return False
+    found = find_markdown_field(text, "owner")
+    return found is not None and found.casefold() == owner.casefold()
 
 
 def build_creator_profile_prompt(
@@ -90,15 +84,10 @@ def run_creator_profile_aggregation(
         owner=owner,
         platform=platform,
     )
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    if dry_run:
-        output_path.write_text(prompt, encoding="utf-8")
-        return output_path
-
-    command = build_codex_exec_command(
+    return run_codex_prompt(
+        prompt=prompt,
         output_path=output_path,
         model=model,
         cwd=cwd or Path.cwd(),
+        dry_run=dry_run,
     )
-    subprocess.run(command, input=prompt, text=True, check=True)
-    return output_path

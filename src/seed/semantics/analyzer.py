@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 
+from seed.agents.codex import run_codex_prompt
 from seed.library import init_library, slugify
-from seed.summarizers.codex_runner import build_codex_exec_command
 from seed.transcripts import read_transcript_text
 from seed.vision.notes import read_visual_notes_text
 
@@ -86,15 +85,10 @@ def run_video_semantics_analysis(
         owner=owner,
         platform=platform,
     )
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    if dry_run:
-        output_path.write_text(prompt, encoding="utf-8")
-        return output_path
-
-    command = build_codex_exec_command(
+    return run_codex_prompt(
+        prompt=prompt,
         output_path=output_path,
         model=model,
         cwd=cwd or Path.cwd(),
+        dry_run=dry_run,
     )
-    subprocess.run(command, input=prompt, text=True, check=True)
-    return output_path

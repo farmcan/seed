@@ -1,5 +1,4 @@
 from seed.summarizers.codex_runner import (
-    build_codex_exec_command,
     build_summary_prompt,
     run_codex_summary,
 )
@@ -58,14 +57,3 @@ def test_run_codex_summary_dry_run_writes_prompt(tmp_path):
 
     assert output.exists()
     assert "hello transcript" in output.read_text(encoding="utf-8")
-
-
-def test_build_codex_exec_command_matches_current_cli(tmp_path):
-    output = tmp_path / "summary.md"
-
-    command = build_codex_exec_command(output_path=output, cwd=tmp_path, model="gpt-5.4-mini")
-
-    assert command[:4] == ["codex", "exec", "--model", "gpt-5.4-mini"]
-    assert "--ask-for-approval" not in command
-    assert "--output-last-message" in command
-    assert command[-1] == "-"
