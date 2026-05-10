@@ -35,3 +35,4 @@ def test_export_video_dag_html_embeds_graph_and_asset_base(tmp_path):
     assert "window.SEED_EMBEDDED_GRAPH" in html
     assert '"nodes": []' in html
     assert 'window.SEED_ASSET_BASE = "../..";' in html
+    assert "window.SEED_DEFAULT_COMPACT = false;" in html

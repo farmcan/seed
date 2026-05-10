@@ -651,6 +651,7 @@
   </main>
   <input id="graphFileInput" type="file" accept="application/json,.json" hidden>
 
+  <script src="https://cdn.jsdelivr.net/npm/elkjs/lib/elk.bundled.js"></script>
   <script>
     const initialGraph = {
       nodes: [
@@ -754,6 +755,8 @@
 
     const nodeWidth = 260;
     const nodeMinHeight = 132;
+    const defaultCompactMode = window.SEED_DEFAULT_COMPACT !== false;
+    const elk = window.ELK ? new window.ELK() : null;
     const state = {
       graph: structuredClone(initialGraph),
       selectedId: "semantics",
@@ -762,7 +765,7 @@
       zoom: 1,
       filter: "",
       expandedIds: new Set(),
-      compactMode: true,
+      compactMode: defaultCompactMode,
       panning: null,
       draggingNode: null
     };
@@ -846,6 +849,19 @@
       return childNodeIds(id).length > 0;
     }
 
+    function resetExpansionState() {
+      state.compactMode = defaultCompactMode;
+      state.expandedIds = state.compactMode
+        ? new Set()
+        : new Set(state.graph.nodes.filter((node) => hasChildren(node.id)).map((node) => node.id));
+      updateExpansionButtons();
+    }
+
+    function updateExpansionButtons() {
+      compactGraph.classList.toggle("active", state.compactMode);
+      expandGraph.classList.toggle("active", !state.compactMode);
+    }
+
     function setTransform() {
       world.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.zoom})`;
       zoomReadout.textContent = `${Math.round(state.zoom * 100)}%`;
@@ -866,12 +882,9 @@
         return;
       }
       state.graph = graph;
-      state.expandedIds = new Set();
-      state.compactMode = true;
+      resetExpansionState();
       state.selectedId = graph.nodes[0]?.id || null;
-      autoLayoutGraph({ fit: false });
-      render();
-      fitView();
+      layoutGraph();
     }
 
     async function loadGraphFromUrl() {
@@ -984,7 +997,7 @@
       } else {
         state.expandedIds.add(id);
       }
-      render();
+      autoLayoutGraph({ fit: false });
     }
 
     function nodePreviewHtml(node) {
@@ -1228,11 +1241,82 @@
       render();
     }
 
-    function layoutGraph() {
-      autoLayoutGraph({ fit: true });
+    async function layoutGraph() {
+      await autoLayoutGraph({ fit: true });
     }
 
-    function autoLayoutGraph({ fit = true } = {}) {
+    async function autoLayoutGraph({ fit = true } = {}) {
+      try {
+        if (elk) {
+          await elkLayoutGraph();
+        } else {
+          fallbackLayoutGraph();
+        }
+      } catch (error) {
+        console.warn("ELK layout failed; using fallback layout:", error);
+        fallbackLayoutGraph();
+      }
+      render();
+      if (fit) fitView();
+    }
+
+    async function elkLayoutGraph() {
+      const visibleIds = new Set(visibleNodes().map((node) => node.id));
+      const layoutInput = {
+        id: "root",
+        layoutOptions: {
+          "elk.algorithm": "layered",
+          "elk.direction": "RIGHT",
+          "elk.edgeRouting": "ORTHOGONAL",
+          "elk.spacing.nodeNode": "70",
+          "elk.layered.spacing.nodeNodeBetweenLayers": "120",
+          "elk.layered.nodePlacement.strategy": "NETWORK_SIMPLEX",
+          "elk.layered.crossingMinimization.strategy": "LAYER_SWEEP",
+          "elk.layered.considerModelOrder.strategy": "NODES_AND_EDGES",
+          "elk.padding": "[top=40,left=40,bottom=40,right=40]"
+        },
+        children: visibleNodes().map((node) => ({
+          id: node.id,
+          width: nodeWidth,
+          height: estimatedNodeHeight(node)
+        })),
+        edges: visibleEdges().map((edge, index) => ({
+          id: `edge-${index}`,
+          sources: [edge[0]],
+          targets: [edge[1]]
+        }))
+      };
+      const graph = await elk.layout(layoutInput);
+      for (const item of graph.children || []) {
+        const node = state.graph.nodes.find((candidate) => candidate.id === item.id);
+        if (!node) continue;
+        node.x = Math.round(item.x || 0);
+        node.y = Math.round(item.y || 0);
+      }
+      layoutHiddenChildren(visibleIds);
+    }
+
+    function estimatedNodeHeight(node) {
+      const previewData = previewDataForNode(node);
+      const previewHeight = previewData ? previewData.type === "gallery" ? 160 : 128 : 0;
+      const textHeight = Math.min(210, Math.max(56, Math.ceil(String(node.body || "").length / 25) * 18));
+      const metricsHeight = Math.max(32, Math.ceil((node.metrics || []).length / 2) * 32);
+      return 52 + previewHeight + textHeight + metricsHeight;
+    }
+
+    function layoutHiddenChildren(visibleIds) {
+      for (const parent of state.graph.nodes.filter((node) => visibleIds.has(node.id))) {
+        const children = childNodeIds(parent.id)
+          .map((id) => state.graph.nodes.find((node) => node.id === id))
+          .filter((node) => node && !visibleIds.has(node.id));
+        children.forEach((child, index) => {
+          child.x = parent.x + 360;
+          child.y = parent.y + 220 + index * 155;
+        });
+      }
+    }
+
+    function fallbackLayoutGraph() {
       const coreNodes = state.graph.nodes.filter((node) => !isCollapsibleChild(node.id));
       const coreIds = new Set(coreNodes.map((node) => node.id));
       const rank = new Map(coreNodes.map((node) => [node.id, preferredLayer(node)]));
@@ -1278,8 +1362,6 @@
         });
       }
 
-      render();
-      if (fit) fitView();
     }
 
     function preferredLayer(node) {
@@ -1393,18 +1475,14 @@
     compactGraph.addEventListener("click", () => {
       state.compactMode = true;
       state.expandedIds = new Set();
-      compactGraph.classList.add("active");
-      expandGraph.classList.remove("active");
-      render();
-      fitView();
+      updateExpansionButtons();
+      layoutGraph();
     });
     expandGraph.addEventListener("click", () => {
       state.compactMode = false;
       state.expandedIds = new Set(state.graph.nodes.filter((node) => hasChildren(node.id)).map((node) => node.id));
-      expandGraph.classList.add("active");
-      compactGraph.classList.remove("active");
-      render();
-      fitView();
+      updateExpansionButtons();
+      layoutGraph();
     });
     [titleInput, typeInput, bodyInput, metricsInput].forEach((input) => {
       input.addEventListener("input", updateSelectedFromInspector);

@@ -62,7 +62,7 @@ fetch-creator-videos
 - `aggregate-owner` 默认至少 3 条 video semantics；如果用 `--min-videos 1` 或 `2`，输出只能视为 provisional。
 - Video DAG 构建支持按标题自动发现本地产物；显式传入的路径优先，resolver 逻辑在 `seed.graphs.video_dag.resolve_video_dag_artifacts`。
 - DAG 画布调试优先用 `seed serve-video-dag <graph.json>` 打开；需要给用户直接查看时，用 `seed export-video-dag-html <graph.json>` 生成静态 HTML。
-- HTML 画布内置自动分层布局、搜索过滤、边标签、简版/全展开、节点展开和节点卡片内媒体预览，不要再新增独立可视化入口。
+- HTML 画布使用 `elkjs` layered layout 做自动分层布局；手写布局只能作为 CDN 加载失败的 fallback。画布内置搜索过滤、边标签、简版/全展开、节点展开和节点卡片内媒体预览，不要再新增独立可视化入口。
 - 内容分析模块不要直接调用 `codex exec`，统一用 `seed.agents.codex.run_codex_prompt`。
 - 不要在多个地方手写 Markdown frontmatter 解析，统一用 `seed.markdown`。
 - 本地私有产物都放在 `library/`，默认不要提交。

@@ -35,6 +35,7 @@ def export_video_dag_html(
             "<script>",
             f"window.SEED_EMBEDDED_GRAPH = {json.dumps(graph, ensure_ascii=False)};",
             f"window.SEED_ASSET_BASE = {json.dumps(asset_base, ensure_ascii=False)};",
+            "window.SEED_DEFAULT_COMPACT = false;",
             "</script>",
         ]
     )

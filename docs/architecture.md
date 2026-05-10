@@ -43,7 +43,7 @@ URL / book / note
 | 创作者聚合 | `seed aggregate-owner` | `src/seed/semantics/aggregator.py` | `library/distilled/*.creator-profile.md` |
 | Agent 资产生成 | `seed generate-agent-assets`, `seed record-reflection`, `seed suggest-revisions` | `src/seed/agent_assets.py`, `src/seed/reflections.py` | `library/skills/*/SKILL.md`, `library/checks/*.md`, `library/reflections/*` |
 
-当前视频 DAG 会展示本地视频、音频、关键帧截图、transcript、visual notes、cost report、timeline event、semantic 子节点、creator signals、fact-check queue 和 agent assets。视频、音频、截图、gallery 类节点会在画布节点卡片内直接展示媒体预览；音频节点卡片和右侧 inspector 都可以播放本地 mp3。画布加载后会自动按 DAG 层级排布并适配视图，默认使用简版核心链路，timeline event 和 claim 子节点可按父节点展开，避免一次性展示过多细节。
+当前视频 DAG 会展示本地视频、音频、关键帧截图、transcript、visual notes、cost report、timeline event、semantic 子节点、creator signals、fact-check queue 和 agent assets。视频、音频、截图、gallery 类节点会在画布节点卡片内直接展示媒体预览；音频节点卡片和右侧 inspector 都可以播放本地 mp3。画布使用 `elkjs` 的 layered layout 自动排布并适配视图；服务模式默认使用简版核心链路，静态导出默认全展开，timeline event 和 claim 子节点仍可按父节点收起。
 
 ## 模块边界
 
@@ -63,7 +63,7 @@ URL / book / note
 - `semantics/aggregator.py`：默认要求同一 owner 至少 3 条 video semantics 才生成 creator profile；单条或少量视频需要显式 `--min-videos` 降级为 provisional。
 - `graphs/video_dag.py`：把本地分析产物组装成画布可读 DAG JSON，输出 `library/graphs/*.video-dag.json`；支持按标题自动发现 raw、audio、transcript、frames、visual notes、cost report、semantics 和 timeline。
 - `dag_server.py`：用本地 HTTP server 打开 DAG HTML 和 graph JSON，避免 `file://` 下浏览器策略影响素材加载。
-- `dag_export.py`：把 graph JSON 嵌入一份独立 HTML，适合直接打开和分享本地快照，不要求 server 一直运行。
+- `dag_export.py`：把 graph JSON 嵌入一份独立 HTML，适合直接打开和分享本地快照，不要求 server 一直运行；导出的 HTML 默认全展开。
 - `agents/codex.py`：统一管理 `codex exec` 命令、dry-run、输出文件写入。内容分析模块不得直接调用 `subprocess` 跑 Codex。
 - `markdown.py`：统一读取 Markdown frontmatter、正文和 metadata 字段，避免不同 artifact 各写一套解析逻辑。
 - `cli.py`：只做参数接线、轻量校验和用户输出。业务逻辑应留在对应模块。
