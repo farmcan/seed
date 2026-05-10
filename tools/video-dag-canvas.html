@@ -1,0 +1,935 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Seed Video DAG Canvas</title>
+  <style>
+    :root {
+      --bg: #f7f8fb;
+      --panel: #ffffff;
+      --ink: #1f2937;
+      --muted: #667085;
+      --line: #d0d5dd;
+      --line-strong: #98a2b3;
+      --accent: #2563eb;
+      --accent-soft: #dbeafe;
+      --green: #047857;
+      --green-soft: #d1fae5;
+      --amber: #b45309;
+      --amber-soft: #fef3c7;
+      --cyan: #0e7490;
+      --cyan-soft: #cffafe;
+      --orange: #c2410c;
+      --orange-soft: #ffedd5;
+      --violet: #6d28d9;
+      --violet-soft: #ede9fe;
+      --rose: #be123c;
+      --rose-soft: #ffe4e6;
+      --shadow: 0 12px 30px rgb(15 23 42 / 10%);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      color: var(--ink);
+      background: var(--bg);
+    }
+
+    button,
+    input,
+    textarea {
+      font: inherit;
+    }
+
+    .app {
+      display: grid;
+      grid-template-columns: 1fr 340px;
+      grid-template-rows: 56px 1fr;
+      height: 100vh;
+      min-width: 960px;
+    }
+
+    .toolbar {
+      grid-column: 1 / 3;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 14px;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel);
+      z-index: 20;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 250px;
+      font-weight: 700;
+    }
+
+    .brand-mark {
+      width: 30px;
+      height: 30px;
+      display: grid;
+      place-items: center;
+      border-radius: 6px;
+      color: white;
+      background: #111827;
+      font-size: 15px;
+    }
+
+    .toolbar-spacer {
+      flex: 1;
+    }
+
+    .tool-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #f9fafb;
+    }
+
+    .icon-button,
+    .text-button {
+      height: 34px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--ink);
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .icon-button {
+      width: 34px;
+      font-size: 18px;
+    }
+
+    .text-button {
+      padding: 0 11px;
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    .icon-button:hover,
+    .text-button:hover {
+      background: white;
+      border-color: var(--line);
+    }
+
+    .zoom-readout {
+      min-width: 58px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .canvas-shell {
+      position: relative;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at 1px 1px, rgb(148 163 184 / 35%) 1px, transparent 0) 0 0 / 24px 24px,
+        linear-gradient(180deg, #f8fafc 0%, #eef2f7 100%);
+      cursor: grab;
+    }
+
+    .canvas-shell.panning {
+      cursor: grabbing;
+    }
+
+    .world {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 1px;
+      height: 1px;
+      transform-origin: 0 0;
+    }
+
+    .edges {
+      position: absolute;
+      left: -5000px;
+      top: -5000px;
+      width: 10000px;
+      height: 10000px;
+      overflow: visible;
+      pointer-events: none;
+    }
+
+    .edge {
+      fill: none;
+      stroke: #64748b;
+      stroke-width: 2.2;
+    }
+
+    .edge.selected {
+      stroke: var(--accent);
+      stroke-width: 3;
+    }
+
+    .node {
+      position: absolute;
+      width: 260px;
+      min-height: 132px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      cursor: grab;
+      user-select: none;
+      overflow: hidden;
+    }
+
+    .node.dragging {
+      cursor: grabbing;
+    }
+
+    .node.selected {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft), var(--shadow);
+    }
+
+    .node-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 12px 8px;
+    }
+
+    .node-type {
+      flex: 0 0 auto;
+      display: inline-flex;
+      align-items: center;
+      height: 22px;
+      padding: 0 8px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+
+    .node-title {
+      min-width: 0;
+      flex: 1;
+      font-size: 14px;
+      font-weight: 700;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .node-body {
+      padding: 0 12px 12px;
+      font-size: 13px;
+      line-height: 1.45;
+      color: var(--muted);
+    }
+
+    .node-metrics {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      padding: 0 12px 12px;
+    }
+
+    .metric {
+      height: 24px;
+      padding: 3px 7px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      font-size: 12px;
+      color: #344054;
+      background: #f9fafb;
+    }
+
+    .source .node-type { color: var(--accent); background: var(--accent-soft); }
+    .transcript .node-type { color: var(--green); background: var(--green-soft); }
+    .frame .node-type { color: var(--cyan); background: var(--cyan-soft); }
+    .visual .node-type { color: var(--amber); background: var(--amber-soft); }
+    .timeline .node-type { color: var(--orange); background: var(--orange-soft); }
+    .semantics .node-type { color: var(--violet); background: var(--violet-soft); }
+    .creator .node-type { color: var(--rose); background: var(--rose-soft); }
+    .asset .node-type { color: #475467; background: #f2f4f7; }
+
+    .inspector {
+      border-left: 1px solid var(--line);
+      background: var(--panel);
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+
+    .inspector-header {
+      padding: 16px 16px 12px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .eyebrow {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0;
+    }
+
+    .inspector-title {
+      margin-top: 6px;
+      font-size: 18px;
+      font-weight: 750;
+      line-height: 1.25;
+    }
+
+    .inspector-body {
+      overflow: auto;
+      padding: 14px 16px 18px;
+    }
+
+    .field {
+      margin-bottom: 14px;
+    }
+
+    .field label {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 12px;
+      font-weight: 700;
+      color: #344054;
+    }
+
+    .field input,
+    .field textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      padding: 8px 9px;
+      color: var(--ink);
+      background: #fff;
+    }
+
+    .field textarea {
+      min-height: 108px;
+      resize: vertical;
+      line-height: 1.45;
+    }
+
+    .legend {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      background: var(--accent);
+    }
+
+    .dot.transcript { background: var(--green); }
+    .dot.frame { background: var(--cyan); }
+    .dot.visual { background: var(--amber); }
+    .dot.timeline { background: var(--orange); }
+    .dot.semantics { background: var(--violet); }
+    .dot.creator { background: var(--rose); }
+    .dot.asset { background: #667085; }
+
+    .minimap {
+      position: absolute;
+      left: 14px;
+      bottom: 14px;
+      width: 180px;
+      height: 110px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgb(255 255 255 / 92%);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      pointer-events: none;
+    }
+
+    .mini-node {
+      position: absolute;
+      border-radius: 3px;
+      background: #94a3b8;
+    }
+
+    .mini-node.selected {
+      background: var(--accent);
+    }
+
+    .status {
+      position: absolute;
+      right: 14px;
+      bottom: 14px;
+      display: flex;
+      gap: 8px;
+      padding: 8px 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgb(255 255 255 / 92%);
+      color: var(--muted);
+      font-size: 12px;
+      box-shadow: var(--shadow);
+    }
+
+    @media (max-width: 1100px) {
+      .app {
+        grid-template-columns: 1fr 300px;
+        min-width: 760px;
+      }
+
+      .brand {
+        min-width: 180px;
+      }
+
+      .text-button span {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <header class="toolbar">
+      <div class="brand">
+        <div class="brand-mark">S</div>
+        <div>Seed Video DAG</div>
+      </div>
+      <div class="tool-group" aria-label="Canvas tools">
+        <button class="icon-button" id="zoomOut" title="缩小">−</button>
+        <div class="zoom-readout" id="zoomReadout">100%</div>
+        <button class="icon-button" id="zoomIn" title="放大">+</button>
+        <button class="text-button" id="fitView" title="适配视图">⤢ <span>适配</span></button>
+      </div>
+      <div class="tool-group" aria-label="Graph tools">
+        <button class="text-button" id="addNode" title="新增节点">＋ <span>节点</span></button>
+        <button class="text-button" id="layoutGraph" title="重新布局">↔ <span>布局</span></button>
+        <button class="text-button" id="exportGraph" title="导出 JSON">⇩ <span>导出</span></button>
+      </div>
+      <div class="toolbar-spacer"></div>
+      <div class="tool-group" aria-label="View modes">
+        <button class="text-button" id="focusSemantics" title="聚焦语义层">◎ <span>语义</span></button>
+        <button class="text-button" id="resetGraph" title="重置样例">↺ <span>重置</span></button>
+      </div>
+    </header>
+
+    <section class="canvas-shell" id="canvas">
+      <div class="world" id="world">
+        <svg class="edges" id="edges" viewBox="-5000 -5000 10000 10000" aria-hidden="true">
+          <defs>
+            <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="userSpaceOnUse">
+              <path d="M 0 0 L 12 6 L 0 12 z" fill="#64748b"></path>
+            </marker>
+            <marker id="arrowSelected" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="userSpaceOnUse">
+              <path d="M 0 0 L 12 6 L 0 12 z" fill="#2563eb"></path>
+            </marker>
+          </defs>
+        </svg>
+        <div id="nodes"></div>
+      </div>
+      <div class="minimap" id="minimap"></div>
+      <div class="status" id="status">
+        <span id="nodeCount">0 nodes</span>
+        <span>·</span>
+        <span id="edgeCount">0 edges</span>
+      </div>
+    </section>
+
+    <aside class="inspector">
+      <div class="inspector-header">
+        <div class="eyebrow" id="inspectorType">Node</div>
+        <div class="inspector-title" id="inspectorTitle">选择一个节点</div>
+      </div>
+      <div class="inspector-body">
+        <div class="field">
+          <label for="titleInput">标题</label>
+          <input id="titleInput" type="text">
+        </div>
+        <div class="field">
+          <label for="typeInput">类型</label>
+          <input id="typeInput" type="text">
+        </div>
+        <div class="field">
+          <label for="bodyInput">说明</label>
+          <textarea id="bodyInput"></textarea>
+        </div>
+        <div class="field">
+          <label for="metricsInput">标签，每行一个</label>
+          <textarea id="metricsInput"></textarea>
+        </div>
+        <div class="legend">
+          <div class="legend-item"><span class="dot"></span>source</div>
+          <div class="legend-item"><span class="dot transcript"></span>transcript</div>
+          <div class="legend-item"><span class="dot frame"></span>frames</div>
+          <div class="legend-item"><span class="dot visual"></span>visual</div>
+          <div class="legend-item"><span class="dot timeline"></span>timeline</div>
+          <div class="legend-item"><span class="dot semantics"></span>semantics</div>
+          <div class="legend-item"><span class="dot creator"></span>creator</div>
+          <div class="legend-item"><span class="dot asset"></span>asset</div>
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <script>
+    const initialGraph = {
+      nodes: [
+        {
+          id: "source",
+          type: "source",
+          title: "Bilibili 视频",
+          body: "BV1SHRJB3EKA：法德欧洲大哥之争，原始视频、平台元数据、UP 主信息。",
+          x: -560,
+          y: -140,
+          metrics: ["raw mp4", "metadata", "owner"]
+        },
+        {
+          id: "transcript",
+          type: "transcript",
+          title: "文字语言",
+          body: "分段 ASR 后合并 transcript，保留口播、字幕式观点和广告段。",
+          x: -210,
+          y: -250,
+          metrics: ["ASR", "7 chunks", "zh"]
+        },
+        {
+          id: "visual",
+          type: "visual",
+          title: "视觉语言",
+          body: "抽帧后由 Qwen-VL 识别画面、屏幕文字、符号素材和剪辑节奏。",
+          x: -210,
+          y: 10,
+          metrics: ["8 frames", "qwen-vl-max", "symbols"]
+        },
+        {
+          id: "frames",
+          type: "frame",
+          title: "关键帧截图",
+          body: "本地已保存 frame_0001 到 frame_0008，可作为视觉证据、封面候选和时间线锚点。",
+          x: -210,
+          y: 260,
+          metrics: ["jpg", "12s interval", "evidence"]
+        },
+        {
+          id: "timeline",
+          type: "timeline",
+          title: "时间线分析",
+          body: "把 transcript chunk、关键帧、广告段、论证阶段和 CTA 对齐。当前 demo 是结构占位，pipeline 下一步应正式产出 timeline artifact。",
+          x: 170,
+          y: 120,
+          metrics: ["chunks", "ads", "beats"]
+        },
+        {
+          id: "semantics",
+          type: "semantics",
+          title: "视频语义",
+          body: "融合口播与视觉证据，沉淀核心观点、视频结构、方法论和可复用 prompt fragments。",
+          x: 170,
+          y: -120,
+          metrics: ["claims", "structure", "methods"]
+        },
+        {
+          id: "creator",
+          type: "creator",
+          title: "UP 主画像",
+          body: "跨视频聚合表达风格、叙事框架、视觉语言习惯和常用分析方法。",
+          x: 540,
+          y: -120,
+          metrics: ["style", "patterns", "profile"]
+        },
+        {
+          id: "skills",
+          type: "asset",
+          title: "Agent Skills / Checks",
+          body: "输出给 agent 使用的技能、事前检查、事实核验问题和复盘问题。",
+          x: 900,
+          y: -120,
+          metrics: ["SKILL.md", "pre-check", "reflection"]
+        },
+        {
+          id: "factcheck",
+          type: "asset",
+          title: "事实核验队列",
+          body: "FCAS、预算数字、军购合同、峰会结果等需要外部来源核验的声明。",
+          x: 520,
+          y: 150,
+          metrics: ["claims", "sources", "risk"]
+        }
+      ],
+      edges: [
+        ["source", "transcript"],
+        ["source", "frames"],
+        ["frames", "visual"],
+        ["transcript", "semantics"],
+        ["visual", "semantics"],
+        ["transcript", "timeline"],
+        ["frames", "timeline"],
+        ["timeline", "semantics"],
+        ["semantics", "creator"],
+        ["semantics", "factcheck"],
+        ["creator", "skills"],
+        ["factcheck", "skills"]
+      ]
+    };
+
+    const nodeWidth = 260;
+    const nodeMinHeight = 132;
+    const state = {
+      graph: structuredClone(initialGraph),
+      selectedId: "semantics",
+      panX: 700,
+      panY: 330,
+      zoom: 1,
+      panning: null,
+      draggingNode: null
+    };
+
+    const canvas = document.getElementById("canvas");
+    const world = document.getElementById("world");
+    const nodesEl = document.getElementById("nodes");
+    const edgesEl = document.getElementById("edges");
+    const zoomReadout = document.getElementById("zoomReadout");
+    const minimap = document.getElementById("minimap");
+    const nodeCount = document.getElementById("nodeCount");
+    const edgeCount = document.getElementById("edgeCount");
+    const inspectorType = document.getElementById("inspectorType");
+    const inspectorTitle = document.getElementById("inspectorTitle");
+    const titleInput = document.getElementById("titleInput");
+    const typeInput = document.getElementById("typeInput");
+    const bodyInput = document.getElementById("bodyInput");
+    const metricsInput = document.getElementById("metricsInput");
+
+    function selectedNode() {
+      return state.graph.nodes.find((node) => node.id === state.selectedId) || state.graph.nodes[0];
+    }
+
+    function setTransform() {
+      world.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.zoom})`;
+      zoomReadout.textContent = `${Math.round(state.zoom * 100)}%`;
+      renderMinimap();
+    }
+
+    function render() {
+      renderNodes();
+      renderEdges();
+      renderInspector();
+      renderStatus();
+      setTransform();
+    }
+
+    function renderNodes() {
+      nodesEl.innerHTML = "";
+      for (const node of state.graph.nodes) {
+        const el = document.createElement("article");
+        el.className = `node ${node.type} ${node.id === state.selectedId ? "selected" : ""}`;
+        el.style.left = `${node.x}px`;
+        el.style.top = `${node.y}px`;
+        el.dataset.id = node.id;
+        el.innerHTML = `
+          <div class="node-header">
+            <span class="node-type">${escapeHtml(node.type)}</span>
+            <span class="node-title">${escapeHtml(node.title)}</span>
+          </div>
+          <div class="node-body">${escapeHtml(node.body)}</div>
+          <div class="node-metrics">${node.metrics.map((metric) => `<span class="metric">${escapeHtml(metric)}</span>`).join("")}</div>
+        `;
+        el.addEventListener("pointerdown", onNodePointerDown);
+        nodesEl.appendChild(el);
+      }
+    }
+
+    function renderEdges() {
+      [...edgesEl.querySelectorAll("path.edge")].forEach((path) => path.remove());
+      const byId = new Map(state.graph.nodes.map((node) => [node.id, node]));
+      for (const [fromId, toId] of state.graph.edges) {
+        const from = byId.get(fromId);
+        const to = byId.get(toId);
+        if (!from || !to) continue;
+        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        const selected = fromId === state.selectedId || toId === state.selectedId;
+        path.setAttribute("class", `edge ${selected ? "selected" : ""}`);
+        path.setAttribute("marker-end", selected ? "url(#arrowSelected)" : "url(#arrow)");
+        path.setAttribute("d", edgePath(from, to));
+        edgesEl.appendChild(path);
+      }
+    }
+
+    function edgePath(from, to) {
+      const startX = from.x + nodeWidth;
+      const startY = from.y + nodeMinHeight / 2;
+      const endX = to.x;
+      const endY = to.y + nodeMinHeight / 2;
+      const dx = Math.max(90, Math.abs(endX - startX) * 0.45);
+      return `M ${startX} ${startY} C ${startX + dx} ${startY}, ${endX - dx} ${endY}, ${endX - 12} ${endY}`;
+    }
+
+    function renderInspector() {
+      const node = selectedNode();
+      if (!node) return;
+      inspectorType.textContent = node.type;
+      inspectorTitle.textContent = node.title;
+      titleInput.value = node.title;
+      typeInput.value = node.type;
+      bodyInput.value = node.body;
+      metricsInput.value = node.metrics.join("\n");
+    }
+
+    function renderStatus() {
+      nodeCount.textContent = `${state.graph.nodes.length} nodes`;
+      edgeCount.textContent = `${state.graph.edges.length} edges`;
+    }
+
+    function renderMinimap() {
+      minimap.innerHTML = "";
+      const bounds = graphBounds();
+      const width = Math.max(bounds.maxX - bounds.minX, 1);
+      const height = Math.max(bounds.maxY - bounds.minY, 1);
+      const scale = Math.min(160 / width, 90 / height);
+      for (const node of state.graph.nodes) {
+        const mini = document.createElement("div");
+        mini.className = `mini-node ${node.id === state.selectedId ? "selected" : ""}`;
+        mini.style.left = `${10 + (node.x - bounds.minX) * scale}px`;
+        mini.style.top = `${10 + (node.y - bounds.minY) * scale}px`;
+        mini.style.width = `${Math.max(16, nodeWidth * scale)}px`;
+        mini.style.height = `${Math.max(8, nodeMinHeight * scale)}px`;
+        minimap.appendChild(mini);
+      }
+    }
+
+    function graphBounds() {
+      const xs = state.graph.nodes.flatMap((node) => [node.x, node.x + nodeWidth]);
+      const ys = state.graph.nodes.flatMap((node) => [node.y, node.y + nodeMinHeight]);
+      return {
+        minX: Math.min(...xs),
+        minY: Math.min(...ys),
+        maxX: Math.max(...xs),
+        maxY: Math.max(...ys)
+      };
+    }
+
+    function onNodePointerDown(event) {
+      const id = event.currentTarget.dataset.id;
+      const node = state.graph.nodes.find((item) => item.id === id);
+      if (!node) return;
+      state.selectedId = id;
+      state.draggingNode = {
+        id,
+        startX: event.clientX,
+        startY: event.clientY,
+        nodeX: node.x,
+        nodeY: node.y
+      };
+      event.currentTarget.setPointerCapture(event.pointerId);
+      event.currentTarget.classList.add("dragging");
+      render();
+      event.stopPropagation();
+    }
+
+    window.addEventListener("pointermove", (event) => {
+      if (state.draggingNode) {
+        const node = state.graph.nodes.find((item) => item.id === state.draggingNode.id);
+        if (!node) return;
+        node.x = state.draggingNode.nodeX + (event.clientX - state.draggingNode.startX) / state.zoom;
+        node.y = state.draggingNode.nodeY + (event.clientY - state.draggingNode.startY) / state.zoom;
+        render();
+        return;
+      }
+      if (state.panning) {
+        state.panX = state.panning.panX + event.clientX - state.panning.startX;
+        state.panY = state.panning.panY + event.clientY - state.panning.startY;
+        setTransform();
+      }
+    });
+
+    window.addEventListener("pointerup", () => {
+      state.draggingNode = null;
+      state.panning = null;
+      canvas.classList.remove("panning");
+      [...document.querySelectorAll(".node.dragging")].forEach((node) => node.classList.remove("dragging"));
+    });
+
+    canvas.addEventListener("pointerdown", (event) => {
+      state.panning = {
+        startX: event.clientX,
+        startY: event.clientY,
+        panX: state.panX,
+        panY: state.panY
+      };
+      canvas.classList.add("panning");
+    });
+
+    canvas.addEventListener("wheel", (event) => {
+      event.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const before = screenToWorld(event.clientX - rect.left, event.clientY - rect.top);
+      const nextZoom = clamp(state.zoom * (event.deltaY > 0 ? 0.9 : 1.1), 0.35, 2.5);
+      state.zoom = nextZoom;
+      state.panX = event.clientX - rect.left - before.x * nextZoom;
+      state.panY = event.clientY - rect.top - before.y * nextZoom;
+      setTransform();
+    }, { passive: false });
+
+    function screenToWorld(x, y) {
+      return {
+        x: (x - state.panX) / state.zoom,
+        y: (y - state.panY) / state.zoom
+      };
+    }
+
+    function zoomBy(multiplier) {
+      const rect = canvas.getBoundingClientRect();
+      const center = screenToWorld(rect.width / 2, rect.height / 2);
+      state.zoom = clamp(state.zoom * multiplier, 0.35, 2.5);
+      state.panX = rect.width / 2 - center.x * state.zoom;
+      state.panY = rect.height / 2 - center.y * state.zoom;
+      setTransform();
+    }
+
+    function fitView(targetId = null) {
+      const rect = canvas.getBoundingClientRect();
+      const nodes = targetId ? state.graph.nodes.filter((node) => node.id === targetId) : state.graph.nodes;
+      const originalNodes = state.graph.nodes;
+      if (targetId) state.graph.nodes = nodes;
+      const bounds = graphBounds();
+      if (targetId) state.graph.nodes = originalNodes;
+      const padding = 120;
+      const width = bounds.maxX - bounds.minX + padding * 2;
+      const height = bounds.maxY - bounds.minY + padding * 2;
+      state.zoom = clamp(Math.min(rect.width / width, rect.height / height), 0.35, 1.4);
+      state.panX = rect.width / 2 - (bounds.minX + bounds.maxX) / 2 * state.zoom;
+      state.panY = rect.height / 2 - (bounds.minY + bounds.maxY) / 2 * state.zoom;
+      setTransform();
+    }
+
+    function addNode() {
+      const count = state.graph.nodes.length + 1;
+      const id = `node-${count}`;
+      const center = screenToWorld(canvas.clientWidth / 2, canvas.clientHeight / 2);
+      state.graph.nodes.push({
+        id,
+        type: "asset",
+        title: `新节点 ${count}`,
+        body: "用于承载新的分析结果、核验队列或 agent 资产。",
+        x: center.x - nodeWidth / 2,
+        y: center.y - nodeMinHeight / 2,
+        metrics: ["draft"]
+      });
+      state.selectedId = id;
+      render();
+    }
+
+    function layoutGraph() {
+      const columns = [
+        ["source"],
+        ["transcript", "visual", "frames"],
+        ["semantics", "timeline"],
+        ["creator", "factcheck"],
+        ["skills"]
+      ];
+      for (let col = 0; col < columns.length; col++) {
+        for (let row = 0; row < columns[col].length; row++) {
+          const node = state.graph.nodes.find((item) => item.id === columns[col][row]);
+          if (!node) continue;
+          node.x = -560 + col * 360;
+          node.y = -250 + row * 260 + (columns[col].length === 1 ? 130 : 0);
+        }
+      }
+      const loose = state.graph.nodes.filter((node) => !columns.flat().includes(node.id));
+      loose.forEach((node, index) => {
+        node.x = 900;
+        node.y = 130 + index * 170;
+      });
+      render();
+      fitView();
+    }
+
+    function exportGraph() {
+      const blob = new Blob([JSON.stringify(state.graph, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "seed-video-dag.json";
+      link.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function updateSelectedFromInspector() {
+      const node = selectedNode();
+      if (!node) return;
+      node.title = titleInput.value;
+      node.type = typeInput.value.trim() || "asset";
+      node.body = bodyInput.value;
+      node.metrics = metricsInput.value.split("\n").map((line) => line.trim()).filter(Boolean);
+      render();
+    }
+
+    function resetGraph() {
+      state.graph = structuredClone(initialGraph);
+      state.selectedId = "semantics";
+      render();
+      fitView();
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    document.getElementById("zoomOut").addEventListener("click", () => zoomBy(0.85));
+    document.getElementById("zoomIn").addEventListener("click", () => zoomBy(1.15));
+    document.getElementById("fitView").addEventListener("click", () => fitView());
+    document.getElementById("addNode").addEventListener("click", addNode);
+    document.getElementById("layoutGraph").addEventListener("click", layoutGraph);
+    document.getElementById("exportGraph").addEventListener("click", exportGraph);
+    document.getElementById("focusSemantics").addEventListener("click", () => fitView("semantics"));
+    document.getElementById("resetGraph").addEventListener("click", resetGraph);
+    [titleInput, typeInput, bodyInput, metricsInput].forEach((input) => {
+      input.addEventListener("input", updateSelectedFromInspector);
+    });
+
+    window.addEventListener("keydown", (event) => {
+      if (event.target.matches("input, textarea")) return;
+      if (event.key === "0") fitView();
+      if (event.key === "+" || event.key === "=") zoomBy(1.15);
+      if (event.key === "-") zoomBy(0.85);
+    });
+
+    render();
+    fitView();
+  </script>
+</body>
+</html>
