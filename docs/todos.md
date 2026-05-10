@@ -8,9 +8,7 @@
 
 ## P1：加强证据 DAG
 
-- [ ] 改进画布体验。
-  - 本地 server 模式稳定打开 graph。
-  - 节点搜索、过滤、边标签。
+当前 P1 已清空。下一步优先进入 P2，把多条视频聚合后的 creator profile 进一步转成可人工 review 的 skill 和 checks。
 
 ## P2：创作者级知识
 
@@ -59,3 +57,4 @@
 - [x] DAG 自动发现：`seed build-video-dag --title "..."` 会自动找齐本地 raw、audio、transcript、frames、visual notes、semantics 和 timeline。
 - [x] DAG timeline 展示：video DAG 会读取 timeline artifact，并生成 timeline event 子节点。
 - [x] Fact-check claim 节点：`seed extract-claims` 从 `video-semantics.md` 拆出 `library/claims/*.claims.json`，DAG 会展示 claim 子节点，默认状态是 `unverified`。
+- [x] DAG 画布体验：`seed serve-video-dag` 提供本地 server 打开 graph；HTML 画布支持节点搜索/过滤和边标签。

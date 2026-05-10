@@ -141,6 +141,16 @@
       font-size: 13px;
     }
 
+    .search-input {
+      width: 220px;
+      height: 34px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 0 10px;
+      color: var(--ink);
+      background: white;
+    }
+
     .canvas-shell {
       position: relative;
       overflow: hidden;
@@ -182,6 +192,21 @@
     .edge.selected {
       stroke: var(--accent);
       stroke-width: 3;
+    }
+
+    .edge-label {
+      fill: #475467;
+      font-size: 11px;
+      paint-order: stroke;
+      stroke: white;
+      stroke-width: 4px;
+      stroke-linejoin: round;
+      pointer-events: none;
+    }
+
+    .edge-label.selected {
+      fill: var(--accent);
+      font-weight: 700;
     }
 
     .node {
@@ -483,6 +508,7 @@
         <button class="text-button" id="importGraph" title="导入 JSON">⇧ <span>导入</span></button>
         <button class="text-button" id="exportGraph" title="导出 JSON">⇩ <span>导出</span></button>
       </div>
+      <input class="search-input" id="graphSearch" type="search" placeholder="搜索节点">
       <div class="toolbar-spacer"></div>
       <div class="tool-group" aria-label="View modes">
         <button class="text-button" id="focusSemantics" title="聚焦语义层">◎ <span>语义</span></button>
@@ -659,6 +685,7 @@
       panX: 700,
       panY: 330,
       zoom: 1,
+      filter: "",
       panning: null,
       draggingNode: null
     };
@@ -678,10 +705,35 @@
     const bodyInput = document.getElementById("bodyInput");
     const metricsInput = document.getElementById("metricsInput");
     const graphFileInput = document.getElementById("graphFileInput");
+    const graphSearch = document.getElementById("graphSearch");
     const preview = document.getElementById("preview");
 
     function selectedNode() {
-      return state.graph.nodes.find((node) => node.id === state.selectedId) || state.graph.nodes[0];
+      return state.graph.nodes.find((node) => node.id === state.selectedId) || visibleNodes()[0];
+    }
+
+    function visibleNodes() {
+      const query = state.filter.trim().toLowerCase();
+      if (!query) return state.graph.nodes;
+      return state.graph.nodes.filter((node) => nodeMatches(node, query));
+    }
+
+    function visibleEdges() {
+      const ids = new Set(visibleNodes().map((node) => node.id));
+      return state.graph.edges.filter((edge) => {
+        const [fromId, toId] = edge;
+        return ids.has(fromId) && ids.has(toId);
+      });
+    }
+
+    function nodeMatches(node, query) {
+      return [
+        node.id,
+        node.type,
+        node.title,
+        node.body,
+        ...(node.metrics || [])
+      ].some((value) => String(value || "").toLowerCase().includes(query));
     }
 
     function setTransform() {
@@ -723,7 +775,11 @@
 
     function renderNodes() {
       nodesEl.innerHTML = "";
-      for (const node of state.graph.nodes) {
+      const nodes = visibleNodes();
+      if (state.selectedId && !nodes.some((node) => node.id === state.selectedId)) {
+        state.selectedId = nodes[0]?.id || null;
+      }
+      for (const node of nodes) {
         const el = document.createElement("article");
         el.className = `node ${node.type} ${node.id === state.selectedId ? "selected" : ""}`;
         el.style.left = `${node.x}px`;
@@ -743,9 +799,10 @@
     }
 
     function renderEdges() {
-      [...edgesEl.querySelectorAll("path.edge")].forEach((path) => path.remove());
+      [...edgesEl.querySelectorAll("path.edge, text.edge-label")].forEach((item) => item.remove());
       const byId = new Map(state.graph.nodes.map((node) => [node.id, node]));
-      for (const [fromId, toId] of state.graph.edges) {
+      for (const edge of visibleEdges()) {
+        const [fromId, toId] = edge;
         const from = byId.get(fromId);
         const to = byId.get(toId);
         if (!from || !to) continue;
@@ -755,6 +812,14 @@
         path.setAttribute("marker-end", selected ? "url(#arrowSelected)" : "url(#arrow)");
         path.setAttribute("d", edgePath(from, to));
         edgesEl.appendChild(path);
+        const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        const point = edgeLabelPoint(from, to);
+        label.setAttribute("class", `edge-label ${selected ? "selected" : ""}`);
+        label.setAttribute("x", point.x);
+        label.setAttribute("y", point.y);
+        label.setAttribute("text-anchor", "middle");
+        label.textContent = edgeLabel(edge);
+        edgesEl.appendChild(label);
       }
     }
 
@@ -765,6 +830,18 @@
       const endY = to.y + nodeMinHeight / 2;
       const dx = Math.max(90, Math.abs(endX - startX) * 0.45);
       return `M ${startX} ${startY} C ${startX + dx} ${startY}, ${endX - dx} ${endY}, ${endX - 12} ${endY}`;
+    }
+
+    function edgeLabelPoint(from, to) {
+      return {
+        x: (from.x + nodeWidth + to.x) / 2,
+        y: (from.y + to.y) / 2 + nodeMinHeight / 2 - 8
+      };
+    }
+
+    function edgeLabel(edge) {
+      if (edge.length >= 3 && edge[2]) return String(edge[2]);
+      return `${edge[0]} → ${edge[1]}`;
     }
 
     function renderInspector() {
@@ -811,8 +888,10 @@
     }
 
     function renderStatus() {
-      nodeCount.textContent = `${state.graph.nodes.length} nodes`;
-      edgeCount.textContent = `${state.graph.edges.length} edges`;
+      const visibleNodeCount = visibleNodes().length;
+      const visibleEdgeCount = visibleEdges().length;
+      nodeCount.textContent = state.filter ? `${visibleNodeCount}/${state.graph.nodes.length} nodes` : `${state.graph.nodes.length} nodes`;
+      edgeCount.textContent = state.filter ? `${visibleEdgeCount}/${state.graph.edges.length} edges` : `${state.graph.edges.length} edges`;
     }
 
     function renderMinimap() {
@@ -821,7 +900,7 @@
       const width = Math.max(bounds.maxX - bounds.minX, 1);
       const height = Math.max(bounds.maxY - bounds.minY, 1);
       const scale = Math.min(160 / width, 90 / height);
-      for (const node of state.graph.nodes) {
+      for (const node of visibleNodes()) {
         const mini = document.createElement("div");
         mini.className = `mini-node ${node.id === state.selectedId ? "selected" : ""}`;
         mini.style.left = `${10 + (node.x - bounds.minX) * scale}px`;
@@ -833,8 +912,10 @@
     }
 
     function graphBounds() {
-      const xs = state.graph.nodes.flatMap((node) => [node.x, node.x + nodeWidth]);
-      const ys = state.graph.nodes.flatMap((node) => [node.y, node.y + nodeMinHeight]);
+      const nodes = visibleNodes();
+      const source = nodes.length ? nodes : state.graph.nodes;
+      const xs = source.flatMap((node) => [node.x, node.x + nodeWidth]);
+      const ys = source.flatMap((node) => [node.y, node.y + nodeMinHeight]);
       return {
         minX: Math.min(...xs),
         minY: Math.min(...ys),
@@ -1036,6 +1117,10 @@
     document.getElementById("exportGraph").addEventListener("click", exportGraph);
     document.getElementById("focusSemantics").addEventListener("click", () => fitView("semantics"));
     document.getElementById("resetGraph").addEventListener("click", resetGraph);
+    graphSearch.addEventListener("input", () => {
+      state.filter = graphSearch.value;
+      render();
+    });
     [titleInput, typeInput, bodyInput, metricsInput].forEach((input) => {
       input.addEventListener("input", updateSelectedFromInspector);
     });

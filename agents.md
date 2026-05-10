@@ -34,6 +34,7 @@ fetch-creator-videos
 - Codex 进程封装：`src/seed/agents/codex.py`
 - Markdown artifact 工具：`src/seed/markdown.py`
 - Video DAG 构建：`src/seed/graphs/video_dag.py`
+- DAG 本地服务：`src/seed/dag_server.py`
 - 画布 UI：`tools/video-dag-canvas.html`
 - Skills：
   - `skills/video-note-summarizer/SKILL.md`
@@ -51,6 +52,7 @@ fetch-creator-videos
 - Timeline 生成在 `seed.timeline`，只做确定性抽取；无法定位具体时间时使用 `start_seconds: null`，不要伪造时间点。
 - Fact-check claim 抽取在 `seed.factcheck`，默认状态是 `unverified`；不要在没有外部证据时改成 verified。
 - Video DAG 构建支持按标题自动发现本地产物；显式传入的路径优先，resolver 逻辑在 `seed.graphs.video_dag.resolve_video_dag_artifacts`。
+- DAG 画布优先用 `seed serve-video-dag <graph.json>` 打开；HTML 画布内置搜索过滤和边标签，不要再新增独立可视化入口。
 - 内容分析模块不要直接调用 `codex exec`，统一用 `seed.agents.codex.run_codex_prompt`。
 - 不要在多个地方手写 Markdown frontmatter 解析，统一用 `seed.markdown`。
 - 本地私有产物都放在 `library/`，默认不要提交。
@@ -110,6 +112,7 @@ git status -sb
 ```bash
 .venv/bin/seed --help
 .venv/bin/seed build-video-dag --help
+.venv/bin/seed serve-video-dag --help
 .venv/bin/seed analyze-video-semantics --help
 ```
 
@@ -117,4 +120,4 @@ git status -sb
 
 - claim 状态还没有外部核验流程，目前只支持默认 `unverified`。
 - `build-video-dag` 仍需要显式传入产物路径。
-- HTML 画布是单文件原型，不是完整前端应用。
+- HTML 画布是单文件原型，不是完整前端应用；复杂交互继续先保持单文件。

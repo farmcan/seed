@@ -14,6 +14,7 @@ from seed.asr.providers import (
 )
 from seed.asr.chunked import transcribe_audio_with_optional_chunks
 from seed.creator_ingest import ingest_creator_videos as ingest_creator_videos_from_list
+from seed.dag_server import serve_video_dag
 from seed.factcheck import build_claims_artifact, claims_output_path, write_claims_artifact
 from seed.graphs.video_dag import (
     build_video_dag_graph,
@@ -542,3 +543,19 @@ def build_video_dag(
     console.print(f"created video DAG graph at {output_path}")
     console.print("open tools/video-dag-canvas.html and import the graph JSON")
     console.print(f"graph URL: {graph_url}")
+
+
+@app.command("serve-video-dag")
+def serve_video_dag_cmd(
+    graph_path: Annotated[Path, typer.Argument(help="Path to *.video-dag.json.")],
+    host: Annotated[str, typer.Option("--host")] = "127.0.0.1",
+    port: Annotated[int, typer.Option("--port", min=0)] = 8765,
+    open_browser: Annotated[bool, typer.Option("--open/--no-open")] = True,
+) -> None:
+    serve_video_dag(
+        graph_path=graph_path,
+        repo_root=Path.cwd(),
+        host=host,
+        port=port,
+        open_browser=open_browser,
+    )

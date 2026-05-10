@@ -36,7 +36,7 @@ URL / book / note
 | 视频语义 | `seed analyze-video-semantics` | `src/seed/semantics/analyzer.py` | `library/semantics/*.video-semantics.md` |
 | 时间线 | `seed build-timeline` | `src/seed/timeline.py` | `library/timelines/*.timeline.json` |
 | 事实核验队列 | `seed extract-claims` | `src/seed/factcheck.py` | `library/claims/*.claims.json` |
-| DAG 图谱 | `seed build-video-dag` | `src/seed/graphs/video_dag.py`, `tools/video-dag-canvas.html` | `library/graphs/*.video-dag.json` |
+| DAG 图谱 | `seed build-video-dag`, `seed serve-video-dag` | `src/seed/graphs/video_dag.py`, `src/seed/dag_server.py`, `tools/video-dag-canvas.html` | `library/graphs/*.video-dag.json` |
 | 创作者聚合 | `seed aggregate-owner` | `src/seed/semantics/aggregator.py` | `library/distilled/*.creator-profile.md` |
 
 当前视频 DAG 会展示本地视频、音频、关键帧截图、transcript、visual notes、timeline 占位、semantic 子节点、creator signals、fact-check queue 和 agent assets。选择视频、音频或截图节点时，HTML 画布右侧 inspector 可以直接预览本地素材。
@@ -54,6 +54,7 @@ URL / book / note
 - `factcheck.py`：从 video semantics 的 main claims 和 open questions 中拆出待核验 claim，默认状态是 `unverified`。
 - `semantics/aggregator.py`：按 owner 聚合多条视频语义，输出 `library/distilled/*.creator-profile.md`。
 - `graphs/video_dag.py`：把本地分析产物组装成画布可读 DAG JSON，输出 `library/graphs/*.video-dag.json`；支持按标题自动发现 raw、audio、transcript、frames、visual notes、semantics 和 timeline。
+- `dag_server.py`：用本地 HTTP server 打开 DAG HTML 和 graph JSON，避免 `file://` 下浏览器策略影响素材加载。
 - `agents/codex.py`：统一管理 `codex exec` 命令、dry-run、输出文件写入。内容分析模块不得直接调用 `subprocess` 跑 Codex。
 - `markdown.py`：统一读取 Markdown frontmatter、正文和 metadata 字段，避免不同 artifact 各写一套解析逻辑。
 - `cli.py`：只做参数接线、轻量校验和用户输出。业务逻辑应留在对应模块。
