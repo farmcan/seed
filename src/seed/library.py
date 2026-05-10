@@ -14,6 +14,7 @@ LIBRARY_DIRS = [
     "notes",
     "semantics",
     "timelines",
+    "claims",
     "graphs",
     "distilled",
     "skills",

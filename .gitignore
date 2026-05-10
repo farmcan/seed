@@ -16,6 +16,7 @@ library/transcripts/*
 library/notes/*
 library/semantics/*
 library/timelines/*
+library/claims/*
 library/graphs/*
 library/distilled/*
 library/skills/*

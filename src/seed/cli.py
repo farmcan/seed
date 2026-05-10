@@ -14,6 +14,7 @@ from seed.asr.providers import (
 )
 from seed.asr.chunked import transcribe_audio_with_optional_chunks
 from seed.creator_ingest import ingest_creator_videos as ingest_creator_videos_from_list
+from seed.factcheck import build_claims_artifact, claims_output_path, write_claims_artifact
 from seed.graphs.video_dag import (
     build_video_dag_graph,
     resolve_video_dag_artifacts,
@@ -437,6 +438,23 @@ def build_timeline(
     console.print(f"events: {len(artifact['events'])}, uncertainties: {len(artifact['uncertainties'])}")
 
 
+@app.command("extract-claims")
+def extract_claims(
+    semantics_path: Annotated[Path, typer.Argument(help="Video semantics markdown file.")],
+    title: Annotated[str | None, typer.Option("--title")] = None,
+    root: Annotated[Path, typer.Option("--root")] = Path("library"),
+) -> None:
+    artifact = build_claims_artifact(semantics_path=semantics_path, title=title)
+    output_path = claims_output_path(
+        library_root=root,
+        title=title,
+        semantics_path=semantics_path,
+    )
+    write_claims_artifact(output_path, artifact)
+    console.print(f"created claims artifact at {output_path}")
+    console.print(f"claims: {len(artifact['claims'])}")
+
+
 @app.command("aggregate-owner")
 def aggregate_owner(
     owner: Annotated[str, typer.Option("--owner", help="Creator, UP, or author to aggregate.")],
@@ -487,6 +505,7 @@ def build_video_dag(
     visual_notes: Annotated[Path | None, typer.Option("--visual-notes")] = None,
     semantics_path: Annotated[Path | None, typer.Option("--semantics")] = None,
     timeline_path: Annotated[Path | None, typer.Option("--timeline")] = None,
+    claims_path: Annotated[Path | None, typer.Option("--claims")] = None,
     creator_profile: Annotated[Path | None, typer.Option("--creator-profile")] = None,
     root: Annotated[Path, typer.Option("--root")] = Path("library"),
 ) -> None:
@@ -500,6 +519,7 @@ def build_video_dag(
         visual_notes_path=visual_notes,
         semantics_path=semantics_path,
         timeline_path=timeline_path,
+        claims_path=claims_path,
         creator_profile_path=creator_profile,
     )
     graph = build_video_dag_graph(
@@ -513,6 +533,7 @@ def build_video_dag(
         visual_notes_path=artifacts["visual_notes_path"],
         semantics_path=artifacts["semantics_path"],
         timeline_path=artifacts["timeline_path"],
+        claims_path=artifacts["claims_path"],
         creator_profile_path=artifacts["creator_profile_path"],
     )
     output_path = video_dag_output_path(library_root=root, title=title)

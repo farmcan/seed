@@ -29,6 +29,7 @@ def build_video_dag_graph(
     visual_notes_path: Path | None = None,
     semantics_path: Path | None = None,
     timeline_path: Path | None = None,
+    claims_path: Path | None = None,
     creator_profile_path: Path | None = None,
 ) -> dict[str, Any]:
     inferred_owner = owner or infer_owner(semantics_path) or "unknown"
@@ -40,6 +41,7 @@ def build_video_dag_graph(
     semantics_text = semantics_path.read_text(encoding="utf-8") if semantics_path and semantics_path.exists() else ""
     timeline = load_timeline(timeline_path)
     timeline_events = timeline.get("events", []) if timeline else []
+    claims = load_claims(claims_path)
 
     nodes = [
         node(
@@ -182,11 +184,11 @@ def build_video_dag_graph(
             "factcheck",
             "asset",
             "Fact-check Queue",
-            "需要外部来源核验的日期、预算、人物表态、合同和政策声明。",
+            factcheck_summary(claims),
             850,
             150,
-            ["claims", "sources", "risk"],
-            None,
+            [path_metric(claims_path), f"{len(claims)} claims" if claims else "no claims"],
+            claims_path,
         ),
         node(
             "skills",
@@ -202,6 +204,8 @@ def build_video_dag_graph(
 
     timeline_nodes = build_timeline_event_nodes(timeline_events, timeline_path)
     nodes.extend(timeline_nodes)
+    claim_nodes = build_claim_nodes(claims, claims_path)
+    nodes.extend(claim_nodes)
 
     edges = [
         ["source", "video-media"],
@@ -226,6 +230,7 @@ def build_video_dag_graph(
         ["factcheck", "skills"],
     ]
     edges.extend(["timeline", event_node["id"]] for event_node in timeline_nodes)
+    edges.extend(["factcheck", claim_node["id"]] for claim_node in claim_nodes)
 
     return {
         "version": 1,
@@ -248,6 +253,7 @@ def resolve_video_dag_artifacts(
     visual_notes_path: Path | None = None,
     semantics_path: Path | None = None,
     timeline_path: Path | None = None,
+    claims_path: Path | None = None,
     creator_profile_path: Path | None = None,
 ) -> dict[str, Path | None]:
     title_slug = slugify(title)
@@ -268,6 +274,8 @@ def resolve_video_dag_artifacts(
         or find_matching_file(library_root / "semantics", title_slug=title_slug, suffixes={".md"}),
         "timeline_path": timeline_path
         or find_matching_file(library_root / "timelines", title_slug=title_slug, suffixes={".json"}),
+        "claims_path": claims_path
+        or find_matching_file(library_root / "claims", title_slug=title_slug, suffixes={".json"}),
         "creator_profile_path": creator_profile_path,
     }
 
@@ -336,11 +344,25 @@ def load_timeline(timeline_path: Path | None) -> dict[str, Any]:
     return json.loads(timeline_path.read_text(encoding="utf-8"))
 
 
+def load_claims(claims_path: Path | None) -> list[dict[str, Any]]:
+    if not claims_path or not claims_path.exists():
+        return []
+    artifact = json.loads(claims_path.read_text(encoding="utf-8"))
+    return artifact.get("claims") or []
+
+
 def timeline_summary(events: list[dict[str, Any]]) -> str:
     if not events:
         return "对齐 transcript chunk、关键帧、广告段、论证阶段和 CTA。当前没有找到 timeline artifact。"
     kinds = ", ".join(sorted({str(event.get("kind")) for event in events if event.get("kind")}))
     return f"已生成真实 timeline artifact，包含 {len(events)} 个事件。事件类型：{kinds}。"
+
+
+def factcheck_summary(claims: list[dict[str, Any]]) -> str:
+    if not claims:
+        return "需要外部来源核验的日期、预算、人物表态、合同和政策声明。当前没有找到 claims artifact。"
+    statuses = ", ".join(sorted({str(claim.get("status")) for claim in claims if claim.get("status")}))
+    return f"已抽取 {len(claims)} 条待核验 claim。状态集合：{statuses}。"
 
 
 def build_timeline_event_nodes(
@@ -369,6 +391,33 @@ def build_timeline_event_nodes(
                 280 + index * 110,
                 metrics,
                 Path(str(event["evidence_path"])) if event.get("evidence_path") else timeline_path,
+            )
+        )
+    return nodes
+
+
+def build_claim_nodes(
+    claims: list[dict[str, Any]],
+    claims_path: Path | None,
+    *,
+    max_claims: int = 8,
+) -> list[dict[str, Any]]:
+    nodes: list[dict[str, Any]] = []
+    for index, claim in enumerate(claims[:max_claims]):
+        text = str(claim.get("text") or "")
+        status = str(claim.get("status") or "unknown")
+        source_section = str(claim.get("source_section") or "unknown")
+        evidence_path = claim.get("evidence_path")
+        nodes.append(
+            node(
+                f"claim-{index + 1}",
+                "asset",
+                f"Claim {index + 1}: {status}",
+                text,
+                1180,
+                360 + index * 110,
+                [status, source_section],
+                Path(str(evidence_path)) if evidence_path else claims_path,
             )
         )
     return nodes

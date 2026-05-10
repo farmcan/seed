@@ -8,9 +8,6 @@
 
 ## P1：加强证据 DAG
 
-- [ ] 抽取 fact-check claim 节点。
-  - 从 `video-semantics.md` 拆出待核验声明。
-  - 状态至少包括：未核验、已核验、相互矛盾。
 - [ ] 改进画布体验。
   - 本地 server 模式稳定打开 graph。
   - 节点搜索、过滤、边标签。
@@ -61,3 +58,4 @@
 - [x] 下载可靠性记录：source record 会保存 `download_provider`、`fallback_used` 和 `download_notes`；下载失败时提示平台 cookies 配置。
 - [x] DAG 自动发现：`seed build-video-dag --title "..."` 会自动找齐本地 raw、audio、transcript、frames、visual notes、semantics 和 timeline。
 - [x] DAG timeline 展示：video DAG 会读取 timeline artifact，并生成 timeline event 子节点。
+- [x] Fact-check claim 节点：`seed extract-claims` 从 `video-semantics.md` 拆出 `library/claims/*.claims.json`，DAG 会展示 claim 子节点，默认状态是 `unverified`。
