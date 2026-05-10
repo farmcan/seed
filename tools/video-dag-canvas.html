@@ -267,6 +267,47 @@
       color: var(--muted);
     }
 
+    .node-card-preview {
+      margin: 0 12px 10px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      overflow: hidden;
+      background: #0f172a;
+      pointer-events: none;
+    }
+
+    .node-card-preview video,
+    .node-card-preview img {
+      display: block;
+      width: 100%;
+      height: 116px;
+      object-fit: cover;
+      background: #0f172a;
+    }
+
+    .node-card-preview.audio {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      height: 48px;
+      padding: 0 10px;
+      color: #e2e8f0;
+      font-size: 13px;
+    }
+
+    .node-card-gallery {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 4px;
+      padding: 4px;
+      background: #0f172a;
+    }
+
+    .node-card-gallery img {
+      height: 70px;
+      border-radius: 4px;
+    }
+
     .node-metrics {
       display: flex;
       gap: 6px;
@@ -790,6 +831,7 @@
             <span class="node-type">${escapeHtml(node.type)}</span>
             <span class="node-title">${escapeHtml(node.title)}</span>
           </div>
+          ${nodePreviewHtml(node)}
           <div class="node-body">${escapeHtml(node.body)}</div>
           <div class="node-metrics">${node.metrics.map((metric) => `<span class="metric">${escapeHtml(metric)}</span>`).join("")}</div>
         `;
@@ -844,6 +886,34 @@
       return `${edge[0]} → ${edge[1]}`;
     }
 
+    function nodePreviewHtml(node) {
+      const previewData = previewDataForNode(node);
+      if (!previewData) return "";
+      if (previewData.type === "video") {
+        return `<div class="node-card-preview"><video muted preload="metadata" src="${escapeAttr(resolveAssetUrl(previewData.src))}"></video></div>`;
+      }
+      if (previewData.type === "audio") {
+        return `<div class="node-card-preview audio">Audio · ${escapeHtml(node.path || previewData.src || "")}</div>`;
+      }
+      if (previewData.type === "image") {
+        return `<div class="node-card-preview"><img src="${escapeAttr(resolveAssetUrl(previewData.src))}" alt=""></div>`;
+      }
+      if (previewData.type === "gallery") {
+        const items = (previewData.items || []).slice(0, 4);
+        return `<div class="node-card-preview"><div class="node-card-gallery">${items.map((item) => `<img src="${escapeAttr(resolveAssetUrl(item))}" alt="">`).join("")}</div></div>`;
+      }
+      return "";
+    }
+
+    function previewDataForNode(node) {
+      if (node.preview) return node.preview;
+      if (!node.path) return null;
+      if (isImagePath(node.path)) return { type: "image", src: node.path };
+      if (isVideoPath(node.path)) return { type: "video", src: node.path };
+      if (isAudioPath(node.path)) return { type: "audio", src: node.path };
+      return null;
+    }
+
     function renderInspector() {
       const node = selectedNode();
       if (!node) return;
@@ -859,7 +929,7 @@
     function renderPreview(node) {
       preview.className = "preview";
       preview.innerHTML = "";
-      const previewData = node.preview;
+      const previewData = previewDataForNode(node);
       if (!previewData && !node.path) return;
 
       if (previewData?.type === "video") {
@@ -878,6 +948,18 @@
         preview.insertAdjacentHTML("beforeend", `<a class="path-link" href="${escapeAttr(linkPath)}" target="_blank">${escapeHtml(node.path)}</a>`);
       }
       preview.classList.add("active");
+    }
+
+    function isImagePath(path) {
+      return /\.(apng|avif|gif|jpe?g|png|webp)$/i.test(path || "");
+    }
+
+    function isVideoPath(path) {
+      return /\.(mp4|mov|m4v|webm|mkv|flv)$/i.test(path || "");
+    }
+
+    function isAudioPath(path) {
+      return /\.(mp3|m4a|wav|aac|ogg|flac)$/i.test(path || "");
     }
 
     function resolveAssetUrl(path) {

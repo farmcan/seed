@@ -39,7 +39,7 @@ URL / book / note
 | DAG 图谱 | `seed build-video-dag`, `seed serve-video-dag` | `src/seed/graphs/video_dag.py`, `src/seed/dag_server.py`, `tools/video-dag-canvas.html` | `library/graphs/*.video-dag.json` |
 | 创作者聚合 | `seed aggregate-owner` | `src/seed/semantics/aggregator.py` | `library/distilled/*.creator-profile.md` |
 
-当前视频 DAG 会展示本地视频、音频、关键帧截图、transcript、visual notes、timeline 占位、semantic 子节点、creator signals、fact-check queue 和 agent assets。选择视频、音频或截图节点时，HTML 画布右侧 inspector 可以直接预览本地素材。
+当前视频 DAG 会展示本地视频、音频、关键帧截图、transcript、visual notes、timeline event、semantic 子节点、creator signals、fact-check queue 和 agent assets。视频、音频、截图、gallery 类节点会在画布节点卡片内直接展示媒体预览；选择节点后，右侧 inspector 仍可查看更大的本地素材预览。
 
 ## 模块边界
 
