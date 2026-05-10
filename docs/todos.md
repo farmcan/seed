@@ -4,23 +4,25 @@
 
 ## P0：让现有链路稳定
 
-- [ ] 增加 `seed run-video-pipeline`。
+- [x] 增加 `seed run-video-pipeline`。
   - 输入 URL 或本地视频，串起下载/记录、ASR、抽帧、Qwen-VL、成本记录、video semantics、timeline、claims、DAG JSON 和静态 HTML。
   - 每一步要支持跳过已存在产物，失败后可以从中间步骤续跑。
   - 输出最后的主入口路径：`*.video-dag.html`、`*.video-semantics.md`、`*.cost.json`。
-- [ ] 增加 pipeline run manifest。
+- [x] 增加 pipeline run manifest。
   - 记录每个 step 的输入、输出、开始/结束时间、状态、错误和 provider/model。
   - 后续 creator 批量处理和成本汇总都从 manifest 读状态。
-- [ ] 把 `seed build-video-dag` 的输出提示改成静态 HTML 优先。
+- [x] 把 `seed build-video-dag` 的输出提示改成静态 HTML 优先。
   - 用户要看的默认是 `seed export-video-dag-html` 产物，不应依赖本地 server 是否还开着。
 
 ## P1：加强证据 DAG
 
-- [ ] 增加 `seed verify-claims`。
+- [x] 增加 `seed verify-claims` 的最小可用闭环。
   - 输入 `library/claims/*.claims.json`，输出带来源、证据摘录、URL、状态和不确定性的核验结果。
-  - 状态至少包括 `supported`、`contradicted`、`unclear`、`unverified`。
+  - 当前版本只记录 evidence source，自动判断保持保守：有来源为 `unclear`，无来源为 `unverified`。
+- [ ] 增强 `seed verify-claims` 的自动判断。
+  - 状态至少支持 `supported`、`contradicted`、`unclear`、`unverified`。
   - 没有外部证据时不得把 claim 标成 verified。
-- [ ] 把 fact-check 结果接入 DAG。
+- [x] 把 fact-check 结果接入 DAG。
   - claim 节点展示核验状态、来源数量、证据链接和风险等级。
 - [ ] 做 pipeline 级 cost ledger。
   - 单条视频成本不只记录 Qwen-VL，还要预留并逐步接入 ASR、Codex、搜索/核验等步骤。
@@ -30,10 +32,11 @@
 
 ## P2：创作者级知识
 
-- [ ] 增加 `seed run-creator-pipeline`。
+- [x] 增加 `seed run-creator-pipeline` 第一版。
   - 输入平台 + UP/作者名称，自动获取视频列表、批量入库、批量跑视频 pipeline。
-  - 支持 limit、start-index、失败继续、跳过已完成、成本预算上限。
-- [ ] 增加 `seed build-creator-dag`。
+  - 已支持 limit、start-index、失败继续、跳过已完成；成本预算上限待补。
+- [ ] 为 `seed run-creator-pipeline` 增加成本预算上限。
+- [x] 增加 `seed build-creator-dag`。
   - 按 UP/作者展示多条视频、每条状态、共性方法论、代表证据、反例、成本和 reflection 入口。
 - [ ] 强化 creator profile 的证据引用。
   - 每个创作者级结论需要能回溯到具体视频、timestamp/keyframe/transcript chunk 或 semantic section。
@@ -42,11 +45,11 @@
 
 ## P3：书籍和非视频来源
 
-- [ ] 增加手动书籍/笔记导入。
+- [x] 增加手动书籍/笔记导入。
   - 保留作者、章节、页码/位置、引用边界。
-- [ ] 增加 book semantics artifact。
+- [x] 增加 book semantics artifact。
   - 类似 video semantics，但默认没有 visual language。
-- [ ] 支持按作者/主题聚合。
+- [x] 支持按作者/主题聚合。
   - 复用 creator aggregation 的思路，但不绑定视频平台。
 
 ## P4：继续调研
@@ -86,3 +89,7 @@
 - [x] Reflection log：`seed record-reflection` 记录 Agent 使用 creator 方法后的 outcome、worked、failed 和 revise 项。
 - [x] Creator profile 最小样本约束：`seed aggregate-owner` 默认要求同一 owner 至少 3 条 video semantics；少量样本必须显式 `--min-videos` 降级。
 - [x] Reflection 修订建议：`seed suggest-revisions` 基于 reflection log 生成 revision suggestions 草稿，不自动覆盖原资产。
+- [x] 单条视频 pipeline：`seed run-video-pipeline` 串起现有分析步骤并写入 `library/runs/*.video-pipeline.yaml`。
+- [x] 创作者 pipeline 第一版：`seed run-creator-pipeline` 可以获取视频列表、批量入库并逐条运行视频 pipeline。
+- [x] Creator DAG 第一版：`seed build-creator-dag` 生成 UP/作者级 DAG JSON 和静态 HTML。
+- [x] 书籍/笔记入口：`seed import-book-note`、`seed analyze-book-note`、`seed aggregate-topic` 支持非视频来源的基础语义产物。

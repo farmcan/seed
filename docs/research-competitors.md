@@ -38,6 +38,9 @@
 | `xyflow/react` / React Flow | Node-based UI 生态成熟，官方示例覆盖 auto layout、expand/collapse、minimap 和 controls。 | 如果后续要做“可折叠分析 DAG + 自动布局 + 节点编辑器”，React Flow 是迁移首选。 |
 | `kieler/elkjs` | ELK 的 JavaScript 布局引擎，适合有方向的 node-link diagram 和 layered layout。 | 可作为 DAG 自动布局算法，不负责画布 UI；适合替换当前手写列布局。 |
 | `jagenjo/litegraph.js` | 老牌 HTML5 Canvas2D graph node editor，偏蓝图/工作流。 | 可参考紧凑节点和 JSON graph 思路；富媒体 DOM 节点不如 React Flow/tldraw 直接。 |
+| Prefect | Python-native workflow orchestration，强调 state tracking、failure handling、retry 和本地/云端运行。 | 后续 pipeline 复杂到需要调度、重试 UI 和 worker 时再考虑；当前先用本地 run manifest，避免过早引入服务。 |
+| Dagster | 面向 data assets 的 orchestrator，强调 lineage、observability、declarative model 和 testability。 | 如果 `library/` 产物变成大量数据资产和跨主题依赖，可以参考 asset model；当前项目还不到引入 Dagster 的复杂度。 |
+| Temporal Python SDK | durable workflow 平台，有 Python SDK，适合长时间运行、可靠重试和分布式任务。 | 如果后续视频批处理需要强一致重试、队列和 worker，再评估；本地 MVP 暂不需要。 |
 
 ## 关键洞察
 
@@ -48,6 +51,7 @@
 5. 真正有价值的总结不是“这条视频说了什么”，而是“这个创作者反复依赖什么判断模型、内容结构、表达套路、决策规则和禁忌”。
 6. 视频分析画布是共性问题，短期最稳是继续保留单文件 HTML：简版/展开、媒体预览和 DAG JSON 仍在本地完成，但布局不要手写，应使用 `elkjs` layered layout。中期如果交互复杂度继续上升，应迁移到 React Flow + ELK；如果更像白板和自由资料编排，再考虑 tldraw。
 7. Qwen-VL 计费需要作为 artifact，而不是只在日志里打印。按单条视频记录 token usage、单价、pricing source、估算金额，并允许环境变量覆盖单价，避免价格变化导致历史结果不可解释。
+8. Pipeline 编排先不要引入重型服务。Prefect/Dagster/Temporal 都能解决状态、重试和可观测性，但当前 seed 主要是本地单人工作流；先用 `library/runs/*.yaml` 记录 step 状态，等出现定时调度、多 worker、复杂重试或团队协作再迁移。
 
 ## Sources
 
@@ -77,3 +81,6 @@
 - elkjs: https://github.com/kieler/elkjs
 - litegraph.js: https://github.com/jagenjo/litegraph.js
 - 阿里云百炼模型价格： https://www.alibabacloud.com/help/zh/model-studio/model-pricing
+- Prefect docs: https://docs.prefect.io/
+- Dagster docs: https://docs.dagster.io/
+- Temporal Python SDK: https://python.temporal.io/

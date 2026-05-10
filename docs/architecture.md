@@ -40,7 +40,7 @@ seed run-creator-pipeline --platform <platform> <owner>
   -> creator profile + creator DAG + agent assets
 ```
 
-在这两个命令实现前，现有 CLI 都视为可组合 step。新增功能如果不能进入 pipeline、不能生成稳定 artifact、不能被 DAG 或 creator aggregation 消费，就不应作为主功能推进。
+这两个命令已经是当前优先入口；其他 CLI 视为可组合 step 或调试入口。新增功能如果不能进入 pipeline、不能生成稳定 artifact、不能被 DAG 或 creator aggregation 消费，就不应作为主功能推进。
 
 ## 功能模块总览
 
@@ -49,17 +49,19 @@ seed run-creator-pipeline --platform <platform> <owner>
 | 来源采集 | `seed ingest-url` | `src/seed/sources/`, `src/seed/library.py` | `library/raw/*`, `library/notes/*.source.yaml` |
 | 创作者视频列表 | `seed fetch-creator-videos` | `src/seed/sources/creator_videos.py`, `src/seed/library.py` | `library/notes/*.creator-videos.yaml` |
 | 创作者批量入库 | `seed ingest-creator-videos` | `src/seed/creator_ingest.py`, `src/seed/sources/yt_dlp_adapter.py` | `library/raw/*`, `library/notes/*.source.yaml` |
-| 视频 pipeline | 待实现：`seed run-video-pipeline` | 待实现：`src/seed/pipeline.py` | pipeline manifest、单条视频全量产物 |
-| 创作者 pipeline | 待实现：`seed run-creator-pipeline` | 待实现：`src/seed/creator_pipeline.py` | 多视频 manifest、creator profile、creator DAG |
+| 视频 pipeline | `seed run-video-pipeline` | `src/seed/pipeline.py` | pipeline manifest、单条视频全量产物 |
+| 创作者 pipeline | `seed run-creator-pipeline` | `src/seed/creator_pipeline.py` | 多视频 manifest、creator profile、creator DAG |
 | ASR 转写 | `seed transcribe-media` | `src/seed/media.py`, `src/seed/asr/`, `src/seed/transcripts.py` | `library/raw/*.asr.mp3`, `library/raw/*.asr.chunks/*`, `library/transcripts/*.transcript.md` |
 | 视觉语言 | `seed extract-frames`, `seed analyze-frames` | `src/seed/vision/` | `library/frames/*`, `library/notes/*.visual.md` |
 | 成本计量 | `seed analyze-frames`, `seed build-video-dag` | `src/seed/costs.py`, `src/seed/graphs/video_dag.py` | `library/costs/*.cost.json`, DAG cost 节点 |
+| 书籍/笔记 | `seed import-book-note`, `seed analyze-book-note`, `seed aggregate-topic` | `src/seed/books.py` | `library/notes/*.book-note.md`, `library/semantics/*.book-semantics.md`, `library/distilled/*.topic-profile.md` |
 | 快速总结 | `seed summarize-transcript` | `src/seed/summarizers/` | `library/notes/*.summary.md` |
 | 视频语义 | `seed analyze-video-semantics` | `src/seed/semantics/analyzer.py` | `library/semantics/*.video-semantics.md` |
 | 时间线 | `seed build-timeline` | `src/seed/timeline.py` | `library/timelines/*.timeline.json` |
 | 事实核验队列 | `seed extract-claims` | `src/seed/factcheck.py` | `library/claims/*.claims.json` |
-| 事实核验 | 待实现：`seed verify-claims` | 待实现：`src/seed/claim_verification.py` | `library/claims/*.verified.json` |
+| 事实核验 | `seed verify-claims` | `src/seed/claim_verification.py` | `library/claims/*.verified.json` |
 | DAG 图谱 | `seed build-video-dag`, `seed serve-video-dag`, `seed export-video-dag-html` | `src/seed/graphs/video_dag.py`, `src/seed/dag_server.py`, `src/seed/dag_export.py`, `tools/video-dag-canvas.html` | `library/graphs/*.video-dag.json`, `library/graphs/*.video-dag.html` |
+| Creator DAG | `seed build-creator-dag` | `src/seed/graphs/creator_dag.py` | `library/graphs/*.creator-dag.json`, `library/graphs/*.creator-dag.html` |
 | 创作者聚合 | `seed aggregate-owner` | `src/seed/semantics/aggregator.py` | `library/distilled/*.creator-profile.md` |
 | Agent 资产生成 | `seed generate-agent-assets`, `seed record-reflection`, `seed suggest-revisions` | `src/seed/agent_assets.py`, `src/seed/reflections.py` | `library/skills/*/SKILL.md`, `library/checks/*.md`, `library/reflections/*` |
 
@@ -70,8 +72,8 @@ seed run-creator-pipeline --platform <platform> <owner>
 - `sources/`：平台采集适配器。只关心 URL、授权、下载、metadata，不做内容理解；下载结果需要记录 provider、fallback 和 cookies 相关诊断。
 - `sources/creator_videos.py`：按平台和创作者名称发现视频列表。Bilibili 优先复用 `yt-dlp` 的 UP 空间 extractor，并保留 WBI API fallback；小红书先输出搜索候选，后续再替换成稳定登录态 provider。
 - `creator_ingest.py`：读取 `*.creator-videos.yaml`，按起始位置和数量选择视频，跳过已入库 URL，并复用现有下载适配器与 source record 写入。
-- `pipeline.py`：待实现。负责把现有单步命令背后的业务函数串成单条视频 pipeline，写入 run manifest，并支持断点续跑。
-- `creator_pipeline.py`：待实现。负责创作者级批量任务、预算限制、失败继续和 creator DAG 入口。
+- `pipeline.py`：负责把现有单步命令背后的业务函数串成单条视频 pipeline，写入 run manifest，并支持断点续跑。
+- `creator_pipeline.py`：负责创作者级批量任务、失败继续和 creator DAG 入口；成本预算限制后续补齐。
 - `asr/` 和 `media.py`：音频抽取、超限音频分片和线上 ASR provider。只产出 transcript；长音频 transcript 会在 frontmatter 记录 `asr_chunks`。
 - `vision/`：抽帧、Qwen-VL 调用和 visual notes。只描述画面证据，不负责最终方法论；Qwen-VL provider 需要返回 token usage，供成本模块记录。
 - `costs.py`：统一写入单条视频成本报告。默认记录 Qwen-VL token 用量、单价来源、估算金额和 Codex 费用预留项；实际价格可通过环境变量覆盖。
@@ -79,12 +81,13 @@ seed run-creator-pipeline --platform <platform> <owner>
 - `semantics/analyzer.py`：单条视频语义融合，输入 transcript 和 visual notes，输出 `library/semantics/*.video-semantics.md`。
 - `timeline.py`：从 transcript chunk、关键帧 manifest、video semantics 和 visual notes 生成确定性 timeline JSON；抽不到时间点时保留 `start_seconds: null`。
 - `factcheck.py`：从 video semantics 的 main claims 和 open questions 中拆出待核验 claim，默认状态是 `unverified`。
-- `claim_verification.py`：待实现。只负责外部证据检索、来源记录和 claim 状态更新，不负责生成新的视频语义。
+- `claim_verification.py`：只负责外部证据检索、来源记录和 claim 状态更新，不负责生成新的视频语义；当前版本保守输出 `unclear/unverified`，后续再接自动支持/反驳判断。
 - `semantics/aggregator.py`：按 owner 聚合多条视频语义，输出 `library/distilled/*.creator-profile.md`。
 - `agent_assets.py`：从 creator profile 生成待人工 review 的候选 `SKILL.md`、pre-check 和 post-task reflection checklist。
 - `reflections.py`：记录 Agent 使用某个 creator 方法后的结果、有效点、失败点和需要修订的地方。
 - `semantics/aggregator.py`：默认要求同一 owner 至少 3 条 video semantics 才生成 creator profile；单条或少量视频需要显式 `--min-videos` 降级为 provisional。
 - `graphs/video_dag.py`：把本地分析产物组装成画布可读 DAG JSON，输出 `library/graphs/*.video-dag.json`；支持按标题自动发现 raw、audio、transcript、frames、visual notes、cost report、semantics 和 timeline。
+- `graphs/creator_dag.py`：把同一 UP/作者的多条 video semantics、creator profile 和 agent assets 组装成 creator DAG。
 - `dag_server.py`：用本地 HTTP server 打开 DAG HTML 和 graph JSON，避免 `file://` 下浏览器策略影响素材加载。
 - `dag_export.py`：把 graph JSON 嵌入一份独立 HTML，适合直接打开和分享本地快照，不要求 server 一直运行；导出的 HTML 默认全展开。
 - `agents/codex.py`：统一管理 `codex exec` 命令、dry-run、输出文件写入。内容分析模块不得直接调用 `subprocess` 跑 Codex。
@@ -102,13 +105,17 @@ seed run-creator-pipeline --platform <platform> <owner>
 - `library/notes/*.source.yaml`：单条来源记录，包含原始 URL、下载路径、metadata 路径、下载 provider、fallback 状态和下载诊断。
 - `library/notes/*.summary.md`：快速摘要，不作为长期聚合主数据。
 - `library/notes/*.creator-videos.yaml`：创作者视频列表，作为后续批量下载、批量分析和 UP 级聚合的入口。
-- `library/runs/`：待实现。pipeline run manifest，记录 step 状态、输入输出、错误、provider/model 和耗时。
+- `library/notes/*.book-note.md`：手动导入的书籍/笔记。
+- `library/runs/`：pipeline run manifest，记录 step 状态、输入输出、错误、provider/model 和耗时。
 - `library/semantics/*.video-semantics.md`：单条视频语义，是后续聚合的主数据。
+- `library/semantics/*.book-semantics.md`：书籍/笔记语义，默认没有 visual language。
 - `library/timelines/*.timeline.json`：视频时间线事件，包含 transcript chunk、keyframe、内容结构、广告候选和不确定性。
 - `library/claims/*.claims.json`：待核验 claim 队列，状态至少从 `unverified` 开始。
-- `library/claims/*.verified.json`：待实现。外部核验后的 claim 状态、来源和证据。
+- `library/claims/*.verified.json`：外部核验后的 claim 状态、来源和证据；当前自动判断仍保持保守。
 - `library/graphs/*.video-dag.json`：视频分析链路的可视化图谱，可由 `tools/video-dag-canvas.html` 直接展示。
 - `library/graphs/*.video-dag.html`：嵌入 graph JSON 的静态画布快照，本地打开即可查看；媒体文件仍按相对路径读取 `library/`。
+- `library/graphs/*.creator-dag.json` 和 `*.creator-dag.html`：UP/作者级画布。
+- `library/distilled/*.topic-profile.md`：跨书籍/笔记/视频的主题聚合草稿。
 - `library/distilled/*.creator-profile.md`：创作者级聚合画像。
 - `library/skills/` 和 `library/checks/`：从 creator profile 生成、待人工 review 的 Agent 可加载资产。
 - `library/reflections/*.reflection.jsonl`：Agent 使用方法论后的复盘记录，用于后续修订 creator profile、skills 和 checks。

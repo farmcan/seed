@@ -157,8 +157,9 @@ def test_resolve_video_dag_artifacts_by_title(tmp_path):
     semantic = semantics / "法德欧洲大哥之争.video-semantics.md"
     timeline = timelines / "法德欧洲大哥之争.timeline.json"
     claim = claims / "法德欧洲大哥之争.claims.json"
+    verified_claim = claims / "法德欧洲大哥之争.verified.json"
     cost = costs / "法德欧洲大哥之争.cost.json"
-    for path in [video, audio, transcript, visual, semantic, timeline, claim, cost]:
+    for path in [video, audio, transcript, visual, semantic, timeline, claim, verified_claim, cost]:
         path.write_text("x", encoding="utf-8")
     frame_dir.mkdir()
 
@@ -175,7 +176,7 @@ def test_resolve_video_dag_artifacts_by_title(tmp_path):
         "visual_notes_path": visual,
         "semantics_path": semantic,
         "timeline_path": timeline,
-        "claims_path": claim,
+        "claims_path": verified_claim,
         "cost_path": cost,
         "creator_profile_path": None,
     }

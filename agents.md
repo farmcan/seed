@@ -38,8 +38,12 @@ run-creator-pipeline
 - CLI：`src/seed/cli.py`
 - 创作者视频列表：`src/seed/sources/creator_videos.py`
 - 创作者批量入库：`src/seed/creator_ingest.py`
+- 视频 pipeline：`src/seed/pipeline.py`
+- 创作者 pipeline：`src/seed/creator_pipeline.py`
 - ASR 分段转写：`src/seed/asr/chunked.py`
 - 成本计量：`src/seed/costs.py`
+- Claim verification：`src/seed/claim_verification.py`
+- 书籍/笔记：`src/seed/books.py`
 - Timeline artifact：`src/seed/timeline.py`
 - Fact-check claim：`src/seed/factcheck.py`
 - Agent 资产生成：`src/seed/agent_assets.py`
@@ -47,6 +51,7 @@ run-creator-pipeline
 - Codex 进程封装：`src/seed/agents/codex.py`
 - Markdown artifact 工具：`src/seed/markdown.py`
 - Video DAG 构建：`src/seed/graphs/video_dag.py`
+- Creator DAG 构建：`src/seed/graphs/creator_dag.py`
 - DAG 本地服务：`src/seed/dag_server.py`
 - DAG 静态导出：`src/seed/dag_export.py`
 - 画布 UI：`tools/video-dag-canvas.html`
@@ -155,9 +160,16 @@ git status -sb
 
 ```bash
 .venv/bin/seed --help
+.venv/bin/seed run-video-pipeline --help
+.venv/bin/seed run-creator-pipeline --help
 .venv/bin/seed build-video-dag --help
+.venv/bin/seed build-creator-dag --help
 .venv/bin/seed serve-video-dag --help
 .venv/bin/seed export-video-dag-html --help
+.venv/bin/seed verify-claims --help
+.venv/bin/seed import-book-note --help
+.venv/bin/seed analyze-book-note --help
+.venv/bin/seed aggregate-topic --help
 .venv/bin/seed generate-agent-assets --help
 .venv/bin/seed record-reflection --help
 .venv/bin/seed suggest-revisions --help
@@ -166,9 +178,8 @@ git status -sb
 
 ## 已知缺口
 
-- claim 状态还没有外部核验流程，目前只支持默认 `unverified`。
-- 还没有 `run-video-pipeline` 和 run manifest，端到端处理仍需要手动串命令。
-- 还没有 `run-creator-pipeline` 和 creator DAG，UP 主级总览仍不完整。
-- 非视频来源还没有接入 semantics 和聚合流程。
-- `build-video-dag` 可以按标题自动发现常见产物，但跨视频聚合后的复杂画布还没有自动生成。
+- `verify-claims` 当前只做 evidence source 记录和保守状态更新，还没有自动判断 supported/contradicted。
+- `run-creator-pipeline` 还没有成本预算上限。
+- Creator profile 的每个结论还没有强制回溯到具体 timestamp/keyframe/transcript chunk。
+- Agent 资产还没有 `draft/reviewed/installed` 状态流转。
 - HTML 画布是单文件原型，不是完整前端应用；复杂交互继续先保持单文件，但主布局必须继续依赖成熟布局库。

@@ -12,6 +12,7 @@ LIBRARY_DIRS = [
     "raw",
     "transcripts",
     "notes",
+    "runs",
     "semantics",
     "timelines",
     "claims",

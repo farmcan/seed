@@ -11,6 +11,7 @@ def test_init_library_creates_expected_dirs(tmp_path):
         "raw",
         "transcripts",
         "notes",
+        "runs",
         "semantics",
         "timelines",
         "claims",

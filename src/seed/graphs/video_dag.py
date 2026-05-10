@@ -290,7 +290,12 @@ def resolve_video_dag_artifacts(
         "timeline_path": timeline_path
         or find_matching_file(library_root / "timelines", title_slug=title_slug, suffixes={".json"}),
         "claims_path": claims_path
-        or find_matching_file(library_root / "claims", title_slug=title_slug, suffixes={".json"}),
+        or find_matching_file(
+            library_root / "claims",
+            title_slug=title_slug,
+            suffixes={".json"},
+            preferred_suffix=".verified",
+        ),
         "cost_path": cost_path
         or find_matching_file(library_root / "costs", title_slug=title_slug, suffixes={".json"}),
         "creator_profile_path": creator_profile_path,
@@ -303,7 +308,13 @@ def write_video_dag_graph(path: Path, graph: dict[str, Any]) -> Path:
     return path
 
 
-def find_matching_file(directory: Path, *, title_slug: str, suffixes: set[str]) -> Path | None:
+def find_matching_file(
+    directory: Path,
+    *,
+    title_slug: str,
+    suffixes: set[str],
+    preferred_suffix: str | None = None,
+) -> Path | None:
     if not directory.exists():
         return None
     candidates = [
@@ -313,6 +324,10 @@ def find_matching_file(directory: Path, *, title_slug: str, suffixes: set[str]) 
         and path.suffix.lower() in suffixes
         and title_slug in slugify(path.stem)
     ]
+    if preferred_suffix:
+        preferred = [path for path in candidates if path.stem.endswith(preferred_suffix)]
+        if preferred:
+            return max(preferred, key=lambda path: path.stat().st_mtime)
     return max(candidates, key=lambda path: path.stat().st_mtime, default=None)
 
 

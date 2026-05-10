@@ -20,7 +20,21 @@ from seed.asr.providers import (
 )
 from seed.agent_assets import build_agent_assets_from_creator_profile, write_agent_assets
 from seed.asr.chunked import transcribe_audio_with_optional_chunks
+from seed.books import (
+    book_note_output_path,
+    book_semantics_output_path,
+    topic_profile_output_path,
+    write_book_note,
+    write_book_semantics,
+    write_topic_profile,
+)
+from seed.claim_verification import (
+    build_verified_claims_artifact,
+    verified_claims_output_path,
+    write_verified_claims_artifact,
+)
 from seed.creator_ingest import ingest_creator_videos as ingest_creator_videos_from_list
+from seed.creator_pipeline import CreatorPipelineOptions, run_creator_pipeline
 from seed.dag_export import (
     export_video_dag_html,
     relative_asset_base,
@@ -34,6 +48,13 @@ from seed.graphs.video_dag import (
     video_dag_output_path,
     write_video_dag_graph,
 )
+from seed.graphs.creator_dag import (
+    build_creator_dag_graph,
+    creator_dag_html_output_path,
+    creator_dag_output_path,
+    find_creator_asset_paths,
+    write_creator_dag_graph,
+)
 from seed.library import (
     init_library,
     save_creator_video_list,
@@ -43,6 +64,7 @@ from seed.library import (
 )
 from seed.media import extract_audio
 from seed.models import Methodology, Platform, SourceRecord
+from seed.pipeline import VideoPipelineOptions, run_video_pipeline
 from seed.reflections import ReflectionRecord, append_reflection_record, write_revision_suggestions
 from seed.semantics.analyzer import (
     DEFAULT_VIDEO_SEMANTICS_SKILL_PATH,
@@ -236,6 +258,105 @@ def ingest_creator_videos(
             console.print(f"  error: {item.error}")
 
 
+@app.command("run-creator-pipeline")
+def run_creator_pipeline_cmd(
+    owner_name: Annotated[str, typer.Argument(help="Creator, UP, or author name to search.")],
+    platform: Annotated[Platform, typer.Option("--platform")],
+    limit: Annotated[int, typer.Option("--limit", min=1, max=50)] = 5,
+    start_index: Annotated[int, typer.Option("--start-index", min=1)] = 1,
+    authorized: Annotated[bool, typer.Option("--authorized")] = False,
+    download: Annotated[bool, typer.Option("--download/--no-download")] = True,
+    skip_existing: Annotated[bool, typer.Option("--skip-existing/--no-skip-existing")] = True,
+    keep_going: Annotated[bool, typer.Option("--keep-going/--stop-on-error")] = True,
+    max_height: Annotated[int, typer.Option("--max-height")] = 360,
+    max_filesize_mb: Annotated[int | None, typer.Option("--max-filesize-mb")] = 100,
+    cookies_from_browser: Annotated[str | None, typer.Option("--cookies-from-browser")] = None,
+    vision: Annotated[bool, typer.Option("--vision/--no-vision")] = True,
+    force: Annotated[bool, typer.Option("--force/--skip-existing")] = False,
+    root: Annotated[Path, typer.Option("--root")] = Path("library"),
+) -> None:
+    manifest, manifest_path = run_creator_pipeline(
+        CreatorPipelineOptions(
+            owner_name=owner_name,
+            platform=platform,
+            library_root=root,
+            limit=limit,
+            start_index=start_index,
+            authorized=authorized,
+            download=download,
+            skip_existing=skip_existing,
+            keep_going=keep_going,
+            max_height=max_height,
+            max_filesize_mb=max_filesize_mb,
+            cookies_from_browser=cookies_from_browser,
+            vision=vision,
+            force=force,
+        )
+    )
+    console.print(f"created creator pipeline manifest at {manifest_path}")
+    console.print(f"video runs: {len(manifest['video_runs'])}")
+
+
+@app.command("run-video-pipeline")
+def run_video_pipeline_cmd(
+    source: Annotated[str, typer.Argument(help="Video URL or local media path.")],
+    platform: Annotated[Platform | None, typer.Option("--platform")] = None,
+    owner: Annotated[str, typer.Option("--owner")] = "unknown",
+    title: Annotated[str | None, typer.Option("--title")] = None,
+    authorized: Annotated[bool, typer.Option("--authorized")] = False,
+    download: Annotated[bool, typer.Option("--download/--no-download")] = True,
+    force: Annotated[bool, typer.Option("--force/--skip-existing")] = False,
+    max_height: Annotated[int, typer.Option("--max-height")] = 360,
+    max_filesize_mb: Annotated[int | None, typer.Option("--max-filesize-mb")] = 100,
+    cookies_from_browser: Annotated[str | None, typer.Option("--cookies-from-browser")] = None,
+    asr_provider: Annotated[str, typer.Option("--asr-provider")] = DEFAULT_ASR_PROVIDER,
+    asr_model: Annotated[str | None, typer.Option("--asr-model")] = None,
+    language: Annotated[str | None, typer.Option("--language")] = None,
+    max_upload_mb: Annotated[int | None, typer.Option("--max-upload-mb")] = None,
+    chunk_audio: Annotated[bool, typer.Option("--chunk/--no-chunk")] = True,
+    chunk_seconds: Annotated[int | None, typer.Option("--chunk-seconds", min=60)] = None,
+    every_seconds: Annotated[int, typer.Option("--every-seconds", min=1)] = 5,
+    max_frames: Annotated[int, typer.Option("--max-frames", min=1)] = 12,
+    vision: Annotated[bool, typer.Option("--vision/--no-vision")] = True,
+    vision_model: Annotated[str, typer.Option("--vision-model")] = DEFAULT_QWEN_VL_MODEL,
+    codex_model: Annotated[str | None, typer.Option("--codex-model")] = None,
+    root: Annotated[Path, typer.Option("--root")] = Path("library"),
+) -> None:
+    context, manifest_path = run_video_pipeline(
+        VideoPipelineOptions(
+            source=source,
+            library_root=root,
+            platform=platform,
+            owner=owner,
+            title=title,
+            authorized=authorized,
+            download=download,
+            max_height=max_height,
+            max_filesize_mb=max_filesize_mb,
+            cookies_from_browser=cookies_from_browser,
+            asr_provider=asr_provider,
+            asr_model=asr_model,
+            language=language,
+            max_upload_mb=max_upload_mb,
+            chunk_audio=chunk_audio,
+            chunk_seconds=chunk_seconds,
+            every_seconds=every_seconds,
+            max_frames=max_frames,
+            vision=vision,
+            vision_model=vision_model,
+            codex_model=codex_model,
+            force=force,
+        )
+    )
+    console.print(f"created pipeline manifest at {manifest_path}")
+    if context.html_path:
+        console.print(f"created standalone video DAG HTML at {context.html_path}")
+    if context.semantics_path:
+        console.print(f"created video semantics at {context.semantics_path}")
+    if context.cost_path:
+        console.print(f"created cost report at {context.cost_path}")
+
+
 @app.command("distill-note")
 def distill_note(
     note_path: Annotated[Path, typer.Argument(help="Transcript or note markdown file.")],
@@ -255,6 +376,55 @@ def distill_note(
     )
     path = save_methodology(root, methodology)
     console.print(f"created draft methodology at {path}")
+
+
+@app.command("import-book-note")
+def import_book_note(
+    note_path: Annotated[Path, typer.Argument(help="Local markdown/text note path.")],
+    author: Annotated[str, typer.Option("--author")],
+    title: Annotated[str, typer.Option("--title")],
+    location: Annotated[str | None, typer.Option("--location")] = None,
+    root: Annotated[Path, typer.Option("--root")] = Path("library"),
+) -> None:
+    output_path = book_note_output_path(library_root=root, author=author, title=title)
+    write_book_note(
+        output_path,
+        source_path=note_path,
+        author=author,
+        title=title,
+        location=location,
+    )
+    console.print(f"created book note at {output_path}")
+
+
+@app.command("analyze-book-note")
+def analyze_book_note(
+    note_path: Annotated[Path, typer.Argument(help="Path to *.book-note.md or a note file.")],
+    author: Annotated[str, typer.Option("--author")],
+    title: Annotated[str, typer.Option("--title")],
+    topic: Annotated[str | None, typer.Option("--topic")] = None,
+    root: Annotated[Path, typer.Option("--root")] = Path("library"),
+) -> None:
+    output_path = book_semantics_output_path(library_root=root, author=author, title=title)
+    write_book_semantics(
+        output_path,
+        note_path=note_path,
+        author=author,
+        title=title,
+        topic=topic,
+    )
+    console.print(f"created book semantics at {output_path}")
+
+
+@app.command("aggregate-topic")
+def aggregate_topic(
+    semantics_paths: Annotated[list[Path], typer.Argument(help="Book/video semantics files.")],
+    topic: Annotated[str, typer.Option("--topic")],
+    root: Annotated[Path, typer.Option("--root")] = Path("library"),
+) -> None:
+    output_path = topic_profile_output_path(library_root=root, topic=topic)
+    write_topic_profile(output_path, topic=topic, semantics_paths=semantics_paths)
+    console.print(f"created topic profile at {output_path}")
 
 
 @app.command("transcribe-media")
@@ -495,6 +665,32 @@ def extract_claims(
     console.print(f"claims: {len(artifact['claims'])}")
 
 
+@app.command("verify-claims")
+def verify_claims(
+    claims_path: Annotated[Path, typer.Argument(help="Path to *.claims.json.")],
+    evidence_url: Annotated[
+        list[str] | None,
+        typer.Option("--evidence-url", help="External source URL to record for verification."),
+    ] = None,
+    fetch_sources: Annotated[bool, typer.Option("--fetch-sources/--no-fetch-sources")] = True,
+    title: Annotated[str | None, typer.Option("--title")] = None,
+    root: Annotated[Path, typer.Option("--root")] = Path("library"),
+) -> None:
+    artifact = build_verified_claims_artifact(
+        claims_path=claims_path,
+        evidence_urls=evidence_url or [],
+        fetch_sources=fetch_sources,
+    )
+    output_path = verified_claims_output_path(
+        library_root=root,
+        claims_path=claims_path,
+        title=title,
+    )
+    write_verified_claims_artifact(output_path, artifact)
+    console.print(f"created verified claims artifact at {output_path}")
+    console.print(f"claims: {len(artifact['claims'])}, sources: {len(artifact['sources'])}")
+
+
 @app.command("aggregate-owner")
 def aggregate_owner(
     owner: Annotated[str, typer.Option("--owner", help="Creator, UP, or author to aggregate.")],
@@ -536,6 +732,42 @@ def aggregate_owner(
     )
     console.print(f"aggregated {len(semantics_paths)} video semantics files")
     console.print(f"created {'prompt' if dry_run else 'creator profile'} at {output_path}")
+
+
+@app.command("build-creator-dag")
+def build_creator_dag(
+    owner: Annotated[str, typer.Option("--owner", help="Creator, UP, or author to graph.")],
+    semantics_dir: Annotated[Path | None, typer.Option("--semantics-dir")] = None,
+    creator_profile: Annotated[Path | None, typer.Option("--creator-profile")] = None,
+    export_html: Annotated[bool, typer.Option("--export-html/--no-export-html")] = True,
+    root: Annotated[Path, typer.Option("--root")] = Path("library"),
+) -> None:
+    semantics_paths = find_video_semantics_files(
+        library_root=root,
+        owner=owner,
+        semantics_dir=semantics_dir,
+    )
+    if not semantics_paths:
+        raise typer.BadParameter(f"No video semantics files found for owner: {owner}")
+    assets = find_creator_asset_paths(library_root=root, owner=owner)
+    graph = build_creator_dag_graph(
+        owner=owner,
+        semantics_paths=semantics_paths,
+        creator_profile_path=creator_profile or assets["creator_profile_path"],
+        skill_paths=assets["skill_paths"],
+        check_paths=assets["check_paths"],
+    )
+    output_path = creator_dag_output_path(library_root=root, owner=owner)
+    write_creator_dag_graph(output_path, graph)
+    console.print(f"created creator DAG graph at {output_path}")
+    if export_html:
+        html_path = creator_dag_html_output_path(graph_path=output_path)
+        export_video_dag_html(
+            graph_path=output_path,
+            output_path=html_path,
+            asset_base=relative_asset_base(output_path=html_path, repo_root=Path.cwd()),
+        )
+        console.print(f"created standalone creator DAG HTML at {html_path}")
 
 
 @app.command("generate-agent-assets")
@@ -642,9 +874,16 @@ def build_video_dag(
     )
     output_path = video_dag_output_path(library_root=root, title=title)
     write_video_dag_graph(output_path, graph)
+    html_path = video_dag_html_output_path(graph_path=output_path)
+    export_video_dag_html(
+        graph_path=output_path,
+        output_path=html_path,
+        asset_base=relative_asset_base(output_path=html_path, repo_root=Path.cwd()),
+    )
     graph_url = f"{(Path.cwd() / 'tools/video-dag-canvas.html').as_uri()}?graph={quote('../' + str(output_path))}"
     console.print(f"created video DAG graph at {output_path}")
-    console.print("open tools/video-dag-canvas.html and import the graph JSON")
+    console.print(f"created standalone video DAG HTML at {html_path}")
+    console.print("open the standalone HTML for review; use serve-video-dag only for debugging")
     console.print(f"graph URL: {graph_url}")
 
 
