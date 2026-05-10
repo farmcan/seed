@@ -12,6 +12,7 @@ def test_init_library_creates_expected_dirs(tmp_path):
         "transcripts",
         "notes",
         "semantics",
+        "timelines",
         "graphs",
         "distilled",
         "skills",

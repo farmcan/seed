@@ -42,6 +42,7 @@ from seed.summarizers.codex_runner import (
     run_codex_summary,
     summary_output_path,
 )
+from seed.timeline import build_timeline_artifact, timeline_output_path, write_timeline_artifact
 from seed.transcripts import transcript_output_path, write_transcript_markdown
 from seed.vision.frames import extract_frames, load_frame_paths
 from seed.vision.notes import visual_notes_output_path, write_visual_notes_markdown
@@ -395,6 +396,32 @@ def analyze_video_semantics(
         dry_run=dry_run,
     )
     console.print(f"created {'prompt' if dry_run else 'video semantics'} at {output_path}")
+
+
+@app.command("build-timeline")
+def build_timeline(
+    title: Annotated[str, typer.Option("--title", help="Video title for the timeline artifact.")],
+    transcript_path: Annotated[Path | None, typer.Option("--transcript")] = None,
+    frame_dir: Annotated[Path | None, typer.Option("--frames")] = None,
+    visual_notes: Annotated[Path | None, typer.Option("--visual-notes")] = None,
+    semantics_path: Annotated[Path | None, typer.Option("--semantics")] = None,
+    root: Annotated[Path, typer.Option("--root")] = Path("library"),
+) -> None:
+    artifact = build_timeline_artifact(
+        title=title,
+        transcript_path=transcript_path,
+        frame_dir=frame_dir,
+        visual_notes_path=visual_notes,
+        semantics_path=semantics_path,
+    )
+    output_path = timeline_output_path(
+        library_root=root,
+        title=title,
+        transcript_path=transcript_path,
+    )
+    write_timeline_artifact(output_path, artifact)
+    console.print(f"created timeline artifact at {output_path}")
+    console.print(f"events: {len(artifact['events'])}, uncertainties: {len(artifact['uncertainties'])}")
 
 
 @app.command("aggregate-owner")

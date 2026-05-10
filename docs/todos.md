@@ -4,9 +4,6 @@
 
 ## P0：让现有链路稳定
 
-- [ ] 正式生成 timeline artifact。
-  - 目标路径：`library/timelines/*.timeline.md` 或 `.json`。
-  - 内容：transcript chunk、关键帧时间点、广告段、论证阶段、CTA、不确定性。
 - [ ] 增强 Bilibili / 小红书下载可靠性。
   - cookies 配置更清楚。
   - 记录 fallback 是否被触发。
@@ -68,3 +65,4 @@
 - [x] 单文件 HTML 无限画布，支持导入 DAG JSON、预览视频/音频/截图。
 - [x] 创作者视频列表批量入库：`seed ingest-creator-videos` 支持选择前 N 条、跳过已入库 URL，并复用现有下载适配器。
 - [x] 长视频 ASR 分段：`seed transcribe-media` 默认在音频超过 provider 上传限制时自动切片、逐片转写、合并 transcript，并记录 `asr_chunks` 元数据。
+- [x] Timeline artifact：`seed build-timeline` 生成 `library/timelines/*.timeline.json`，包含 transcript chunk、关键帧、内容结构、广告候选和不确定性。

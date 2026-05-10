@@ -29,6 +29,7 @@ fetch-creator-videos
 - 创作者视频列表：`src/seed/sources/creator_videos.py`
 - 创作者批量入库：`src/seed/creator_ingest.py`
 - ASR 分段转写：`src/seed/asr/chunked.py`
+- Timeline artifact：`src/seed/timeline.py`
 - Codex 进程封装：`src/seed/agents/codex.py`
 - Markdown artifact 工具：`src/seed/markdown.py`
 - Video DAG 构建：`src/seed/graphs/video_dag.py`
@@ -45,6 +46,7 @@ fetch-creator-videos
 - 创作者视频列表发现也属于 `sources/`，输出 `library/notes/*.creator-videos.yaml`，不要直接混入 ASR、视觉分析或总结逻辑。
 - 创作者批量入库从 `*.creator-videos.yaml` 读取 URL，复用 `download_url` 和 `save_source_record`，不要复制单链接下载逻辑。
 - ASR 长音频分段在 `seed.asr.chunked`，不要在 CLI 或 provider 里重复实现切片与合并。
+- Timeline 生成在 `seed.timeline`，只做确定性抽取；无法定位具体时间时使用 `start_seconds: null`，不要伪造时间点。
 - 内容分析模块不要直接调用 `codex exec`，统一用 `seed.agents.codex.run_codex_prompt`。
 - 不要在多个地方手写 Markdown frontmatter 解析，统一用 `seed.markdown`。
 - 本地私有产物都放在 `library/`，默认不要提交。
@@ -81,6 +83,7 @@ library/transcripts/  ASR 或人工 transcript
 library/frames/       抽帧截图
 library/notes/        source record、creator video list、visual notes、quick summary
 library/semantics/    单条视频语义
+library/timelines/    视频时间线 JSON
 library/graphs/       画布 DAG JSON
 library/distilled/    creator profile 和方法论
 library/skills/       生成的 skills
@@ -107,7 +110,7 @@ git status -sb
 
 ## 已知缺口
 
-- timeline artifact 还没有正式生成；当前 DAG 只有 timeline 占位。
+- Timeline artifact 已生成，但当前 DAG 还没有展示真实 timeline 事件。
 - fact-check claim 还没有拆成独立记录。
 - `build-video-dag` 仍需要显式传入产物路径。
 - HTML 画布是单文件原型，不是完整前端应用。
