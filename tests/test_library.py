@@ -1,5 +1,7 @@
-from seed.library import init_library, save_methodology, slugify
-from seed.models import Methodology, Platform, SourceRecord
+import yaml
+
+from seed.library import init_library, save_creator_video_list, save_methodology, slugify
+from seed.models import CreatorVideo, CreatorVideoList, Methodology, Platform, SourceRecord
 
 
 def test_init_library_creates_expected_dirs(tmp_path):
@@ -45,3 +47,32 @@ def test_source_record_can_include_download_paths(tmp_path):
 
     assert record.raw_path == media_path
     assert record.metadata_path == metadata_path
+
+
+def test_save_creator_video_list(tmp_path):
+    path = save_creator_video_list(
+        tmp_path,
+        CreatorVideoList(
+            platform=Platform.bilibili,
+            owner_query="demo",
+            owner="demo",
+            owner_id="123",
+            owner_url="https://space.bilibili.com/123/video",
+            provider="test",
+            videos=[
+                CreatorVideo(
+                    platform=Platform.bilibili,
+                    owner="demo",
+                    owner_id="123",
+                    video_id="BV1xx411c7mD",
+                    title="Demo Video",
+                    url="https://www.bilibili.com/video/BV1xx411c7mD",
+                )
+            ],
+        ),
+    )
+
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    assert path.name == "bilibili-demo-creator-videos.creator-videos.yaml"
+    assert data["owner"] == "demo"
+    assert data["videos"][0]["video_id"] == "BV1xx411c7mD"

@@ -13,7 +13,8 @@ Seed 是本地优先的内容蒸馏系统，用来把授权视频、书籍、笔
 当前主链路：
 
 ```text
-ingest-url
+fetch-creator-videos
+  -> ingest-url
   -> transcribe-media
   -> extract-frames
   -> analyze-frames
@@ -25,6 +26,7 @@ ingest-url
 ## 重要文件
 
 - CLI：`src/seed/cli.py`
+- 创作者视频列表：`src/seed/sources/creator_videos.py`
 - Codex 进程封装：`src/seed/agents/codex.py`
 - Markdown artifact 工具：`src/seed/markdown.py`
 - Video DAG 构建：`src/seed/graphs/video_dag.py`
@@ -38,6 +40,7 @@ ingest-url
 
 - `cli.py` 只做参数接线、轻量校验和用户输出。
 - 平台下载逻辑只放在 `src/seed/sources/`。
+- 创作者视频列表发现也属于 `sources/`，输出 `library/notes/*.creator-videos.yaml`，不要直接混入 ASR、视觉分析或总结逻辑。
 - 内容分析模块不要直接调用 `codex exec`，统一用 `seed.agents.codex.run_codex_prompt`。
 - 不要在多个地方手写 Markdown frontmatter 解析，统一用 `seed.markdown`。
 - 本地私有产物都放在 `library/`，默认不要提交。
@@ -67,7 +70,7 @@ ingest-url
 library/raw/          原始视频、音频、metadata
 library/transcripts/  ASR 或人工 transcript
 library/frames/       抽帧截图
-library/notes/        source record、visual notes、quick summary
+library/notes/        source record、creator video list、visual notes、quick summary
 library/semantics/    单条视频语义
 library/graphs/       画布 DAG JSON
 library/distilled/    creator profile 和方法论

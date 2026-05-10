@@ -14,7 +14,13 @@ from seed.asr.providers import (
     transcribe_audio,
 )
 from seed.graphs.video_dag import build_video_dag_graph, video_dag_output_path, write_video_dag_graph
-from seed.library import init_library, save_methodology, save_source_record, slugify
+from seed.library import (
+    init_library,
+    save_creator_video_list,
+    save_methodology,
+    save_source_record,
+    slugify,
+)
 from seed.media import extract_audio, ensure_upload_size
 from seed.models import Methodology, Platform, SourceRecord
 from seed.semantics.analyzer import (
@@ -29,6 +35,7 @@ from seed.semantics.aggregator import (
     run_creator_profile_aggregation,
 )
 from seed.sources.yt_dlp_adapter import download_url
+from seed.sources.creator_videos import fetch_creator_video_list
 from seed.summarizers.codex_runner import (
     DEFAULT_SKILL_PATH,
     run_codex_summary,
@@ -108,6 +115,37 @@ def ingest_url(
         console.print(f"downloaded media at {result.raw_path}")
     if result and result.metadata_path:
         console.print(f"saved metadata at {result.metadata_path}")
+
+
+@app.command("fetch-creator-videos")
+def fetch_creator_videos(
+    owner_name: Annotated[str, typer.Argument(help="Creator, UP, or author name to search.")],
+    platform: Annotated[Platform, typer.Option("--platform")],
+    limit: Annotated[int, typer.Option("--limit", min=1, max=50)] = 20,
+    cookies_from_browser: Annotated[
+        str | None,
+        typer.Option(
+            "--cookies-from-browser",
+            help="Explicitly load cookies from a browser such as chrome, safari, or firefox.",
+        ),
+    ] = None,
+    root: Annotated[Path, typer.Option("--root")] = Path("library"),
+) -> None:
+    video_list = fetch_creator_video_list(
+        platform=platform,
+        owner_name=owner_name,
+        limit=limit,
+        cookies_from_browser=cookies_from_browser,
+    )
+    path = save_creator_video_list(root, video_list)
+    console.print(f"found creator: {video_list.owner} ({video_list.owner_id or 'unknown id'})")
+    console.print(f"collected {len(video_list.videos)} video candidates via {video_list.provider}")
+    console.print(f"saved creator video list at {path}")
+    if video_list.owner_url:
+        console.print(f"creator URL: {video_list.owner_url}")
+    for video in video_list.videos[:5]:
+        title = video.title or video.video_id or video.url
+        console.print(f"- {title}: {video.url}")
 
 
 @app.command("distill-note")

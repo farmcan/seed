@@ -28,6 +28,7 @@ URL / book / note
 | 模块 | CLI | 主要代码 | 主要产物 |
 | --- | --- | --- | --- |
 | 来源采集 | `seed ingest-url` | `src/seed/sources/`, `src/seed/library.py` | `library/raw/*`, `library/notes/*.source.yaml` |
+| 创作者视频列表 | `seed fetch-creator-videos` | `src/seed/sources/creator_videos.py`, `src/seed/library.py` | `library/notes/*.creator-videos.yaml` |
 | ASR 转写 | `seed transcribe-media` | `src/seed/media.py`, `src/seed/asr/`, `src/seed/transcripts.py` | `library/raw/*.asr.mp3`, `library/transcripts/*.transcript.md` |
 | 视觉语言 | `seed extract-frames`, `seed analyze-frames` | `src/seed/vision/` | `library/frames/*`, `library/notes/*.visual.md` |
 | 快速总结 | `seed summarize-transcript` | `src/seed/summarizers/` | `library/notes/*.summary.md` |
@@ -40,6 +41,7 @@ URL / book / note
 ## 模块边界
 
 - `sources/`：平台采集适配器。只关心 URL、授权、下载、metadata，不做内容理解。
+- `sources/creator_videos.py`：按平台和创作者名称发现视频列表。Bilibili 优先复用 `yt-dlp` 的 UP 空间 extractor，并保留 WBI API fallback；小红书先输出搜索候选，后续再替换成稳定登录态 provider。
 - `asr/` 和 `media.py`：音频抽取和线上 ASR provider。只产出 transcript。
 - `vision/`：抽帧、Qwen-VL 调用和 visual notes。只描述画面证据，不负责最终方法论。
 - `summarizers/`：单条 transcript 的轻量总结，适合作为人工快速预览。
@@ -57,6 +59,7 @@ URL / book / note
 - `library/frames/`：抽样关键帧。
 - `library/notes/*.visual.md`：视觉语言，来自 VL 模型。
 - `library/notes/*.summary.md`：快速摘要，不作为长期聚合主数据。
+- `library/notes/*.creator-videos.yaml`：创作者视频列表，作为后续批量下载、批量分析和 UP 级聚合的入口。
 - `library/semantics/*.video-semantics.md`：单条视频语义，是后续聚合的主数据。
 - `library/graphs/*.video-dag.json`：视频分析链路的可视化图谱，可由 `tools/video-dag-canvas.html` 直接展示。
 - `library/distilled/*.creator-profile.md`：创作者级聚合画像。

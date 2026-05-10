@@ -5,7 +5,7 @@ from pathlib import Path
 
 import yaml
 
-from seed.models import Methodology, SourceRecord
+from seed.models import CreatorVideoList, Methodology, SourceRecord
 
 
 LIBRARY_DIRS = [
@@ -42,6 +42,19 @@ def save_source_record(root: Path, record: SourceRecord) -> Path:
     path = root / "notes" / f"{filename}.source.yaml"
     path.write_text(
         yaml.safe_dump(record.model_dump(mode="json"), allow_unicode=True, sort_keys=False),
+        encoding="utf-8",
+    )
+    return path
+
+
+def save_creator_video_list(root: Path, video_list: CreatorVideoList) -> Path:
+    init_library(root)
+    filename = slugify(
+        "-".join([video_list.platform.value, video_list.owner, "creator-videos"])
+    )
+    path = root / "notes" / f"{filename}.creator-videos.yaml"
+    path.write_text(
+        yaml.safe_dump(video_list.model_dump(mode="json"), allow_unicode=True, sort_keys=False),
         encoding="utf-8",
     )
     return path

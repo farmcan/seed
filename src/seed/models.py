@@ -35,6 +35,31 @@ class DownloadResult(BaseModel):
     metadata_path: Path | None = None
 
 
+class CreatorVideo(BaseModel):
+    platform: Platform
+    owner: str
+    owner_id: str | None = None
+    video_id: str | None = None
+    title: str | None = None
+    url: str
+    published_at: datetime | None = None
+    duration_seconds: int | None = None
+    metrics: dict[str, int | float | str | None] = Field(default_factory=dict)
+    metadata: dict[str, int | float | str | bool | None] = Field(default_factory=dict)
+
+
+class CreatorVideoList(BaseModel):
+    platform: Platform
+    owner_query: str
+    owner: str
+    owner_id: str | None = None
+    owner_url: str | None = None
+    provider: str
+    videos: list[CreatorVideo] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
 class Methodology(BaseModel):
     id: str
     title: str
