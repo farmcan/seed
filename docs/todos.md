@@ -4,10 +4,7 @@
 
 ## P0：让现有链路稳定
 
-- [ ] 增强 Bilibili / 小红书下载可靠性。
-  - cookies 配置更清楚。
-  - 记录 fallback 是否被触发。
-  - 平台易碎逻辑继续隔离在 `sources/`。
+当前 P0 已清空。下一步优先进入 P1，把已经生成的 timeline、自动发现和 fact-check 节点接入 DAG。
 
 ## P1：加强证据 DAG
 
@@ -66,3 +63,4 @@
 - [x] 创作者视频列表批量入库：`seed ingest-creator-videos` 支持选择前 N 条、跳过已入库 URL，并复用现有下载适配器。
 - [x] 长视频 ASR 分段：`seed transcribe-media` 默认在音频超过 provider 上传限制时自动切片、逐片转写、合并 transcript，并记录 `asr_chunks` 元数据。
 - [x] Timeline artifact：`seed build-timeline` 生成 `library/timelines/*.timeline.json`，包含 transcript chunk、关键帧、内容结构、广告候选和不确定性。
+- [x] 下载可靠性记录：source record 会保存 `download_provider`、`fallback_used` 和 `download_notes`；下载失败时提示平台 cookies 配置。

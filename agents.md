@@ -43,6 +43,7 @@ fetch-creator-videos
 
 - `cli.py` 只做参数接线、轻量校验和用户输出。
 - 平台下载逻辑只放在 `src/seed/sources/`。
+- 下载相关 source record 必须保留 `download_provider`、`fallback_used` 和 `download_notes`，方便定位 cookies、风控和 fallback 问题。
 - 创作者视频列表发现也属于 `sources/`，输出 `library/notes/*.creator-videos.yaml`，不要直接混入 ASR、视觉分析或总结逻辑。
 - 创作者批量入库从 `*.creator-videos.yaml` 读取 URL，复用 `download_url` 和 `save_source_record`，不要复制单链接下载逻辑。
 - ASR 长音频分段在 `seed.asr.chunked`，不要在 CLI 或 provider 里重复实现切片与合并。

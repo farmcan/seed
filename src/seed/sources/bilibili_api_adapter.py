@@ -93,6 +93,7 @@ def download_bilibili_via_api(
         webpage_url=page_url,
         raw_path=media_path,
         metadata_path=metadata_path,
+        provider="bilibili-api",
     )
 
 

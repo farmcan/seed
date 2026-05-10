@@ -66,6 +66,9 @@ def ingest_creator_videos(
                 authorized=authorized,
                 raw_path=download_result.raw_path if download_result else None,
                 metadata_path=download_result.metadata_path if download_result else None,
+                download_provider=download_result.provider if download_result else None,
+                fallback_used=download_result.fallback_used if download_result else False,
+                download_notes=download_result.notes if download_result else [],
             )
             source_record_path = save_source_record(library_root, record)
             existing_urls.add(normalized_url)

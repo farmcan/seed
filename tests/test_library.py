@@ -44,10 +44,16 @@ def test_source_record_can_include_download_paths(tmp_path):
         authorized=True,
         raw_path=media_path,
         metadata_path=metadata_path,
+        download_provider="yt-dlp",
+        fallback_used=True,
+        download_notes=["used fallback"],
     )
 
     assert record.raw_path == media_path
     assert record.metadata_path == metadata_path
+    assert record.download_provider == "yt-dlp"
+    assert record.fallback_used
+    assert record.download_notes == ["used fallback"]
 
 
 def test_save_creator_video_list(tmp_path):

@@ -42,7 +42,7 @@ URL / book / note
 
 ## 模块边界
 
-- `sources/`：平台采集适配器。只关心 URL、授权、下载、metadata，不做内容理解。
+- `sources/`：平台采集适配器。只关心 URL、授权、下载、metadata，不做内容理解；下载结果需要记录 provider、fallback 和 cookies 相关诊断。
 - `sources/creator_videos.py`：按平台和创作者名称发现视频列表。Bilibili 优先复用 `yt-dlp` 的 UP 空间 extractor，并保留 WBI API fallback；小红书先输出搜索候选，后续再替换成稳定登录态 provider。
 - `creator_ingest.py`：读取 `*.creator-videos.yaml`，按起始位置和数量选择视频，跳过已入库 URL，并复用现有下载适配器与 source record 写入。
 - `asr/` 和 `media.py`：音频抽取、超限音频分片和线上 ASR provider。只产出 transcript；长音频 transcript 会在 frontmatter 记录 `asr_chunks`。
@@ -63,6 +63,7 @@ URL / book / note
 - `library/transcripts/`：文字语言，来自 ASR 或人工整理。
 - `library/frames/`：抽样关键帧。
 - `library/notes/*.visual.md`：视觉语言，来自 VL 模型。
+- `library/notes/*.source.yaml`：单条来源记录，包含原始 URL、下载路径、metadata 路径、下载 provider、fallback 状态和下载诊断。
 - `library/notes/*.summary.md`：快速摘要，不作为长期聚合主数据。
 - `library/notes/*.creator-videos.yaml`：创作者视频列表，作为后续批量下载、批量分析和 UP 级聚合的入口。
 - `library/semantics/*.video-semantics.md`：单条视频语义，是后续聚合的主数据。

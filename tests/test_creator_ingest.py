@@ -118,6 +118,9 @@ def test_ingest_creator_videos_downloads_and_saves_record(tmp_path, monkeypatch)
             owner="downloaded-owner",
             raw_path=media_path,
             metadata_path=metadata_path,
+            provider="bilibili-api",
+            fallback_used=True,
+            notes=["fallback used"],
         )
 
     monkeypatch.setattr("seed.creator_ingest.download_url", fake_download_url)
@@ -136,3 +139,6 @@ def test_ingest_creator_videos_downloads_and_saves_record(tmp_path, monkeypatch)
     record_text = result.items[0].source_record_path.read_text(encoding="utf-8")
     assert "Downloaded Title" in record_text
     assert "downloaded-owner" in record_text
+    assert "download_provider: bilibili-api" in record_text
+    assert "fallback_used: true" in record_text
+    assert "fallback used" in record_text

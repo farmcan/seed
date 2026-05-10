@@ -110,6 +110,9 @@ def ingest_url(
         authorized=authorized,
         raw_path=result.raw_path if result else None,
         metadata_path=result.metadata_path if result else None,
+        download_provider=result.provider if result else None,
+        fallback_used=result.fallback_used if result else False,
+        download_notes=result.notes if result else [],
     )
     path = save_source_record(root, record)
     console.print(f"recorded source at {path}")
@@ -117,6 +120,11 @@ def ingest_url(
         console.print(f"downloaded media at {result.raw_path}")
     if result and result.metadata_path:
         console.print(f"saved metadata at {result.metadata_path}")
+    if result and result.fallback_used:
+        console.print("download fallback was used")
+    if result and result.notes:
+        for note in result.notes:
+            console.print(f"download note: {note}")
 
 
 @app.command("fetch-creator-videos")

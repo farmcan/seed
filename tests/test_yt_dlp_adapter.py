@@ -1,5 +1,5 @@
 from seed.models import Platform
-from seed.sources.yt_dlp_adapter import _build_download_options
+from seed.sources.yt_dlp_adapter import _build_download_options, cookies_help_for_platform
 
 
 def test_yt_dlp_outtmpl_is_relative_to_raw_dir(tmp_path):
@@ -13,3 +13,11 @@ def test_yt_dlp_outtmpl_is_relative_to_raw_dir(tmp_path):
 
     assert options["paths"]["home"] == str(tmp_path / "raw")
     assert not options["outtmpl"].startswith(str(tmp_path))
+
+
+def test_cookies_help_for_platform_mentions_env_and_browser():
+    help_text = cookies_help_for_platform(Platform.bilibili)
+
+    assert help_text is not None
+    assert "BILIBILI_COOKIES_FILE" in help_text
+    assert "--cookies-from-browser" in help_text

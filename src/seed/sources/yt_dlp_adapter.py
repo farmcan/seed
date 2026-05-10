@@ -16,6 +16,16 @@ COOKIES_ENV_BY_PLATFORM = {
 }
 
 
+def cookies_help_for_platform(platform: Platform) -> str | None:
+    cookies_env = COOKIES_ENV_BY_PLATFORM.get(platform)
+    if not cookies_env:
+        return None
+    return (
+        f"Set {cookies_env} to a Netscape cookies file or pass "
+        "--cookies-from-browser chrome/safari/firefox."
+    )
+
+
 def download_url(
     url: str,
     *,
@@ -45,15 +55,22 @@ def download_url(
     try:
         with YoutubeDL(options) as ydl:
             info = ydl.extract_info(url, download=True)
-    except DownloadError:
+    except DownloadError as error:
         if platform != Platform.bilibili:
-            raise
-        return download_bilibili_via_api(
+            hint = cookies_help_for_platform(platform)
+            message = f"yt-dlp failed for {platform}: {error}"
+            if hint:
+                message = f"{message}. {hint}"
+            raise RuntimeError(message) from error
+        result = download_bilibili_via_api(
             url,
             library_root=library_root,
             max_height=max_height,
             max_filesize_mb=max_filesize_mb,
         )
+        result.fallback_used = True
+        result.notes.append(f"yt-dlp failed, used Bilibili API fallback: {error}")
+        return result
 
     raw_path = _select_media_path(downloaded_files, raw_dir)
     metadata_path = _select_metadata_path(raw_path, raw_dir)
@@ -64,6 +81,8 @@ def download_url(
         webpage_url=info.get("webpage_url") or url,
         raw_path=raw_path,
         metadata_path=metadata_path,
+        provider="yt-dlp",
+        fallback_used=False,
     )
 
 

@@ -24,6 +24,9 @@ class SourceRecord(BaseModel):
     raw_path: Path | None = None
     metadata_path: Path | None = None
     transcript_path: Path | None = None
+    download_provider: str | None = None
+    fallback_used: bool = False
+    download_notes: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
@@ -33,6 +36,9 @@ class DownloadResult(BaseModel):
     webpage_url: str | None = None
     raw_path: Path | None = None
     metadata_path: Path | None = None
+    provider: str | None = None
+    fallback_used: bool = False
+    notes: list[str] = Field(default_factory=list)
 
 
 class CreatorVideo(BaseModel):
