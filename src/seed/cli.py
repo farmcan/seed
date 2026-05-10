@@ -20,6 +20,12 @@ from seed.semantics.analyzer import (
     run_video_semantics_analysis,
     video_semantics_output_path,
 )
+from seed.semantics.aggregator import (
+    DEFAULT_CREATOR_PROFILE_SKILL_PATH,
+    creator_profile_output_path,
+    find_video_semantics_files,
+    run_creator_profile_aggregation,
+)
 from seed.sources.yt_dlp_adapter import download_url
 from seed.summarizers.codex_runner import (
     DEFAULT_SKILL_PATH,
@@ -282,3 +288,41 @@ def analyze_video_semantics(
         dry_run=dry_run,
     )
     console.print(f"created {'prompt' if dry_run else 'video semantics'} at {output_path}")
+
+
+@app.command("aggregate-owner")
+def aggregate_owner(
+    owner: Annotated[str, typer.Option("--owner", help="Creator, UP, or author to aggregate.")],
+    platform: Annotated[str | None, typer.Option("--platform")] = None,
+    semantics_dir: Annotated[
+        Path | None,
+        typer.Option("--semantics-dir", help="Override directory containing *.video-semantics.md."),
+    ] = None,
+    skill_path: Annotated[Path, typer.Option("--skill-path")] = DEFAULT_CREATOR_PROFILE_SKILL_PATH,
+    codex_model: Annotated[str | None, typer.Option("--codex-model")] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
+    root: Annotated[Path, typer.Option("--root")] = Path("library"),
+) -> None:
+    semantics_paths = find_video_semantics_files(
+        library_root=root,
+        owner=owner,
+        semantics_dir=semantics_dir,
+    )
+    if not semantics_paths:
+        raise typer.BadParameter(f"No video semantics files found for owner: {owner}")
+
+    output_path = creator_profile_output_path(library_root=root, owner=owner)
+    if dry_run:
+        output_path = output_path.with_suffix(".prompt.md")
+    run_creator_profile_aggregation(
+        semantics_paths=semantics_paths,
+        output_path=output_path,
+        skill_path=skill_path,
+        owner=owner,
+        platform=platform,
+        model=codex_model,
+        cwd=Path.cwd(),
+        dry_run=dry_run,
+    )
+    console.print(f"aggregated {len(semantics_paths)} video semantics files")
+    console.print(f"created {'prompt' if dry_run else 'creator profile'} at {output_path}")
