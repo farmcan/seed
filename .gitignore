@@ -14,6 +14,7 @@ library/raw/*
 library/frames/*
 library/transcripts/*
 library/notes/*
+library/semantics/*
 library/distilled/*
 library/skills/*
 library/checks/*

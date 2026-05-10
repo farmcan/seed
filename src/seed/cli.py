@@ -15,6 +15,11 @@ from seed.asr.providers import (
 from seed.library import init_library, save_methodology, save_source_record, slugify
 from seed.media import extract_audio, ensure_upload_size
 from seed.models import Methodology, Platform, SourceRecord
+from seed.semantics.analyzer import (
+    DEFAULT_VIDEO_SEMANTICS_SKILL_PATH,
+    run_video_semantics_analysis,
+    video_semantics_output_path,
+)
 from seed.sources.yt_dlp_adapter import download_url
 from seed.summarizers.codex_runner import (
     DEFAULT_SKILL_PATH,
@@ -240,3 +245,40 @@ def summarize_transcript(
         dry_run=dry_run,
     )
     console.print(f"created {'prompt' if dry_run else 'summary'} at {output_path}")
+
+
+@app.command("analyze-video-semantics")
+def analyze_video_semantics(
+    transcript_path: Annotated[Path, typer.Argument(help="Transcript markdown file.")],
+    visual_notes: Annotated[
+        Path | None,
+        typer.Option("--visual-notes", help="Optional visual notes markdown from analyze-frames."),
+    ] = None,
+    title: Annotated[str | None, typer.Option("--title")] = None,
+    owner: Annotated[str | None, typer.Option("--owner")] = None,
+    platform: Annotated[str | None, typer.Option("--platform")] = None,
+    skill_path: Annotated[Path, typer.Option("--skill-path")] = DEFAULT_VIDEO_SEMANTICS_SKILL_PATH,
+    codex_model: Annotated[str | None, typer.Option("--codex-model")] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
+    root: Annotated[Path, typer.Option("--root")] = Path("library"),
+) -> None:
+    output_path = video_semantics_output_path(
+        library_root=root,
+        transcript_path=transcript_path,
+        title=title,
+    )
+    if dry_run:
+        output_path = output_path.with_suffix(".prompt.md")
+    run_video_semantics_analysis(
+        transcript_path=transcript_path,
+        output_path=output_path,
+        skill_path=skill_path,
+        visual_notes_path=visual_notes,
+        title=title,
+        owner=owner,
+        platform=platform,
+        model=codex_model,
+        cwd=Path.cwd(),
+        dry_run=dry_run,
+    )
+    console.print(f"created {'prompt' if dry_run else 'video semantics'} at {output_path}")

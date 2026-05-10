@@ -25,6 +25,7 @@ library/              本地私有知识库，默认不提交内容
   raw/                原始下载或导入素材
   transcripts/        转写文本
   notes/              人工或模型整理笔记
+  semantics/          融合口播和视觉语言的视频语义
   distilled/          UP/作者/主题总结
   skills/             Agent 可读取的 skills
   checks/             事前检查清单
@@ -46,12 +47,15 @@ seed extract-frames library/raw/example.mp4 --every-seconds 5 --max-frames 12
 seed analyze-frames library/frames/example --title "example" --model qwen-vl-max
 seed summarize-transcript library/transcripts/example.transcript.md --title "example" --platform bilibili
 seed summarize-transcript library/transcripts/example.transcript.md --title "example" --platform bilibili --visual-notes library/notes/example.visual.md
+seed analyze-video-semantics library/transcripts/example.transcript.md --title "example" --owner "some-up" --platform bilibili --visual-notes library/notes/example.visual.md
 seed distill-note library/transcripts/example.md --owner "some-up" --topic "增长方法论"
 ```
 
 `ingest-url` 默认不下载视频，只记录来源。需要下载时显式传入 `--download`，并确保你对内容保存和分析有合法授权。下载文件会进入 `library/raw/`，同名 `.info.json` 保存平台元数据。Bilibili 优先使用 `yt-dlp`；如果网页层被 412 拦截，会回退到公开 playurl API，并用 `ffmpeg` 合成低清晰度 mp4。小红书优先使用 `yt-dlp` 内置的 `XiaoHongShu` extractor；如果公开页面拿不到格式，可以传入新鲜分享链接、`XIAOHONGSHU_COOKIES_FILE`，或显式使用 `--cookies-from-browser`。
 
 ASR 默认使用 DashScope/Qwen，模型为 `qwen3-asr-flash`，需要先配置 `DASHSCOPE_API_KEY` 或 `QWEN_API_KEY`。也可以传 `--provider openai --model gpt-4o-mini-transcribe` 使用 OpenAI。转写前会用 `ffmpeg` 抽取 16 kHz 单声道 MP3，兼容 DashScope 和 OpenAI。`--prompt` 只在需要术语表或上下文偏置时显式传入。需要视觉分析时，先用 `extract-frames` 抽帧，再用 `analyze-frames --model qwen-vl-max` 生成视觉笔记；总结时传入 `--visual-notes` 合并画面信息。总结阶段通过 `codex exec` 非交互进程读取 transcript 和 `skills/video-note-summarizer/SKILL.md`，输出 Markdown 到 `library/notes/`。
+
+视频语义阶段通过 `analyze-video-semantics` 融合口播语言和视觉语言，读取 transcript、visual notes 和 `skills/video-semantics-analyzer/SKILL.md`，输出 Markdown 到 `library/semantics/`。这个文件是后续按 UP 主聚合、抽取爆款结构、沉淀 Agent skills 和 pre-check 的稳定中间层。
 
 ## 未来路线
 
