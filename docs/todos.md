@@ -4,9 +4,6 @@
 
 ## P0：让现有链路稳定
 
-- [ ] 内置长视频 ASR 分段。
-  - 现状：DashScope 短音频链路可用，但长音频可能报 `audio is too long`。
-  - 目标：`seed transcribe-media` 自动切分、转写、合并，并记录 chunk 元数据。
 - [ ] 正式生成 timeline artifact。
   - 目标路径：`library/timelines/*.timeline.md` 或 `.json`。
   - 内容：transcript chunk、关键帧时间点、广告段、论证阶段、CTA、不确定性。
@@ -70,3 +67,4 @@
 - [x] Video DAG graph artifact。
 - [x] 单文件 HTML 无限画布，支持导入 DAG JSON、预览视频/音频/截图。
 - [x] 创作者视频列表批量入库：`seed ingest-creator-videos` 支持选择前 N 条、跳过已入库 URL，并复用现有下载适配器。
+- [x] 长视频 ASR 分段：`seed transcribe-media` 默认在音频超过 provider 上传限制时自动切片、逐片转写、合并 transcript，并记录 `asr_chunks` 元数据。

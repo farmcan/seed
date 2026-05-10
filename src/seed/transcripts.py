@@ -30,6 +30,7 @@ def write_transcript_markdown(
     model: str,
     title: str | None = None,
     language: str | None = None,
+    chunks: list[dict[str, object]] | None = None,
 ) -> Path:
     metadata = {
         "title": title or media_path.stem,
@@ -40,6 +41,8 @@ def write_transcript_markdown(
         "language": language,
         "created_at": datetime.now(UTC).isoformat(),
     }
+    if chunks:
+        metadata["asr_chunks"] = chunks
     body = [
         "---",
         yaml.safe_dump(metadata, allow_unicode=True, sort_keys=False).strip(),

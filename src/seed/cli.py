@@ -11,8 +11,8 @@ from seed.asr.providers import (
     DEFAULT_ASR_PROVIDER,
     default_max_upload_mb_for_provider,
     default_model_for_provider,
-    transcribe_audio,
 )
+from seed.asr.chunked import transcribe_audio_with_optional_chunks
 from seed.creator_ingest import ingest_creator_videos as ingest_creator_videos_from_list
 from seed.graphs.video_dag import build_video_dag_graph, video_dag_output_path, write_video_dag_graph
 from seed.library import (
@@ -22,7 +22,7 @@ from seed.library import (
     save_source_record,
     slugify,
 )
-from seed.media import extract_audio, ensure_upload_size
+from seed.media import extract_audio
 from seed.models import Methodology, Platform, SourceRecord
 from seed.semantics.analyzer import (
     DEFAULT_VIDEO_SEMANTICS_SKILL_PATH,
@@ -235,18 +235,25 @@ def transcribe_media(
     title: Annotated[str | None, typer.Option("--title")] = None,
     prompt: Annotated[str | None, typer.Option("--prompt")] = None,
     max_upload_mb: Annotated[int | None, typer.Option("--max-upload-mb")] = None,
+    chunk_audio: Annotated[bool, typer.Option("--chunk/--no-chunk")] = True,
+    chunk_seconds: Annotated[
+        int | None,
+        typer.Option("--chunk-seconds", min=60, help="Override ASR chunk duration."),
+    ] = None,
     root: Annotated[Path, typer.Option("--root")] = Path("library"),
 ) -> None:
     resolved_model = model or default_model_for_provider(provider)
     resolved_max_upload_mb = max_upload_mb or default_max_upload_mb_for_provider(provider)
     audio_path = extract_audio(media_path, root)
-    ensure_upload_size(audio_path, max_upload_mb=resolved_max_upload_mb)
-    text = transcribe_audio(
+    text, chunks = transcribe_audio_with_optional_chunks(
         audio_path,
         provider=provider,
         model=resolved_model,
         language=language,
         prompt=prompt,
+        max_upload_mb=resolved_max_upload_mb,
+        chunk_audio=chunk_audio,
+        chunk_seconds=chunk_seconds,
     )
     output_path = transcript_output_path(library_root=root, media_path=media_path, title=title)
     write_transcript_markdown(
@@ -258,8 +265,11 @@ def transcribe_media(
         model=resolved_model,
         title=title,
         language=language,
+        chunks=chunks,
     )
     console.print(f"extracted audio at {audio_path}")
+    if chunks:
+        console.print(f"transcribed {len(chunks)} audio chunks")
     console.print(f"created transcript at {output_path}")
 
 

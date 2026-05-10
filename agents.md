@@ -28,6 +28,7 @@ fetch-creator-videos
 - CLI：`src/seed/cli.py`
 - 创作者视频列表：`src/seed/sources/creator_videos.py`
 - 创作者批量入库：`src/seed/creator_ingest.py`
+- ASR 分段转写：`src/seed/asr/chunked.py`
 - Codex 进程封装：`src/seed/agents/codex.py`
 - Markdown artifact 工具：`src/seed/markdown.py`
 - Video DAG 构建：`src/seed/graphs/video_dag.py`
@@ -43,6 +44,7 @@ fetch-creator-videos
 - 平台下载逻辑只放在 `src/seed/sources/`。
 - 创作者视频列表发现也属于 `sources/`，输出 `library/notes/*.creator-videos.yaml`，不要直接混入 ASR、视觉分析或总结逻辑。
 - 创作者批量入库从 `*.creator-videos.yaml` 读取 URL，复用 `download_url` 和 `save_source_record`，不要复制单链接下载逻辑。
+- ASR 长音频分段在 `seed.asr.chunked`，不要在 CLI 或 provider 里重复实现切片与合并。
 - 内容分析模块不要直接调用 `codex exec`，统一用 `seed.agents.codex.run_codex_prompt`。
 - 不要在多个地方手写 Markdown frontmatter 解析，统一用 `seed.markdown`。
 - 本地私有产物都放在 `library/`，默认不要提交。
@@ -74,6 +76,7 @@ fetch-creator-videos
 
 ```text
 library/raw/          原始视频、音频、metadata
+library/raw/*.chunks/ ASR 分片音频
 library/transcripts/  ASR 或人工 transcript
 library/frames/       抽帧截图
 library/notes/        source record、creator video list、visual notes、quick summary
@@ -104,7 +107,6 @@ git status -sb
 
 ## 已知缺口
 
-- `seed transcribe-media` 还没有内置长视频 ASR 分段。
 - timeline artifact 还没有正式生成；当前 DAG 只有 timeline 占位。
 - fact-check claim 还没有拆成独立记录。
 - `build-video-dag` 仍需要显式传入产物路径。
