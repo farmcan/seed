@@ -8,11 +8,6 @@
 
 ## P1：加强证据 DAG
 
-- [ ] `build-video-dag` 支持按标题或 source id 自动发现产物。
-  - 现状：需要显式传 source、transcript、frames、visual notes、semantics。
-  - 目标：`seed build-video-dag --title "..."` 自动找齐本地文件。
-- [ ] timeline artifact 完成后，DAG 展示真实时间段。
-  - 当前：只有 timeline 占位节点。
 - [ ] 抽取 fact-check claim 节点。
   - 从 `video-semantics.md` 拆出待核验声明。
   - 状态至少包括：未核验、已核验、相互矛盾。
@@ -64,3 +59,5 @@
 - [x] 长视频 ASR 分段：`seed transcribe-media` 默认在音频超过 provider 上传限制时自动切片、逐片转写、合并 transcript，并记录 `asr_chunks` 元数据。
 - [x] Timeline artifact：`seed build-timeline` 生成 `library/timelines/*.timeline.json`，包含 transcript chunk、关键帧、内容结构、广告候选和不确定性。
 - [x] 下载可靠性记录：source record 会保存 `download_provider`、`fallback_used` 和 `download_notes`；下载失败时提示平台 cookies 配置。
+- [x] DAG 自动发现：`seed build-video-dag --title "..."` 会自动找齐本地 raw、audio、transcript、frames、visual notes、semantics 和 timeline。
+- [x] DAG timeline 展示：video DAG 会读取 timeline artifact，并生成 timeline event 子节点。

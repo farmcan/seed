@@ -14,7 +14,12 @@ from seed.asr.providers import (
 )
 from seed.asr.chunked import transcribe_audio_with_optional_chunks
 from seed.creator_ingest import ingest_creator_videos as ingest_creator_videos_from_list
-from seed.graphs.video_dag import build_video_dag_graph, video_dag_output_path, write_video_dag_graph
+from seed.graphs.video_dag import (
+    build_video_dag_graph,
+    resolve_video_dag_artifacts,
+    video_dag_output_path,
+    write_video_dag_graph,
+)
 from seed.library import (
     init_library,
     save_creator_video_list,
@@ -481,20 +486,34 @@ def build_video_dag(
     frame_dir: Annotated[Path | None, typer.Option("--frames")] = None,
     visual_notes: Annotated[Path | None, typer.Option("--visual-notes")] = None,
     semantics_path: Annotated[Path | None, typer.Option("--semantics")] = None,
+    timeline_path: Annotated[Path | None, typer.Option("--timeline")] = None,
     creator_profile: Annotated[Path | None, typer.Option("--creator-profile")] = None,
     root: Annotated[Path, typer.Option("--root")] = Path("library"),
 ) -> None:
-    graph = build_video_dag_graph(
+    artifacts = resolve_video_dag_artifacts(
+        library_root=root,
         title=title,
-        owner=owner,
-        platform=platform,
         source_path=source_path,
         audio_path=audio_path,
         transcript_path=transcript_path,
         frame_dir=frame_dir,
         visual_notes_path=visual_notes,
         semantics_path=semantics_path,
+        timeline_path=timeline_path,
         creator_profile_path=creator_profile,
+    )
+    graph = build_video_dag_graph(
+        title=title,
+        owner=owner,
+        platform=platform,
+        source_path=artifacts["source_path"],
+        audio_path=artifacts["audio_path"],
+        transcript_path=artifacts["transcript_path"],
+        frame_dir=artifacts["frame_dir"],
+        visual_notes_path=artifacts["visual_notes_path"],
+        semantics_path=artifacts["semantics_path"],
+        timeline_path=artifacts["timeline_path"],
+        creator_profile_path=artifacts["creator_profile_path"],
     )
     output_path = video_dag_output_path(library_root=root, title=title)
     write_video_dag_graph(output_path, graph)

@@ -48,6 +48,7 @@ fetch-creator-videos
 - 创作者批量入库从 `*.creator-videos.yaml` 读取 URL，复用 `download_url` 和 `save_source_record`，不要复制单链接下载逻辑。
 - ASR 长音频分段在 `seed.asr.chunked`，不要在 CLI 或 provider 里重复实现切片与合并。
 - Timeline 生成在 `seed.timeline`，只做确定性抽取；无法定位具体时间时使用 `start_seconds: null`，不要伪造时间点。
+- Video DAG 构建支持按标题自动发现本地产物；显式传入的路径优先，resolver 逻辑在 `seed.graphs.video_dag.resolve_video_dag_artifacts`。
 - 内容分析模块不要直接调用 `codex exec`，统一用 `seed.agents.codex.run_codex_prompt`。
 - 不要在多个地方手写 Markdown frontmatter 解析，统一用 `seed.markdown`。
 - 本地私有产物都放在 `library/`，默认不要提交。
@@ -111,7 +112,6 @@ git status -sb
 
 ## 已知缺口
 
-- Timeline artifact 已生成，但当前 DAG 还没有展示真实 timeline 事件。
 - fact-check claim 还没有拆成独立记录。
 - `build-video-dag` 仍需要显式传入产物路径。
 - HTML 画布是单文件原型，不是完整前端应用。

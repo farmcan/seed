@@ -28,6 +28,7 @@ def build_video_dag_graph(
     frame_dir: Path | None = None,
     visual_notes_path: Path | None = None,
     semantics_path: Path | None = None,
+    timeline_path: Path | None = None,
     creator_profile_path: Path | None = None,
 ) -> dict[str, Any]:
     inferred_owner = owner or infer_owner(semantics_path) or "unknown"
@@ -37,6 +38,8 @@ def build_video_dag_graph(
     resolved_audio_path = audio_path or infer_audio_path(source_path)
     frame_paths = list_frame_paths(frame_dir)
     semantics_text = semantics_path.read_text(encoding="utf-8") if semantics_path and semantics_path.exists() else ""
+    timeline = load_timeline(timeline_path)
+    timeline_events = timeline.get("events", []) if timeline else []
 
     nodes = [
         node(
@@ -106,11 +109,14 @@ def build_video_dag_graph(
             "timeline",
             "timeline",
             "Timeline",
-            "对齐 transcript chunk、关键帧、广告段、论证阶段和 CTA。当前作为待生成 artifact 的结构占位。",
+            timeline_summary(timeline_events),
             170,
             120,
-            ["planned", "chunks + frames", "beats"],
-            None,
+            [
+                path_metric(timeline_path),
+                f"{len(timeline_events)} events" if timeline_events else "no events",
+            ],
+            timeline_path,
         ),
         node(
             "semantics",
@@ -194,34 +200,75 @@ def build_video_dag_graph(
         ),
     ]
 
+    timeline_nodes = build_timeline_event_nodes(timeline_events, timeline_path)
+    nodes.extend(timeline_nodes)
+
+    edges = [
+        ["source", "video-media"],
+        ["video-media", "audio-media"],
+        ["video-media", "frames"],
+        ["audio-media", "transcript"],
+        ["frames", "visual"],
+        ["transcript", "timeline"],
+        ["frames", "timeline"],
+        ["transcript", "semantics"],
+        ["visual", "semantics"],
+        ["timeline", "semantics"],
+        ["semantics", "claims"],
+        ["semantics", "structure"],
+        ["semantics", "methods"],
+        ["claims", "creator-signals"],
+        ["structure", "creator-signals"],
+        ["methods", "creator-signals"],
+        ["creator-signals", "creator"],
+        ["claims", "factcheck"],
+        ["creator", "skills"],
+        ["factcheck", "skills"],
+    ]
+    edges.extend(["timeline", event_node["id"]] for event_node in timeline_nodes)
+
     return {
         "version": 1,
         "title": title,
         "owner": inferred_owner,
         "platform": inferred_platform,
         "nodes": nodes,
-        "edges": [
-            ["source", "video-media"],
-            ["video-media", "audio-media"],
-            ["video-media", "frames"],
-            ["audio-media", "transcript"],
-            ["frames", "visual"],
-            ["transcript", "timeline"],
-            ["frames", "timeline"],
-            ["transcript", "semantics"],
-            ["visual", "semantics"],
-            ["timeline", "semantics"],
-            ["semantics", "claims"],
-            ["semantics", "structure"],
-            ["semantics", "methods"],
-            ["claims", "creator-signals"],
-            ["structure", "creator-signals"],
-            ["methods", "creator-signals"],
-            ["creator-signals", "creator"],
-            ["claims", "factcheck"],
-            ["creator", "skills"],
-            ["factcheck", "skills"],
-        ],
+        "edges": edges,
+    }
+
+
+def resolve_video_dag_artifacts(
+    *,
+    library_root: Path,
+    title: str,
+    source_path: Path | None = None,
+    audio_path: Path | None = None,
+    transcript_path: Path | None = None,
+    frame_dir: Path | None = None,
+    visual_notes_path: Path | None = None,
+    semantics_path: Path | None = None,
+    timeline_path: Path | None = None,
+    creator_profile_path: Path | None = None,
+) -> dict[str, Path | None]:
+    title_slug = slugify(title)
+    resolved_source = source_path or find_matching_file(
+        library_root / "raw",
+        title_slug=title_slug,
+        suffixes={".mp4", ".mkv", ".webm", ".mov", ".flv"},
+    )
+    return {
+        "source_path": resolved_source,
+        "audio_path": audio_path or infer_audio_path(resolved_source),
+        "transcript_path": transcript_path
+        or find_matching_file(library_root / "transcripts", title_slug=title_slug, suffixes={".md"}),
+        "frame_dir": frame_dir or find_matching_dir(library_root / "frames", title_slug=title_slug),
+        "visual_notes_path": visual_notes_path
+        or find_matching_file(library_root / "notes", title_slug=title_slug, suffixes={".md"}),
+        "semantics_path": semantics_path
+        or find_matching_file(library_root / "semantics", title_slug=title_slug, suffixes={".md"}),
+        "timeline_path": timeline_path
+        or find_matching_file(library_root / "timelines", title_slug=title_slug, suffixes={".json"}),
+        "creator_profile_path": creator_profile_path,
     }
 
 
@@ -229,6 +276,30 @@ def write_video_dag_graph(path: Path, graph: dict[str, Any]) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(graph, ensure_ascii=False, indent=2), encoding="utf-8")
     return path
+
+
+def find_matching_file(directory: Path, *, title_slug: str, suffixes: set[str]) -> Path | None:
+    if not directory.exists():
+        return None
+    candidates = [
+        path
+        for path in directory.glob("*")
+        if path.is_file()
+        and path.suffix.lower() in suffixes
+        and title_slug in slugify(path.stem)
+    ]
+    return max(candidates, key=lambda path: path.stat().st_mtime, default=None)
+
+
+def find_matching_dir(directory: Path, *, title_slug: str) -> Path | None:
+    if not directory.exists():
+        return None
+    candidates = [
+        path
+        for path in directory.glob("*")
+        if path.is_dir() and title_slug in slugify(path.name)
+    ]
+    return max(candidates, key=lambda path: path.stat().st_mtime, default=None)
 
 
 def node(
@@ -257,6 +328,60 @@ def node(
     if preview:
         result["preview"] = preview
     return result
+
+
+def load_timeline(timeline_path: Path | None) -> dict[str, Any]:
+    if not timeline_path or not timeline_path.exists():
+        return {}
+    return json.loads(timeline_path.read_text(encoding="utf-8"))
+
+
+def timeline_summary(events: list[dict[str, Any]]) -> str:
+    if not events:
+        return "对齐 transcript chunk、关键帧、广告段、论证阶段和 CTA。当前没有找到 timeline artifact。"
+    kinds = ", ".join(sorted({str(event.get("kind")) for event in events if event.get("kind")}))
+    return f"已生成真实 timeline artifact，包含 {len(events)} 个事件。事件类型：{kinds}。"
+
+
+def build_timeline_event_nodes(
+    events: list[dict[str, Any]],
+    timeline_path: Path | None,
+    *,
+    max_events: int = 8,
+) -> list[dict[str, Any]]:
+    nodes: list[dict[str, Any]] = []
+    for index, event in enumerate(events[:max_events]):
+        timestamp = format_event_timestamp(event.get("start_seconds"))
+        label = str(event.get("label") or event.get("kind") or f"Event {index + 1}")
+        description = str(event.get("description") or event.get("evidence_path") or "")
+        metrics = [
+            str(event.get("kind") or "event"),
+            timestamp,
+            str(event.get("confidence") or "unknown"),
+        ]
+        nodes.append(
+            node(
+                f"timeline-event-{index + 1}",
+                "timeline",
+                label,
+                description,
+                500,
+                280 + index * 110,
+                metrics,
+                Path(str(event["evidence_path"])) if event.get("evidence_path") else timeline_path,
+            )
+        )
+    return nodes
+
+
+def format_event_timestamp(value: Any) -> str:
+    if value is None:
+        return "time unknown"
+    seconds = int(value)
+    hours = seconds // 3600
+    minutes = (seconds % 3600) // 60
+    remaining_seconds = seconds % 60
+    return f"{hours:02d}:{minutes:02d}:{remaining_seconds:02d}"
 
 
 def path_metric(path: Path | None) -> str:
