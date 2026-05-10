@@ -22,6 +22,7 @@ def test_build_video_dag_graph_uses_artifact_paths_and_metadata(tmp_path):
     semantics = tmp_path / "demo.video-semantics.md"
     timeline = tmp_path / "demo.timeline.json"
     claims = tmp_path / "demo.claims.json"
+    cost = tmp_path / "demo.cost.json"
     video.write_bytes(b"video")
     audio.write_bytes(b"audio")
     transcript.write_text("# Transcript\n\n## Chunk 01\n\nhello\n\n## Chunk 02\n\nworld", encoding="utf-8")
@@ -70,6 +71,25 @@ def test_build_video_dag_graph_uses_artifact_paths_and_metadata(tmp_path):
         ),
         encoding="utf-8",
     )
+    cost.write_text(
+        json.dumps(
+            {
+                "items": [
+                    {
+                        "kind": "qwen_vl",
+                        "usage": {
+                            "input_tokens": 1000,
+                            "output_tokens": 200,
+                            "total_tokens": 1200,
+                        },
+                        "estimated_cost": {"amount": 0.001, "currency": "USD"},
+                    }
+                ],
+                "totals": {"USD": 0.001},
+            }
+        ),
+        encoding="utf-8",
+    )
 
     graph = build_video_dag_graph(
         title="demo",
@@ -79,6 +99,7 @@ def test_build_video_dag_graph_uses_artifact_paths_and_metadata(tmp_path):
         semantics_path=semantics,
         timeline_path=timeline,
         claims_path=claims,
+        cost_path=cost,
     )
 
     assert graph["owner"] == "demo-up"
@@ -90,6 +111,7 @@ def test_build_video_dag_graph_uses_artifact_paths_and_metadata(tmp_path):
     creator_signal_node = next(node for node in graph["nodes"] if node["id"] == "creator-signals")
     timeline_node = next(node for node in graph["nodes"] if node["id"] == "timeline")
     factcheck_node = next(node for node in graph["nodes"] if node["id"] == "factcheck")
+    cost_node = next(node for node in graph["nodes"] if node["id"] == "costs")
     assert "2 chunks" in transcript_node["metrics"]
     assert "1 frames" in frame_node["metrics"]
     assert "2 events" in timeline_node["metrics"]
@@ -99,6 +121,9 @@ def test_build_video_dag_graph_uses_artifact_paths_and_metadata(tmp_path):
     assert "1 claims" in factcheck_node["metrics"]
     assert any(node["id"] == "claim-1" for node in graph["nodes"])
     assert ["factcheck", "claim-1"] in graph["edges"]
+    assert "input 1000 tokens" in cost_node["body"]
+    assert ["visual", "costs"] in graph["edges"]
+    assert ["costs", "skills"] in graph["edges"]
     assert video_node["preview"]["type"] == "video"
     assert audio_node["preview"]["type"] == "audio"
     assert frame_node["preview"]["type"] == "gallery"
@@ -121,7 +146,8 @@ def test_resolve_video_dag_artifacts_by_title(tmp_path):
     semantics = tmp_path / "semantics"
     timelines = tmp_path / "timelines"
     claims = tmp_path / "claims"
-    for directory in [raw, transcripts, frames, notes, semantics, timelines, claims]:
+    costs = tmp_path / "costs"
+    for directory in [raw, transcripts, frames, notes, semantics, timelines, claims, costs]:
         directory.mkdir()
     video = raw / "bilibili-bv-demo-法德欧洲大哥之争.mp4"
     audio = raw / "bilibili-bv-demo-法德欧洲大哥之争.asr.mp3"
@@ -131,7 +157,8 @@ def test_resolve_video_dag_artifacts_by_title(tmp_path):
     semantic = semantics / "法德欧洲大哥之争.video-semantics.md"
     timeline = timelines / "法德欧洲大哥之争.timeline.json"
     claim = claims / "法德欧洲大哥之争.claims.json"
-    for path in [video, audio, transcript, visual, semantic, timeline, claim]:
+    cost = costs / "法德欧洲大哥之争.cost.json"
+    for path in [video, audio, transcript, visual, semantic, timeline, claim, cost]:
         path.write_text("x", encoding="utf-8")
     frame_dir.mkdir()
 
@@ -149,5 +176,6 @@ def test_resolve_video_dag_artifacts_by_title(tmp_path):
         "semantics_path": semantic,
         "timeline_path": timeline,
         "claims_path": claim,
+        "cost_path": cost,
         "creator_profile_path": None,
     }

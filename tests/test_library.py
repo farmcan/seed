@@ -14,6 +14,7 @@ def test_init_library_creates_expected_dirs(tmp_path):
         "semantics",
         "timelines",
         "claims",
+        "costs",
         "graphs",
         "distilled",
         "skills",

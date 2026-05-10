@@ -4,6 +4,7 @@ from seed.vision.qwen_vl_provider import (
     build_visual_analysis_messages,
     image_data_url,
     mime_type_for_image,
+    token_usage_from_response,
 )
 
 
@@ -30,3 +31,17 @@ def test_build_visual_analysis_messages(tmp_path):
     assert messages[0]["role"] == "user"
     assert messages[0]["content"][0] == {"type": "text", "text": "describe"}
     assert messages[0]["content"][1]["type"] == "image_url"
+
+
+def test_token_usage_from_response_supports_openai_compatible_usage():
+    response = type(
+        "Response",
+        (),
+        {"usage": {"prompt_tokens": 120, "completion_tokens": 30, "total_tokens": 150}},
+    )()
+
+    usage = token_usage_from_response(response)
+
+    assert usage.input_tokens == 120
+    assert usage.output_tokens == 30
+    assert usage.total_tokens == 150

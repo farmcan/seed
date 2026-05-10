@@ -30,6 +30,7 @@ def build_video_dag_graph(
     semantics_path: Path | None = None,
     timeline_path: Path | None = None,
     claims_path: Path | None = None,
+    cost_path: Path | None = None,
     creator_profile_path: Path | None = None,
 ) -> dict[str, Any]:
     inferred_owner = owner or infer_owner(semantics_path) or "unknown"
@@ -42,6 +43,7 @@ def build_video_dag_graph(
     timeline = load_timeline(timeline_path)
     timeline_events = timeline.get("events", []) if timeline else []
     claims = load_claims(claims_path)
+    cost_report = load_cost_report(cost_path)
 
     nodes = [
         node(
@@ -191,6 +193,16 @@ def build_video_dag_graph(
             claims_path,
         ),
         node(
+            "costs",
+            "asset",
+            "Cost Report",
+            cost_summary(cost_report),
+            850,
+            390,
+            [path_metric(cost_path), cost_metric(cost_report)],
+            cost_path,
+        ),
+        node(
             "skills",
             "asset",
             "Agent Skills / Checks",
@@ -226,6 +238,8 @@ def build_video_dag_graph(
         ["methods", "creator-signals"],
         ["creator-signals", "creator"],
         ["claims", "factcheck"],
+        ["visual", "costs"],
+        ["costs", "skills"],
         ["creator", "skills"],
         ["factcheck", "skills"],
     ]
@@ -254,6 +268,7 @@ def resolve_video_dag_artifacts(
     semantics_path: Path | None = None,
     timeline_path: Path | None = None,
     claims_path: Path | None = None,
+    cost_path: Path | None = None,
     creator_profile_path: Path | None = None,
 ) -> dict[str, Path | None]:
     title_slug = slugify(title)
@@ -276,6 +291,8 @@ def resolve_video_dag_artifacts(
         or find_matching_file(library_root / "timelines", title_slug=title_slug, suffixes={".json"}),
         "claims_path": claims_path
         or find_matching_file(library_root / "claims", title_slug=title_slug, suffixes={".json"}),
+        "cost_path": cost_path
+        or find_matching_file(library_root / "costs", title_slug=title_slug, suffixes={".json"}),
         "creator_profile_path": creator_profile_path,
     }
 
@@ -351,6 +368,12 @@ def load_claims(claims_path: Path | None) -> list[dict[str, Any]]:
     return artifact.get("claims") or []
 
 
+def load_cost_report(cost_path: Path | None) -> dict[str, Any]:
+    if not cost_path or not cost_path.exists():
+        return {}
+    return json.loads(cost_path.read_text(encoding="utf-8"))
+
+
 def timeline_summary(events: list[dict[str, Any]]) -> str:
     if not events:
         return "对齐 transcript chunk、关键帧、广告段、论证阶段和 CTA。当前没有找到 timeline artifact。"
@@ -363,6 +386,30 @@ def factcheck_summary(claims: list[dict[str, Any]]) -> str:
         return "需要外部来源核验的日期、预算、人物表态、合同和政策声明。当前没有找到 claims artifact。"
     statuses = ", ".join(sorted({str(claim.get("status")) for claim in claims if claim.get("status")}))
     return f"已抽取 {len(claims)} 条待核验 claim。状态集合：{statuses}。"
+
+
+def cost_summary(report: dict[str, Any]) -> str:
+    if not report:
+        return "按单条视频记录 Qwen-VL token 用量、估算单价和总费用；Codex 费用先预留字段。当前没有找到 cost artifact。"
+    qwen_items = [item for item in report.get("items", []) if item.get("kind") == "qwen_vl"]
+    if not qwen_items:
+        return "已生成成本 artifact，但未找到 Qwen-VL 明细。"
+    item = qwen_items[0]
+    usage = item.get("usage") or {}
+    estimate = item.get("estimated_cost") or {}
+    return (
+        "已记录 Qwen-VL 成本明细："
+        f"input {usage.get('input_tokens', 0)} tokens，"
+        f"output {usage.get('output_tokens', 0)} tokens，"
+        f"估算 {estimate.get('amount', 0)} {estimate.get('currency', '')}。"
+    )
+
+
+def cost_metric(report: dict[str, Any]) -> str:
+    totals = report.get("totals") if report else None
+    if not totals:
+        return "cost pending"
+    return ", ".join(f"{amount} {currency}" for currency, amount in totals.items())
 
 
 def build_timeline_event_nodes(

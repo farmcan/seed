@@ -27,9 +27,11 @@
 
 - [ ] 继续调研类似产品和视觉笔记工具。
   - 入口：`docs/research-competitors.md`
-  - 重点：BiliNote、NotebookLM、tldw、Readwise、Recall、GraphRAG、tldraw、React Flow、Excalidraw。
+  - 重点：BiliNote、NotebookLM、tldw、Readwise、Recall、GraphRAG、tldraw、React Flow、ELK、Excalidraw。
 - [ ] 调研 timeline extraction 和 fact-check prompt。
   - 不再新增零散调研文档；先把结论合并到本文件或 `docs/research-competitors.md`。
+- [ ] 定期核验 Qwen-VL 单价。
+  - 当前成本估算默认引用阿里云百炼价格页，实际账单以服务商后台为准。
 
 ## 已完成基础
 
@@ -41,7 +43,7 @@
 - [x] Video semantics 融合。
 - [x] Creator profile 聚合。
 - [x] Video DAG graph artifact。
-- [x] 单文件 HTML 无限画布，支持导入 DAG JSON、预览视频/音频/截图。
+- [x] 单文件 HTML 无限画布，支持导入 DAG JSON、预览视频/音频/截图，支持简版和按节点展开。
 - [x] 创作者视频列表批量入库：`seed ingest-creator-videos` 支持选择前 N 条、跳过已入库 URL，并复用现有下载适配器。
 - [x] 长视频 ASR 分段：`seed transcribe-media` 默认在音频超过 provider 上传限制时自动切片、逐片转写、合并 transcript，并记录 `asr_chunks` 元数据。
 - [x] Timeline artifact：`seed build-timeline` 生成 `library/timelines/*.timeline.json`，包含 transcript chunk、关键帧、内容结构、广告候选和不确定性。
@@ -50,6 +52,7 @@
 - [x] DAG timeline 展示：video DAG 会读取 timeline artifact，并生成 timeline event 子节点。
 - [x] Fact-check claim 节点：`seed extract-claims` 从 `video-semantics.md` 拆出 `library/claims/*.claims.json`，DAG 会展示 claim 子节点，默认状态是 `unverified`。
 - [x] DAG 画布体验：`seed serve-video-dag` 提供本地 server 打开 graph；HTML 画布支持节点搜索/过滤、边标签，以及节点卡片内媒体预览。
+- [x] 视频成本报告：`seed analyze-frames` 会按视频写入 `library/costs/*.cost.json`，记录 Qwen-VL tokens、估算费用、pricing source 和 Codex 预留项；`seed build-video-dag` 会把成本节点接入画布。
 - [x] Agent 资产生成：`seed generate-agent-assets` 从 creator profile 生成候选 `SKILL.md`、pre-check 和 post-task reflection checklist，默认需要人工 review。
 - [x] Reflection log：`seed record-reflection` 记录 Agent 使用 creator 方法后的 outcome、worked、failed 和 revise 项。
 - [x] Creator profile 最小样本约束：`seed aggregate-owner` 默认要求同一 owner 至少 3 条 video semantics；少量样本必须显式 `--min-videos` 降级。

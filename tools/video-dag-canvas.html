@@ -134,6 +134,12 @@
       border-color: var(--line);
     }
 
+    .text-button.active {
+      color: var(--accent);
+      background: var(--accent-soft);
+      border-color: #bfdbfe;
+    }
+
     .zoom-readout {
       min-width: 58px;
       text-align: center;
@@ -260,6 +266,25 @@
       white-space: nowrap;
     }
 
+    .expand-button {
+      flex: 0 0 auto;
+      height: 24px;
+      min-width: 28px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      color: var(--muted);
+      background: #f9fafb;
+      cursor: pointer;
+      font-size: 13px;
+      line-height: 1;
+    }
+
+    .expand-button:hover {
+      color: var(--accent);
+      border-color: #bfdbfe;
+      background: var(--accent-soft);
+    }
+
     .node-body {
       padding: 0 12px 12px;
       font-size: 13px;
@@ -276,6 +301,10 @@
       pointer-events: none;
     }
 
+    .node-card-preview.interactive {
+      pointer-events: auto;
+    }
+
     .node-card-preview video,
     .node-card-preview img {
       display: block;
@@ -285,14 +314,15 @@
       background: #0f172a;
     }
 
+    .node-card-preview audio {
+      display: block;
+      width: 100%;
+      height: 42px;
+      background: #f8fafc;
+    }
+
     .node-card-preview.audio {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      height: 48px;
-      padding: 0 10px;
-      color: #e2e8f0;
-      font-size: 13px;
+      background: #f8fafc;
     }
 
     .node-card-gallery {
@@ -549,6 +579,10 @@
         <button class="text-button" id="importGraph" title="导入 JSON">⇧ <span>导入</span></button>
         <button class="text-button" id="exportGraph" title="导出 JSON">⇩ <span>导出</span></button>
       </div>
+      <div class="tool-group" aria-label="Expansion tools">
+        <button class="text-button active" id="compactGraph" title="只显示核心链路">简版</button>
+        <button class="text-button" id="expandGraph" title="展开所有子节点">全展开</button>
+      </div>
       <input class="search-input" id="graphSearch" type="search" placeholder="搜索节点">
       <div class="toolbar-spacer"></div>
       <div class="tool-group" aria-label="View modes">
@@ -727,6 +761,8 @@
       panY: 330,
       zoom: 1,
       filter: "",
+      expandedIds: new Set(),
+      compactMode: true,
       panning: null,
       draggingNode: null
     };
@@ -747,6 +783,8 @@
     const metricsInput = document.getElementById("metricsInput");
     const graphFileInput = document.getElementById("graphFileInput");
     const graphSearch = document.getElementById("graphSearch");
+    const compactGraph = document.getElementById("compactGraph");
+    const expandGraph = document.getElementById("expandGraph");
     const preview = document.getElementById("preview");
 
     function selectedNode() {
@@ -755,8 +793,14 @@
 
     function visibleNodes() {
       const query = state.filter.trim().toLowerCase();
-      if (!query) return state.graph.nodes;
-      return state.graph.nodes.filter((node) => nodeMatches(node, query));
+      if (query) return state.graph.nodes.filter((node) => nodeMatches(node, query));
+      if (!state.compactMode) return state.graph.nodes;
+      const visibleIds = new Set(coreNodeIds());
+      for (const parentId of state.expandedIds) {
+        visibleIds.add(parentId);
+        for (const childId of childNodeIds(parentId)) visibleIds.add(childId);
+      }
+      return state.graph.nodes.filter((node) => visibleIds.has(node.id));
     }
 
     function visibleEdges() {
@@ -775,6 +819,31 @@
         node.body,
         ...(node.metrics || [])
       ].some((value) => String(value || "").toLowerCase().includes(query));
+    }
+
+    function coreNodeIds() {
+      const children = new Set(collapsibleChildIds());
+      return state.graph.nodes.map((node) => node.id).filter((id) => !children.has(id));
+    }
+
+    function collapsibleChildIds() {
+      return state.graph.nodes
+        .filter((node) => isCollapsibleChild(node.id))
+        .map((node) => node.id);
+    }
+
+    function isCollapsibleChild(id) {
+      return id.startsWith("timeline-event-") || id.startsWith("claim-");
+    }
+
+    function childNodeIds(parentId) {
+      return state.graph.edges
+        .filter(([fromId, toId]) => fromId === parentId && isCollapsibleChild(toId))
+        .map(([, toId]) => toId);
+    }
+
+    function hasChildren(id) {
+      return childNodeIds(id).length > 0;
     }
 
     function setTransform() {
@@ -797,6 +866,8 @@
         return;
       }
       state.graph = graph;
+      state.expandedIds = new Set();
+      state.compactMode = true;
       state.selectedId = graph.nodes[0]?.id || null;
       render();
       fitView();
@@ -830,6 +901,7 @@
           <div class="node-header">
             <span class="node-type">${escapeHtml(node.type)}</span>
             <span class="node-title">${escapeHtml(node.title)}</span>
+            ${expandButtonHtml(node)}
           </div>
           ${nodePreviewHtml(node)}
           <div class="node-body">${escapeHtml(node.body)}</div>
@@ -838,6 +910,17 @@
         el.addEventListener("pointerdown", onNodePointerDown);
         nodesEl.appendChild(el);
       }
+      nodesEl.querySelectorAll(".expand-button").forEach((button) => {
+        button.addEventListener("pointerdown", (event) => event.stopPropagation());
+        button.addEventListener("click", (event) => {
+          toggleExpanded(event.currentTarget.dataset.id);
+          event.stopPropagation();
+        });
+      });
+      nodesEl.querySelectorAll("audio").forEach((media) => {
+        media.addEventListener("pointerdown", (event) => event.stopPropagation());
+        media.addEventListener("click", (event) => event.stopPropagation());
+      });
     }
 
     function renderEdges() {
@@ -886,6 +969,22 @@
       return `${edge[0]} → ${edge[1]}`;
     }
 
+    function expandButtonHtml(node) {
+      if (!hasChildren(node.id)) return "";
+      const expanded = state.expandedIds.has(node.id);
+      const count = childNodeIds(node.id).length;
+      return `<button class="expand-button" data-id="${escapeAttr(node.id)}" title="${expanded ? "收起" : "展开"} ${count} 个子节点">${expanded ? "−" : "+"}${count}</button>`;
+    }
+
+    function toggleExpanded(id) {
+      if (state.expandedIds.has(id)) {
+        state.expandedIds.delete(id);
+      } else {
+        state.expandedIds.add(id);
+      }
+      render();
+    }
+
     function nodePreviewHtml(node) {
       const previewData = previewDataForNode(node);
       if (!previewData) return "";
@@ -893,7 +992,7 @@
         return `<div class="node-card-preview"><video muted preload="metadata" src="${escapeAttr(resolveAssetUrl(previewData.src))}"></video></div>`;
       }
       if (previewData.type === "audio") {
-        return `<div class="node-card-preview audio">Audio · ${escapeHtml(node.path || previewData.src || "")}</div>`;
+        return `<div class="node-card-preview interactive audio"><audio controls preload="metadata" src="${escapeAttr(resolveAssetUrl(previewData.src))}"></audio></div>`;
       }
       if (previewData.type === "image") {
         return `<div class="node-card-preview"><img src="${escapeAttr(resolveAssetUrl(previewData.src))}" alt=""></div>`;
@@ -1086,11 +1185,7 @@
 
     function fitView(targetId = null) {
       const rect = canvas.getBoundingClientRect();
-      const nodes = targetId ? state.graph.nodes.filter((node) => node.id === targetId) : state.graph.nodes;
-      const originalNodes = state.graph.nodes;
-      if (targetId) state.graph.nodes = nodes;
-      const bounds = graphBounds();
-      if (targetId) state.graph.nodes = originalNodes;
+      const bounds = targetId ? boundsForNodes(state.graph.nodes.filter((node) => node.id === targetId)) : graphBounds();
       const padding = 120;
       const width = bounds.maxX - bounds.minX + padding * 2;
       const height = bounds.maxY - bounds.minY + padding * 2;
@@ -1098,6 +1193,18 @@
       state.panX = rect.width / 2 - (bounds.minX + bounds.maxX) / 2 * state.zoom;
       state.panY = rect.height / 2 - (bounds.minY + bounds.maxY) / 2 * state.zoom;
       setTransform();
+    }
+
+    function boundsForNodes(nodes) {
+      const source = nodes.length ? nodes : visibleNodes();
+      const xs = source.flatMap((node) => [node.x, node.x + nodeWidth]);
+      const ys = source.flatMap((node) => [node.y, node.y + nodeMinHeight]);
+      return {
+        minX: Math.min(...xs),
+        minY: Math.min(...ys),
+        maxX: Math.max(...xs),
+        maxY: Math.max(...ys)
+      };
     }
 
     function addNode() {
@@ -1168,6 +1275,8 @@
 
     function resetGraph() {
       state.graph = structuredClone(initialGraph);
+      state.expandedIds = new Set();
+      state.compactMode = true;
       state.selectedId = "semantics";
       render();
       fitView();
@@ -1202,6 +1311,22 @@
     graphSearch.addEventListener("input", () => {
       state.filter = graphSearch.value;
       render();
+    });
+    compactGraph.addEventListener("click", () => {
+      state.compactMode = true;
+      state.expandedIds = new Set();
+      compactGraph.classList.add("active");
+      expandGraph.classList.remove("active");
+      render();
+      fitView();
+    });
+    expandGraph.addEventListener("click", () => {
+      state.compactMode = false;
+      state.expandedIds = new Set(state.graph.nodes.filter((node) => hasChildren(node.id)).map((node) => node.id));
+      expandGraph.classList.add("active");
+      compactGraph.classList.remove("active");
+      render();
+      fitView();
     });
     [titleInput, typeInput, bodyInput, metricsInput].forEach((input) => {
       input.addEventListener("input", updateSelectedFromInspector);

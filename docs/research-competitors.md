@@ -1,6 +1,6 @@
 # 竞品与类似项目调研
 
-调研日期：2026-05-07。
+调研日期：2026-05-07；画布与计费补充：2026-05-10。
 
 ## 结论
 
@@ -33,6 +33,11 @@
 | `danielmiessler/Fabric` | GitHub 上约 41k stars，MIT，核心是可复用 AI prompt patterns。 | seed 的 skill/prompt 层可以借鉴 pattern 化设计。 |
 | `microsoft/graphrag` | GitHub 上约 33k stars，MIT。 | 后期做跨作者、跨主题的全局总结和关系图谱时参考。 |
 | `rmusser01/tldw_server` | 自称 open-source NotebookLM，支持视频、音频、PDF、文档、转写、RAG 和多 LLM。 | 参考“媒体分析 + 私有研究助手”的完整形态。 |
+| `tldraw/tldraw` | 高 star infinite canvas SDK，支持自定义 shape、工具、binding、协作和 DOM canvas。 | 如果单文件 HTML 原型变成正式前端，可以用它承载自由画布和富媒体节点。 |
+| tldraw workflow starter kit | 官方 workflow starter kit 演示节点、连接、port binding、图执行和数据流。 | 可参考它的节点/边数据模型，但当前不直接引入 React 前端。 |
+| `xyflow/react` / React Flow | Node-based UI 生态成熟，官方示例覆盖 auto layout、expand/collapse、minimap 和 controls。 | 如果后续要做“可折叠分析 DAG + 自动布局 + 节点编辑器”，React Flow 是迁移首选。 |
+| `kieler/elkjs` | ELK 的 JavaScript 布局引擎，适合有方向的 node-link diagram 和 layered layout。 | 可作为 DAG 自动布局算法，不负责画布 UI；适合替换当前手写列布局。 |
+| `jagenjo/litegraph.js` | 老牌 HTML5 Canvas2D graph node editor，偏蓝图/工作流。 | 可参考紧凑节点和 JSON graph 思路；富媒体 DOM 节点不如 React Flow/tldraw 直接。 |
 
 ## 关键洞察
 
@@ -41,6 +46,8 @@
 3. 小红书生态的非官方工具多，但稳定性和合规风险高。MVP 应先支持手动导入、URL 记录、截图/文案复制，再做下载适配器。
 4. Bilibili 可先用 yt-dlp 跑通，但要支持 cookies、字幕、弹幕、分 P、合集和 UP 空间批处理。
 5. 真正有价值的总结不是“这条视频说了什么”，而是“这个创作者反复依赖什么判断模型、内容结构、表达套路、决策规则和禁忌”。
+6. 视频分析画布是共性问题，短期最稳是继续保留单文件 HTML：手写简版/展开、媒体预览和 DAG JSON，避免前端工程化开销。中期如果交互复杂度继续上升，应迁移到 React Flow + ELK；如果更像白板和自由资料编排，再考虑 tldraw。
+7. Qwen-VL 计费需要作为 artifact，而不是只在日志里打印。按单条视频记录 token usage、单价、pricing source、估算金额，并允许环境变量覆盖单价，避免价格变化导致历史结果不可解释。
 
 ## Sources
 
@@ -64,3 +71,9 @@
 - Fabric: https://github.com/danielmiessler/Fabric
 - GraphRAG: https://github.com/microsoft/graphrag
 - tldw server: https://github.com/rmusser01/tldw_server
+- tldraw: https://github.com/tldraw/tldraw
+- tldraw workflow starter kit: https://tldraw.dev/starter-kits/workflow
+- React Flow auto layout: https://reactflow.dev/examples/layout/auto-layout
+- elkjs: https://github.com/kieler/elkjs
+- litegraph.js: https://github.com/jagenjo/litegraph.js
+- 阿里云百炼模型价格： https://www.alibabacloud.com/help/zh/model-studio/model-pricing

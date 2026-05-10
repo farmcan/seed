@@ -29,6 +29,7 @@ fetch-creator-videos
 - 创作者视频列表：`src/seed/sources/creator_videos.py`
 - 创作者批量入库：`src/seed/creator_ingest.py`
 - ASR 分段转写：`src/seed/asr/chunked.py`
+- 成本计量：`src/seed/costs.py`
 - Timeline artifact：`src/seed/timeline.py`
 - Fact-check claim：`src/seed/factcheck.py`
 - Agent 资产生成：`src/seed/agent_assets.py`
@@ -51,13 +52,15 @@ fetch-creator-videos
 - 创作者视频列表发现也属于 `sources/`，输出 `library/notes/*.creator-videos.yaml`，不要直接混入 ASR、视觉分析或总结逻辑。
 - 创作者批量入库从 `*.creator-videos.yaml` 读取 URL，复用 `download_url` 和 `save_source_record`，不要复制单链接下载逻辑。
 - ASR 长音频分段在 `seed.asr.chunked`，不要在 CLI 或 provider 里重复实现切片与合并。
+- Qwen-VL 成本记录在 `seed.costs`，`analyze-frames` 必须按单条视频写入 `library/costs/*.cost.json`；费用是基于 token usage 和配置单价的估算，实际账单以服务商后台为准。
+- Codex 费用先在成本报告里保留 `reserved` 项，不要伪造 token 或金额。
 - Timeline 生成在 `seed.timeline`，只做确定性抽取；无法定位具体时间时使用 `start_seconds: null`，不要伪造时间点。
 - Fact-check claim 抽取在 `seed.factcheck`，默认状态是 `unverified`；不要在没有外部证据时改成 verified。
 - 从 creator profile 生成的 `library/skills/` 和 `library/checks/` 都是 draft，必须人工 review 后再安装或长期使用。
 - Reflection log 只追加记录；`suggest-revisions` 只生成修订建议草稿，不直接覆盖 creator profile、skills 或 checks。
 - `aggregate-owner` 默认至少 3 条 video semantics；如果用 `--min-videos 1` 或 `2`，输出只能视为 provisional。
 - Video DAG 构建支持按标题自动发现本地产物；显式传入的路径优先，resolver 逻辑在 `seed.graphs.video_dag.resolve_video_dag_artifacts`。
-- DAG 画布优先用 `seed serve-video-dag <graph.json>` 打开；HTML 画布内置搜索过滤、边标签和节点卡片内媒体预览，不要再新增独立可视化入口。
+- DAG 画布优先用 `seed serve-video-dag <graph.json>` 打开；HTML 画布内置搜索过滤、边标签、简版/全展开、节点展开和节点卡片内媒体预览，不要再新增独立可视化入口。
 - 内容分析模块不要直接调用 `codex exec`，统一用 `seed.agents.codex.run_codex_prompt`。
 - 不要在多个地方手写 Markdown frontmatter 解析，统一用 `seed.markdown`。
 - 本地私有产物都放在 `library/`，默认不要提交。
@@ -96,6 +99,7 @@ library/notes/        source record、creator video list、visual notes、quick 
 library/semantics/    单条视频语义
 library/timelines/    视频时间线 JSON
 library/claims/       待核验 claim JSON
+library/costs/        单条视频 Qwen-VL 成本 JSON
 library/graphs/       画布 DAG JSON
 library/distilled/    creator profile 和方法论
 library/skills/       生成的 skills
@@ -129,5 +133,5 @@ git status -sb
 
 - claim 状态还没有外部核验流程，目前只支持默认 `unverified`。
 - 非视频来源还没有接入 semantics 和聚合流程。
-- `build-video-dag` 仍需要显式传入产物路径。
+- `build-video-dag` 可以按标题自动发现常见产物，但跨视频聚合后的复杂画布还没有自动生成。
 - HTML 画布是单文件原型，不是完整前端应用；复杂交互继续先保持单文件。

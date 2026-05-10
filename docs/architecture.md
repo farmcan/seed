@@ -1,6 +1,6 @@
 # 架构
 
-`seed` 的主流程分为七层：
+`seed` 的主流程分为八层：
 
 1. 来源采集：保存 URL、平台、UP/作者、发布时间、素材路径和元数据。
 2. 媒体语言抽取：把视频拆成文字语言和视觉语言，分别生成 transcript 与 visual notes。
@@ -8,12 +8,14 @@
 4. 创作者聚合：按 UP/作者聚合多条视频语义，提炼创作者级表达风格、结构模板和方法论。
 5. 方法论蒸馏：从聚合结果中提炼方法论、决策规则、反例和检查问题。
 6. Agent 资产：输出 `SKILL.md`、checklist 和 prompt context，供 Agent 在任务前后使用。
-7. 反思闭环：记录 Agent 使用方法论后的结果，反向修订 skills 和 checks。
+7. 成本计量：按单条视频记录 Qwen-VL token 用量、估算费用和后续 Codex 费用预留位。
+8. 反思闭环：记录 Agent 使用方法论后的结果，反向修订 skills 和 checks。
 
 ```text
 URL / book / note
   -> raw asset
   -> transcript + visual notes
+  -> cost report
   -> video semantics
   -> video DAG graph
   -> creator profile
@@ -32,6 +34,7 @@ URL / book / note
 | 创作者批量入库 | `seed ingest-creator-videos` | `src/seed/creator_ingest.py`, `src/seed/sources/yt_dlp_adapter.py` | `library/raw/*`, `library/notes/*.source.yaml` |
 | ASR 转写 | `seed transcribe-media` | `src/seed/media.py`, `src/seed/asr/`, `src/seed/transcripts.py` | `library/raw/*.asr.mp3`, `library/raw/*.asr.chunks/*`, `library/transcripts/*.transcript.md` |
 | 视觉语言 | `seed extract-frames`, `seed analyze-frames` | `src/seed/vision/` | `library/frames/*`, `library/notes/*.visual.md` |
+| 成本计量 | `seed analyze-frames`, `seed build-video-dag` | `src/seed/costs.py`, `src/seed/graphs/video_dag.py` | `library/costs/*.cost.json`, DAG cost 节点 |
 | 快速总结 | `seed summarize-transcript` | `src/seed/summarizers/` | `library/notes/*.summary.md` |
 | 视频语义 | `seed analyze-video-semantics` | `src/seed/semantics/analyzer.py` | `library/semantics/*.video-semantics.md` |
 | 时间线 | `seed build-timeline` | `src/seed/timeline.py` | `library/timelines/*.timeline.json` |
@@ -40,7 +43,7 @@ URL / book / note
 | 创作者聚合 | `seed aggregate-owner` | `src/seed/semantics/aggregator.py` | `library/distilled/*.creator-profile.md` |
 | Agent 资产生成 | `seed generate-agent-assets`, `seed record-reflection`, `seed suggest-revisions` | `src/seed/agent_assets.py`, `src/seed/reflections.py` | `library/skills/*/SKILL.md`, `library/checks/*.md`, `library/reflections/*` |
 
-当前视频 DAG 会展示本地视频、音频、关键帧截图、transcript、visual notes、timeline event、semantic 子节点、creator signals、fact-check queue 和 agent assets。视频、音频、截图、gallery 类节点会在画布节点卡片内直接展示媒体预览；选择节点后，右侧 inspector 仍可查看更大的本地素材预览。
+当前视频 DAG 会展示本地视频、音频、关键帧截图、transcript、visual notes、cost report、timeline event、semantic 子节点、creator signals、fact-check queue 和 agent assets。视频、音频、截图、gallery 类节点会在画布节点卡片内直接展示媒体预览；音频节点卡片和右侧 inspector 都可以播放本地 mp3。画布默认使用简版核心链路，timeline event 和 claim 子节点可按父节点展开，避免一次性展示过多细节。
 
 ## 模块边界
 
@@ -48,7 +51,8 @@ URL / book / note
 - `sources/creator_videos.py`：按平台和创作者名称发现视频列表。Bilibili 优先复用 `yt-dlp` 的 UP 空间 extractor，并保留 WBI API fallback；小红书先输出搜索候选，后续再替换成稳定登录态 provider。
 - `creator_ingest.py`：读取 `*.creator-videos.yaml`，按起始位置和数量选择视频，跳过已入库 URL，并复用现有下载适配器与 source record 写入。
 - `asr/` 和 `media.py`：音频抽取、超限音频分片和线上 ASR provider。只产出 transcript；长音频 transcript 会在 frontmatter 记录 `asr_chunks`。
-- `vision/`：抽帧、Qwen-VL 调用和 visual notes。只描述画面证据，不负责最终方法论。
+- `vision/`：抽帧、Qwen-VL 调用和 visual notes。只描述画面证据，不负责最终方法论；Qwen-VL provider 需要返回 token usage，供成本模块记录。
+- `costs.py`：统一写入单条视频成本报告。默认记录 Qwen-VL token 用量、单价来源、估算金额和 Codex 费用预留项；实际价格可通过环境变量覆盖。
 - `summarizers/`：单条 transcript 的轻量总结，适合作为人工快速预览。
 - `semantics/analyzer.py`：单条视频语义融合，输入 transcript 和 visual notes，输出 `library/semantics/*.video-semantics.md`。
 - `timeline.py`：从 transcript chunk、关键帧 manifest、video semantics 和 visual notes 生成确定性 timeline JSON；抽不到时间点时保留 `start_seconds: null`。
@@ -57,7 +61,7 @@ URL / book / note
 - `agent_assets.py`：从 creator profile 生成待人工 review 的候选 `SKILL.md`、pre-check 和 post-task reflection checklist。
 - `reflections.py`：记录 Agent 使用某个 creator 方法后的结果、有效点、失败点和需要修订的地方。
 - `semantics/aggregator.py`：默认要求同一 owner 至少 3 条 video semantics 才生成 creator profile；单条或少量视频需要显式 `--min-videos` 降级为 provisional。
-- `graphs/video_dag.py`：把本地分析产物组装成画布可读 DAG JSON，输出 `library/graphs/*.video-dag.json`；支持按标题自动发现 raw、audio、transcript、frames、visual notes、semantics 和 timeline。
+- `graphs/video_dag.py`：把本地分析产物组装成画布可读 DAG JSON，输出 `library/graphs/*.video-dag.json`；支持按标题自动发现 raw、audio、transcript、frames、visual notes、cost report、semantics 和 timeline。
 - `dag_server.py`：用本地 HTTP server 打开 DAG HTML 和 graph JSON，避免 `file://` 下浏览器策略影响素材加载。
 - `agents/codex.py`：统一管理 `codex exec` 命令、dry-run、输出文件写入。内容分析模块不得直接调用 `subprocess` 跑 Codex。
 - `markdown.py`：统一读取 Markdown frontmatter、正文和 metadata 字段，避免不同 artifact 各写一套解析逻辑。
@@ -70,6 +74,7 @@ URL / book / note
 - `library/transcripts/`：文字语言，来自 ASR 或人工整理。
 - `library/frames/`：抽样关键帧。
 - `library/notes/*.visual.md`：视觉语言，来自 VL 模型。
+- `library/costs/*.cost.json`：单条视频成本报告，包含 Qwen-VL token 用量、单价、估算金额、pricing source 和 Codex 费用预留项。
 - `library/notes/*.source.yaml`：单条来源记录，包含原始 URL、下载路径、metadata 路径、下载 provider、fallback 状态和下载诊断。
 - `library/notes/*.summary.md`：快速摘要，不作为长期聚合主数据。
 - `library/notes/*.creator-videos.yaml`：创作者视频列表，作为后续批量下载、批量分析和 UP 级聚合的入口。

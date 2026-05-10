@@ -7,6 +7,12 @@ from urllib.parse import quote
 import typer
 from rich.console import Console
 
+from seed.costs import (
+    build_qwen_vl_cost_item,
+    reserved_codex_cost_item,
+    video_cost_output_path,
+    write_video_cost_report,
+)
 from seed.asr.providers import (
     DEFAULT_ASR_PROVIDER,
     default_max_upload_mb_for_provider,
@@ -57,7 +63,7 @@ from seed.timeline import build_timeline_artifact, timeline_output_path, write_t
 from seed.transcripts import transcript_output_path, write_transcript_markdown
 from seed.vision.frames import extract_frames, load_frame_paths
 from seed.vision.notes import visual_notes_output_path, write_visual_notes_markdown
-from seed.vision.qwen_vl_provider import DEFAULT_QWEN_VL_MODEL, analyze_frames_with_qwen_vl
+from seed.vision.qwen_vl_provider import DEFAULT_QWEN_VL_MODEL, analyze_frames_with_qwen_vl_result
 
 
 app = typer.Typer(help="Personal content-to-methodology distillation toolkit.")
@@ -328,19 +334,43 @@ def analyze_frames(
     if not frame_paths:
         raise typer.BadParameter("No frame_*.jpg files found in the frame directory.")
 
-    analysis = analyze_frames_with_qwen_vl(frame_paths, model=model, prompt=prompt)
+    result = analyze_frames_with_qwen_vl_result(frame_paths, model=model, prompt=prompt)
     output_path = visual_notes_output_path(library_root=root, source_path=frame_dir, title=title)
     write_visual_notes_markdown(
         output_path,
-        analysis=analysis,
+        analysis=result.analysis,
         frame_dir=frame_dir,
         frame_paths=frame_paths,
         provider="dashscope",
         model=model,
         title=title,
     )
+    report_title = title or frame_dir.name
+    cost_path = video_cost_output_path(library_root=root, title=report_title)
+    cost_item = build_qwen_vl_cost_item(
+        title=report_title,
+        model=model,
+        usage=result.usage,
+        artifact_path=output_path,
+        frame_count=len(frame_paths),
+    )
+    write_video_cost_report(
+        cost_path,
+        title=report_title,
+        items=[cost_item, reserved_codex_cost_item()],
+    )
     console.print(f"analyzed {len(frame_paths)} frames with {model}")
     console.print(f"created visual notes at {output_path}")
+    console.print(f"created cost report at {cost_path}")
+    console.print(
+        "qwen-vl tokens: "
+        f"input={result.usage.input_tokens}, output={result.usage.output_tokens}, "
+        f"total={result.usage.total_tokens}"
+    )
+    console.print(
+        "qwen-vl estimated cost: "
+        f"{cost_item['estimated_cost']['amount']} {cost_item['estimated_cost']['currency']}"
+    )
 
 
 @app.command("summarize-transcript")
@@ -572,6 +602,7 @@ def build_video_dag(
     semantics_path: Annotated[Path | None, typer.Option("--semantics")] = None,
     timeline_path: Annotated[Path | None, typer.Option("--timeline")] = None,
     claims_path: Annotated[Path | None, typer.Option("--claims")] = None,
+    cost_path: Annotated[Path | None, typer.Option("--cost")] = None,
     creator_profile: Annotated[Path | None, typer.Option("--creator-profile")] = None,
     root: Annotated[Path, typer.Option("--root")] = Path("library"),
 ) -> None:
@@ -586,6 +617,7 @@ def build_video_dag(
         semantics_path=semantics_path,
         timeline_path=timeline_path,
         claims_path=claims_path,
+        cost_path=cost_path,
         creator_profile_path=creator_profile,
     )
     graph = build_video_dag_graph(
@@ -600,6 +632,7 @@ def build_video_dag(
         semantics_path=artifacts["semantics_path"],
         timeline_path=artifacts["timeline_path"],
         claims_path=artifacts["claims_path"],
+        cost_path=artifacts["cost_path"],
         creator_profile_path=artifacts["creator_profile_path"],
     )
     output_path = video_dag_output_path(library_root=root, title=title)

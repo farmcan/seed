@@ -2,9 +2,13 @@ from __future__ import annotations
 
 import base64
 import os
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from openai import OpenAI
+
+from seed.costs import TokenUsage
 
 
 DEFAULT_QWEN_VL_MODEL = os.getenv("SEED_QWEN_VL_MODEL", "qwen-vl-max")
@@ -19,6 +23,12 @@ DEFAULT_VISUAL_PROMPT = (
 )
 
 
+@dataclass(frozen=True)
+class VisionAnalysisResult:
+    analysis: str
+    usage: TokenUsage
+
+
 def analyze_frames_with_qwen_vl(
     frame_paths: list[Path],
     *,
@@ -26,6 +36,21 @@ def analyze_frames_with_qwen_vl(
     prompt: str | None = None,
     base_url: str = DEFAULT_DASHSCOPE_BASE_URL,
 ) -> str:
+    return analyze_frames_with_qwen_vl_result(
+        frame_paths,
+        model=model,
+        prompt=prompt,
+        base_url=base_url,
+    ).analysis
+
+
+def analyze_frames_with_qwen_vl_result(
+    frame_paths: list[Path],
+    *,
+    model: str = DEFAULT_QWEN_VL_MODEL,
+    prompt: str | None = None,
+    base_url: str = DEFAULT_DASHSCOPE_BASE_URL,
+) -> VisionAnalysisResult:
     api_key = os.getenv("DASHSCOPE_API_KEY") or os.getenv("QWEN_API_KEY")
     if not api_key:
         raise RuntimeError("DASHSCOPE_API_KEY or QWEN_API_KEY is required for Qwen-VL")
@@ -38,7 +63,10 @@ def analyze_frames_with_qwen_vl(
         messages=build_visual_analysis_messages(frame_paths, prompt=prompt),
         temperature=0,
     )
-    return str(response.choices[0].message.content or "").strip()
+    return VisionAnalysisResult(
+        analysis=str(response.choices[0].message.content or "").strip(),
+        usage=token_usage_from_response(response),
+    )
 
 
 def build_visual_analysis_messages(
@@ -65,3 +93,24 @@ def mime_type_for_image(path: Path) -> str:
     if suffix == ".webp":
         return "image/webp"
     return "application/octet-stream"
+
+
+def token_usage_from_response(response: Any) -> TokenUsage:
+    usage = getattr(response, "usage", None)
+    return TokenUsage.from_counts(
+        input_tokens=usage_value(usage, "prompt_tokens", "input_tokens"),
+        output_tokens=usage_value(usage, "completion_tokens", "output_tokens"),
+        total_tokens=usage_value(usage, "total_tokens"),
+    )
+
+
+def usage_value(usage: Any, *names: str) -> int | None:
+    if usage is None:
+        return None
+    for name in names:
+        if isinstance(usage, dict) and usage.get(name) is not None:
+            return int(usage[name])
+        value = getattr(usage, name, None)
+        if value is not None:
+            return int(value)
+    return None
