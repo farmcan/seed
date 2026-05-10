@@ -60,6 +60,25 @@ class CreatorVideoList(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
+class CreatorVideoIngestItem(BaseModel):
+    url: str
+    title: str | None = None
+    status: str
+    source_record_path: Path | None = None
+    raw_path: Path | None = None
+    metadata_path: Path | None = None
+    error: str | None = None
+
+
+class CreatorVideoIngestResult(BaseModel):
+    selected: int = 0
+    downloaded: int = 0
+    recorded: int = 0
+    skipped: int = 0
+    failed: int = 0
+    items: list[CreatorVideoIngestItem] = Field(default_factory=list)
+
+
 class Methodology(BaseModel):
     id: str
     title: str

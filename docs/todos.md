@@ -4,10 +4,6 @@
 
 ## P0：让现有链路稳定
 
-- [ ] 把创作者视频列表接进批量下载。
-  - 现状：`seed fetch-creator-videos` 可以按平台和 UP/作者名称生成 `*.creator-videos.yaml`。
-  - 目标：基于列表选择前 N 条、过滤已分析视频，并逐条调用现有 `ingest-url --download`。
-  - 注意：Bilibili 可能遇到 412 风控，需要 cookies；小红书当前是搜索候选，不是权威列表。
 - [ ] 内置长视频 ASR 分段。
   - 现状：DashScope 短音频链路可用，但长音频可能报 `audio is too long`。
   - 目标：`seed transcribe-media` 自动切分、转写、合并，并记录 chunk 元数据。
@@ -73,3 +69,4 @@
 - [x] Creator profile 聚合。
 - [x] Video DAG graph artifact。
 - [x] 单文件 HTML 无限画布，支持导入 DAG JSON、预览视频/音频/截图。
+- [x] 创作者视频列表批量入库：`seed ingest-creator-videos` 支持选择前 N 条、跳过已入库 URL，并复用现有下载适配器。

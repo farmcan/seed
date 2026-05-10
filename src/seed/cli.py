@@ -13,6 +13,7 @@ from seed.asr.providers import (
     default_model_for_provider,
     transcribe_audio,
 )
+from seed.creator_ingest import ingest_creator_videos as ingest_creator_videos_from_list
 from seed.graphs.video_dag import build_video_dag_graph, video_dag_output_path, write_video_dag_graph
 from seed.library import (
     init_library,
@@ -34,8 +35,8 @@ from seed.semantics.aggregator import (
     find_video_semantics_files,
     run_creator_profile_aggregation,
 )
-from seed.sources.yt_dlp_adapter import download_url
 from seed.sources.creator_videos import fetch_creator_video_list
+from seed.sources.yt_dlp_adapter import download_url
 from seed.summarizers.codex_runner import (
     DEFAULT_SKILL_PATH,
     run_codex_summary,
@@ -146,6 +147,62 @@ def fetch_creator_videos(
     for video in video_list.videos[:5]:
         title = video.title or video.video_id or video.url
         console.print(f"- {title}: {video.url}")
+
+
+@app.command("ingest-creator-videos")
+def ingest_creator_videos(
+    list_path: Annotated[Path, typer.Argument(help="Path to *.creator-videos.yaml.")],
+    authorized: Annotated[bool, typer.Option("--authorized")] = False,
+    limit: Annotated[int | None, typer.Option("--limit", min=1)] = None,
+    start_index: Annotated[int, typer.Option("--start-index", min=1)] = 1,
+    skip_existing: Annotated[bool, typer.Option("--skip-existing/--no-skip-existing")] = True,
+    download: Annotated[bool, typer.Option("--download/--no-download")] = True,
+    max_height: Annotated[int, typer.Option("--max-height", help="Maximum video height.")] = 360,
+    max_filesize_mb: Annotated[
+        int | None,
+        typer.Option("--max-filesize-mb", help="Skip downloads larger than this size."),
+    ] = 100,
+    cookies_from_browser: Annotated[
+        str | None,
+        typer.Option(
+            "--cookies-from-browser",
+            help="Explicitly load cookies from a browser such as chrome, safari, or firefox.",
+        ),
+    ] = None,
+    keep_going: Annotated[bool, typer.Option("--keep-going/--stop-on-error")] = True,
+    root: Annotated[Path, typer.Option("--root")] = Path("library"),
+) -> None:
+    try:
+        result = ingest_creator_videos_from_list(
+            list_path,
+            library_root=root,
+            authorized=authorized,
+            limit=limit,
+            start_index=start_index,
+            skip_existing=skip_existing,
+            download=download,
+            max_height=max_height,
+            max_filesize_mb=max_filesize_mb,
+            cookies_from_browser=cookies_from_browser,
+            keep_going=keep_going,
+        )
+    except ValueError as error:
+        raise typer.BadParameter(str(error)) from error
+
+    console.print(
+        "creator video ingest: "
+        f"selected={result.selected}, downloaded={result.downloaded}, "
+        f"recorded={result.recorded}, skipped={result.skipped}, failed={result.failed}"
+    )
+    for item in result.items:
+        title = item.title or item.url
+        console.print(f"- {item.status}: {title}")
+        if item.raw_path:
+            console.print(f"  media: {item.raw_path}")
+        if item.source_record_path:
+            console.print(f"  source: {item.source_record_path}")
+        if item.error:
+            console.print(f"  error: {item.error}")
 
 
 @app.command("distill-note")

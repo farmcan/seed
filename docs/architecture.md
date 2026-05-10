@@ -29,6 +29,7 @@ URL / book / note
 | --- | --- | --- | --- |
 | 来源采集 | `seed ingest-url` | `src/seed/sources/`, `src/seed/library.py` | `library/raw/*`, `library/notes/*.source.yaml` |
 | 创作者视频列表 | `seed fetch-creator-videos` | `src/seed/sources/creator_videos.py`, `src/seed/library.py` | `library/notes/*.creator-videos.yaml` |
+| 创作者批量入库 | `seed ingest-creator-videos` | `src/seed/creator_ingest.py`, `src/seed/sources/yt_dlp_adapter.py` | `library/raw/*`, `library/notes/*.source.yaml` |
 | ASR 转写 | `seed transcribe-media` | `src/seed/media.py`, `src/seed/asr/`, `src/seed/transcripts.py` | `library/raw/*.asr.mp3`, `library/transcripts/*.transcript.md` |
 | 视觉语言 | `seed extract-frames`, `seed analyze-frames` | `src/seed/vision/` | `library/frames/*`, `library/notes/*.visual.md` |
 | 快速总结 | `seed summarize-transcript` | `src/seed/summarizers/` | `library/notes/*.summary.md` |
@@ -42,6 +43,7 @@ URL / book / note
 
 - `sources/`：平台采集适配器。只关心 URL、授权、下载、metadata，不做内容理解。
 - `sources/creator_videos.py`：按平台和创作者名称发现视频列表。Bilibili 优先复用 `yt-dlp` 的 UP 空间 extractor，并保留 WBI API fallback；小红书先输出搜索候选，后续再替换成稳定登录态 provider。
+- `creator_ingest.py`：读取 `*.creator-videos.yaml`，按起始位置和数量选择视频，跳过已入库 URL，并复用现有下载适配器与 source record 写入。
 - `asr/` 和 `media.py`：音频抽取和线上 ASR provider。只产出 transcript。
 - `vision/`：抽帧、Qwen-VL 调用和 visual notes。只描述画面证据，不负责最终方法论。
 - `summarizers/`：单条 transcript 的轻量总结，适合作为人工快速预览。

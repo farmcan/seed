@@ -47,6 +47,22 @@ def save_source_record(root: Path, record: SourceRecord) -> Path:
     return path
 
 
+def load_source_records(root: Path) -> list[SourceRecord]:
+    records: list[SourceRecord] = []
+    notes_dir = root / "notes"
+    if not notes_dir.exists():
+        return records
+    for path in sorted(notes_dir.glob("*.source.yaml")):
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        records.append(SourceRecord.model_validate(data))
+    return records
+
+
+def load_creator_video_list(path: Path) -> CreatorVideoList:
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    return CreatorVideoList.model_validate(data)
+
+
 def save_creator_video_list(root: Path, video_list: CreatorVideoList) -> Path:
     init_library(root)
     filename = slugify(
