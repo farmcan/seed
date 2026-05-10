@@ -19,6 +19,7 @@ LIBRARY_DIRS = [
     "distilled",
     "skills",
     "checks",
+    "reflections",
 ]
 
 

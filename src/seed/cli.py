@@ -12,6 +12,7 @@ from seed.asr.providers import (
     default_max_upload_mb_for_provider,
     default_model_for_provider,
 )
+from seed.agent_assets import build_agent_assets_from_creator_profile, write_agent_assets
 from seed.asr.chunked import transcribe_audio_with_optional_chunks
 from seed.creator_ingest import ingest_creator_videos as ingest_creator_videos_from_list
 from seed.dag_server import serve_video_dag
@@ -31,6 +32,7 @@ from seed.library import (
 )
 from seed.media import extract_audio
 from seed.models import Methodology, Platform, SourceRecord
+from seed.reflections import ReflectionRecord, append_reflection_record
 from seed.semantics.analyzer import (
     DEFAULT_VIDEO_SEMANTICS_SKILL_PATH,
     run_video_semantics_analysis,
@@ -492,6 +494,53 @@ def aggregate_owner(
     )
     console.print(f"aggregated {len(semantics_paths)} video semantics files")
     console.print(f"created {'prompt' if dry_run else 'creator profile'} at {output_path}")
+
+
+@app.command("generate-agent-assets")
+def generate_agent_assets(
+    profile_path: Annotated[Path, typer.Argument(help="Creator profile markdown file.")],
+    owner: Annotated[str | None, typer.Option("--owner")] = None,
+    root: Annotated[Path, typer.Option("--root")] = Path("library"),
+) -> None:
+    resolved_owner = owner or profile_path.stem.removesuffix(".creator-profile")
+    assets = build_agent_assets_from_creator_profile(
+        profile_path=profile_path,
+        owner=resolved_owner,
+    )
+    paths = write_agent_assets(
+        library_root=root,
+        owner=resolved_owner,
+        assets=assets,
+    )
+    console.print(f"created skill draft at {paths['skill']}")
+    console.print(f"created pre-check at {paths['pre_check']}")
+    console.print(f"created post-task reflection at {paths['post_task_reflection']}")
+
+
+@app.command("record-reflection")
+def record_reflection(
+    owner: Annotated[str, typer.Option("--owner", help="Creator, UP, or author.")],
+    task: Annotated[str, typer.Option("--task", help="Task where the asset was used.")],
+    outcome: Annotated[str, typer.Option("--outcome", help="Observed outcome.")],
+    asset_path: Annotated[Path | None, typer.Option("--asset")] = None,
+    worked: Annotated[list[str] | None, typer.Option("--worked")] = None,
+    failed: Annotated[list[str] | None, typer.Option("--failed")] = None,
+    revise: Annotated[list[str] | None, typer.Option("--revise")] = None,
+    root: Annotated[Path, typer.Option("--root")] = Path("library"),
+) -> None:
+    path = append_reflection_record(
+        library_root=root,
+        record=ReflectionRecord(
+            owner=owner,
+            task=task,
+            asset_path=asset_path,
+            outcome=outcome,
+            worked=worked or [],
+            failed=failed or [],
+            revise=revise or [],
+        ),
+    )
+    console.print(f"recorded reflection at {path}")
 
 
 @app.command("build-video-dag")

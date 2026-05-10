@@ -18,6 +18,7 @@ def test_init_library_creates_expected_dirs(tmp_path):
         "distilled",
         "skills",
         "checks",
+        "reflections",
     }
 
 

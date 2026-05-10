@@ -14,13 +14,9 @@
 
 - [ ] 同一 UP 至少分析 3 条视频后再跑 `aggregate-owner`。
   - 单条视频只能作为 provisional creator signal。
-- [ ] 从 creator profile 生成候选 `SKILL.md`。
-  - 生成后先人工 review，不直接安装。
-- [ ] 生成 pre-check 和 post-task reflection。
-  - 输出到 `library/checks/`。
-- [ ] 增加反思闭环。
-  - 记录 agent 使用某个方法后的效果。
-  - 反向修订 creator profile、skills、checks。
+- [ ] 根据 reflection log 反向修订 creator profile、skills、checks。
+  - 现状：`seed record-reflection` 已能记录复盘。
+  - 目标：基于多条 reflection 生成修订建议，不直接覆盖原资产。
 
 ## P3：书籍和非视频来源
 
@@ -58,3 +54,5 @@
 - [x] DAG timeline 展示：video DAG 会读取 timeline artifact，并生成 timeline event 子节点。
 - [x] Fact-check claim 节点：`seed extract-claims` 从 `video-semantics.md` 拆出 `library/claims/*.claims.json`，DAG 会展示 claim 子节点，默认状态是 `unverified`。
 - [x] DAG 画布体验：`seed serve-video-dag` 提供本地 server 打开 graph；HTML 画布支持节点搜索/过滤、边标签，以及节点卡片内媒体预览。
+- [x] Agent 资产生成：`seed generate-agent-assets` 从 creator profile 生成候选 `SKILL.md`、pre-check 和 post-task reflection checklist，默认需要人工 review。
+- [x] Reflection log：`seed record-reflection` 记录 Agent 使用 creator 方法后的 outcome、worked、failed 和 revise 项。

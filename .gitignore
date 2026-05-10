@@ -21,6 +21,7 @@ library/graphs/*
 library/distilled/*
 library/skills/*
 library/checks/*
+library/reflections/*
 !library/**/.gitkeep
 
 # Large media outputs.

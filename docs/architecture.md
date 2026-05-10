@@ -38,6 +38,7 @@ URL / book / note
 | 事实核验队列 | `seed extract-claims` | `src/seed/factcheck.py` | `library/claims/*.claims.json` |
 | DAG 图谱 | `seed build-video-dag`, `seed serve-video-dag` | `src/seed/graphs/video_dag.py`, `src/seed/dag_server.py`, `tools/video-dag-canvas.html` | `library/graphs/*.video-dag.json` |
 | 创作者聚合 | `seed aggregate-owner` | `src/seed/semantics/aggregator.py` | `library/distilled/*.creator-profile.md` |
+| Agent 资产生成 | `seed generate-agent-assets`, `seed record-reflection` | `src/seed/agent_assets.py`, `src/seed/reflections.py` | `library/skills/*/SKILL.md`, `library/checks/*.md`, `library/reflections/*.jsonl` |
 
 当前视频 DAG 会展示本地视频、音频、关键帧截图、transcript、visual notes、timeline event、semantic 子节点、creator signals、fact-check queue 和 agent assets。视频、音频、截图、gallery 类节点会在画布节点卡片内直接展示媒体预览；选择节点后，右侧 inspector 仍可查看更大的本地素材预览。
 
@@ -53,6 +54,8 @@ URL / book / note
 - `timeline.py`：从 transcript chunk、关键帧 manifest、video semantics 和 visual notes 生成确定性 timeline JSON；抽不到时间点时保留 `start_seconds: null`。
 - `factcheck.py`：从 video semantics 的 main claims 和 open questions 中拆出待核验 claim，默认状态是 `unverified`。
 - `semantics/aggregator.py`：按 owner 聚合多条视频语义，输出 `library/distilled/*.creator-profile.md`。
+- `agent_assets.py`：从 creator profile 生成待人工 review 的候选 `SKILL.md`、pre-check 和 post-task reflection checklist。
+- `reflections.py`：记录 Agent 使用某个 creator 方法后的结果、有效点、失败点和需要修订的地方。
 - `graphs/video_dag.py`：把本地分析产物组装成画布可读 DAG JSON，输出 `library/graphs/*.video-dag.json`；支持按标题自动发现 raw、audio、transcript、frames、visual notes、semantics 和 timeline。
 - `dag_server.py`：用本地 HTTP server 打开 DAG HTML 和 graph JSON，避免 `file://` 下浏览器策略影响素材加载。
 - `agents/codex.py`：统一管理 `codex exec` 命令、dry-run、输出文件写入。内容分析模块不得直接调用 `subprocess` 跑 Codex。
@@ -74,4 +77,5 @@ URL / book / note
 - `library/claims/*.claims.json`：待核验 claim 队列，状态至少从 `unverified` 开始。
 - `library/graphs/*.video-dag.json`：视频分析链路的可视化图谱，可由 `tools/video-dag-canvas.html` 直接展示。
 - `library/distilled/*.creator-profile.md`：创作者级聚合画像。
-- `library/skills/` 和 `library/checks/`：后续 Agent 可加载资产。
+- `library/skills/` 和 `library/checks/`：从 creator profile 生成、待人工 review 的 Agent 可加载资产。
+- `library/reflections/*.reflection.jsonl`：Agent 使用方法论后的复盘记录，用于后续修订 creator profile、skills 和 checks。
