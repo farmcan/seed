@@ -24,6 +24,24 @@ def test_build_summary_prompt_includes_skill_and_transcript(tmp_path):
     assert "Platform: bilibili" in prompt
 
 
+def test_build_summary_prompt_includes_visual_notes(tmp_path):
+    transcript = tmp_path / "demo.transcript.md"
+    skill = tmp_path / "SKILL.md"
+    visual = tmp_path / "demo.visual.md"
+    transcript.write_text("spoken words", encoding="utf-8")
+    skill.write_text("Summarize with sections.", encoding="utf-8")
+    visual.write_text("---\ntitle: Visual\n---\n\n# Visual Notes\n\nscene changes", encoding="utf-8")
+
+    prompt = build_summary_prompt(
+        transcript_path=transcript,
+        skill_path=skill,
+        visual_notes_path=visual,
+    )
+
+    assert "<visual_notes" in prompt
+    assert "scene changes" in prompt
+
+
 def test_run_codex_summary_dry_run_writes_prompt(tmp_path):
     transcript = tmp_path / "demo.transcript.md"
     skill = tmp_path / "SKILL.md"

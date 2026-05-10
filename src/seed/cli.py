@@ -22,6 +22,9 @@ from seed.summarizers.codex_runner import (
     summary_output_path,
 )
 from seed.transcripts import transcript_output_path, write_transcript_markdown
+from seed.vision.frames import extract_frames, load_frame_paths
+from seed.vision.notes import visual_notes_output_path, write_visual_notes_markdown
+from seed.vision.qwen_vl_provider import DEFAULT_QWEN_VL_MODEL, analyze_frames_with_qwen_vl
 
 
 app = typer.Typer(help="Personal content-to-methodology distillation toolkit.")
@@ -152,12 +155,66 @@ def transcribe_media(
     console.print(f"created transcript at {output_path}")
 
 
+@app.command("extract-frames")
+def extract_frames_cmd(
+    media_path: Annotated[Path, typer.Argument(help="Downloaded video file.")],
+    every_seconds: Annotated[
+        int,
+        typer.Option("--every-seconds", min=1, help="Sample one frame every N seconds."),
+    ] = 5,
+    max_frames: Annotated[
+        int,
+        typer.Option("--max-frames", min=1, help="Maximum frames to extract."),
+    ] = 12,
+    root: Annotated[Path, typer.Option("--root")] = Path("library"),
+) -> None:
+    frame_dir = extract_frames(
+        media_path,
+        root,
+        every_seconds=every_seconds,
+        max_frames=max_frames,
+    )
+    console.print(f"created frames at {frame_dir}")
+    console.print(f"saved manifest at {frame_dir / 'frames.json'}")
+
+
+@app.command("analyze-frames")
+def analyze_frames(
+    frame_dir: Annotated[Path, typer.Argument(help="Directory containing frame_*.jpg files.")],
+    title: Annotated[str | None, typer.Option("--title")] = None,
+    model: Annotated[str, typer.Option("--model")] = DEFAULT_QWEN_VL_MODEL,
+    prompt: Annotated[str | None, typer.Option("--prompt")] = None,
+    root: Annotated[Path, typer.Option("--root")] = Path("library"),
+) -> None:
+    frame_paths = load_frame_paths(frame_dir)
+    if not frame_paths:
+        raise typer.BadParameter("No frame_*.jpg files found in the frame directory.")
+
+    analysis = analyze_frames_with_qwen_vl(frame_paths, model=model, prompt=prompt)
+    output_path = visual_notes_output_path(library_root=root, source_path=frame_dir, title=title)
+    write_visual_notes_markdown(
+        output_path,
+        analysis=analysis,
+        frame_dir=frame_dir,
+        frame_paths=frame_paths,
+        provider="dashscope",
+        model=model,
+        title=title,
+    )
+    console.print(f"analyzed {len(frame_paths)} frames with {model}")
+    console.print(f"created visual notes at {output_path}")
+
+
 @app.command("summarize-transcript")
 def summarize_transcript(
     transcript_path: Annotated[Path, typer.Argument(help="Transcript markdown file.")],
     title: Annotated[str | None, typer.Option("--title")] = None,
     owner: Annotated[str | None, typer.Option("--owner")] = None,
     platform: Annotated[str | None, typer.Option("--platform")] = None,
+    visual_notes: Annotated[
+        Path | None,
+        typer.Option("--visual-notes", help="Optional visual notes markdown from analyze-frames."),
+    ] = None,
     skill_path: Annotated[Path, typer.Option("--skill-path")] = DEFAULT_SKILL_PATH,
     codex_model: Annotated[str | None, typer.Option("--codex-model")] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
@@ -177,6 +234,7 @@ def summarize_transcript(
         title=title,
         owner=owner,
         platform=platform,
+        visual_notes_path=visual_notes,
         model=codex_model,
         cwd=Path.cwd(),
         dry_run=dry_run,
