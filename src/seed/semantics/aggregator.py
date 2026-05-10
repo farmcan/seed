@@ -8,6 +8,7 @@ from seed.markdown import find_markdown_field
 
 
 DEFAULT_CREATOR_PROFILE_SKILL_PATH = Path("skills/creator-profile-aggregator/SKILL.md")
+DEFAULT_MIN_CREATOR_PROFILE_VIDEOS = 3
 
 
 def creator_profile_output_path(*, library_root: Path, owner: str) -> Path:
@@ -31,6 +32,18 @@ def find_video_semantics_files(
 def semantics_matches_owner(text: str, owner: str) -> bool:
     found = find_markdown_field(text, "owner")
     return found is not None and found.casefold() == owner.casefold()
+
+
+def validate_creator_profile_video_count(
+    semantics_paths: list[Path],
+    *,
+    min_videos: int = DEFAULT_MIN_CREATOR_PROFILE_VIDEOS,
+) -> None:
+    if len(semantics_paths) < min_videos:
+        raise ValueError(
+            f"Creator profile aggregation needs at least {min_videos} video semantics files. "
+            f"Found {len(semantics_paths)}. Use --min-videos {len(semantics_paths)} only for a provisional profile."
+        )
 
 
 def build_creator_profile_prompt(

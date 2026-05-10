@@ -54,7 +54,8 @@ fetch-creator-videos
 - Timeline 生成在 `seed.timeline`，只做确定性抽取；无法定位具体时间时使用 `start_seconds: null`，不要伪造时间点。
 - Fact-check claim 抽取在 `seed.factcheck`，默认状态是 `unverified`；不要在没有外部证据时改成 verified。
 - 从 creator profile 生成的 `library/skills/` 和 `library/checks/` 都是 draft，必须人工 review 后再安装或长期使用。
-- Reflection log 只追加记录，不直接覆盖 creator profile、skills 或 checks。
+- Reflection log 只追加记录；`suggest-revisions` 只生成修订建议草稿，不直接覆盖 creator profile、skills 或 checks。
+- `aggregate-owner` 默认至少 3 条 video semantics；如果用 `--min-videos 1` 或 `2`，输出只能视为 provisional。
 - Video DAG 构建支持按标题自动发现本地产物；显式传入的路径优先，resolver 逻辑在 `seed.graphs.video_dag.resolve_video_dag_artifacts`。
 - DAG 画布优先用 `seed serve-video-dag <graph.json>` 打开；HTML 画布内置搜索过滤、边标签和节点卡片内媒体预览，不要再新增独立可视化入口。
 - 内容分析模块不要直接调用 `codex exec`，统一用 `seed.agents.codex.run_codex_prompt`。
@@ -120,12 +121,13 @@ git status -sb
 .venv/bin/seed serve-video-dag --help
 .venv/bin/seed generate-agent-assets --help
 .venv/bin/seed record-reflection --help
+.venv/bin/seed suggest-revisions --help
 .venv/bin/seed analyze-video-semantics --help
 ```
 
 ## 已知缺口
 
 - claim 状态还没有外部核验流程，目前只支持默认 `unverified`。
-- reflection log 还没有自动生成修订建议。
+- 非视频来源还没有接入 semantics 和聚合流程。
 - `build-video-dag` 仍需要显式传入产物路径。
 - HTML 画布是单文件原型，不是完整前端应用；复杂交互继续先保持单文件。

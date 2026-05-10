@@ -4,6 +4,7 @@ from seed.semantics.aggregator import (
     find_video_semantics_files,
     run_creator_profile_aggregation,
     semantics_matches_owner,
+    validate_creator_profile_video_count,
 )
 
 
@@ -68,3 +69,21 @@ def test_run_creator_profile_aggregation_dry_run_writes_prompt(tmp_path):
 
     assert output.exists()
     assert "method" in output.read_text(encoding="utf-8")
+
+
+def test_validate_creator_profile_video_count_requires_three_by_default(tmp_path):
+    semantics = tmp_path / "demo.video-semantics.md"
+
+    try:
+        validate_creator_profile_video_count([semantics])
+    except ValueError as error:
+        assert "at least 3" in str(error)
+        assert "--min-videos 1" in str(error)
+    else:
+        raise AssertionError("expected ValueError")
+
+
+def test_validate_creator_profile_video_count_allows_explicit_provisional_mode(tmp_path):
+    semantics = tmp_path / "demo.video-semantics.md"
+
+    validate_creator_profile_video_count([semantics], min_videos=1)

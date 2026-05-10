@@ -32,7 +32,7 @@ from seed.library import (
 )
 from seed.media import extract_audio
 from seed.models import Methodology, Platform, SourceRecord
-from seed.reflections import ReflectionRecord, append_reflection_record
+from seed.reflections import ReflectionRecord, append_reflection_record, write_revision_suggestions
 from seed.semantics.analyzer import (
     DEFAULT_VIDEO_SEMANTICS_SKILL_PATH,
     run_video_semantics_analysis,
@@ -40,9 +40,11 @@ from seed.semantics.analyzer import (
 )
 from seed.semantics.aggregator import (
     DEFAULT_CREATOR_PROFILE_SKILL_PATH,
+    DEFAULT_MIN_CREATOR_PROFILE_VIDEOS,
     creator_profile_output_path,
     find_video_semantics_files,
     run_creator_profile_aggregation,
+    validate_creator_profile_video_count,
 )
 from seed.sources.creator_videos import fetch_creator_video_list
 from seed.sources.yt_dlp_adapter import download_url
@@ -467,6 +469,7 @@ def aggregate_owner(
         typer.Option("--semantics-dir", help="Override directory containing *.video-semantics.md."),
     ] = None,
     skill_path: Annotated[Path, typer.Option("--skill-path")] = DEFAULT_CREATOR_PROFILE_SKILL_PATH,
+    min_videos: Annotated[int, typer.Option("--min-videos", min=1)] = DEFAULT_MIN_CREATOR_PROFILE_VIDEOS,
     codex_model: Annotated[str | None, typer.Option("--codex-model")] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
     root: Annotated[Path, typer.Option("--root")] = Path("library"),
@@ -478,6 +481,10 @@ def aggregate_owner(
     )
     if not semantics_paths:
         raise typer.BadParameter(f"No video semantics files found for owner: {owner}")
+    try:
+        validate_creator_profile_video_count(semantics_paths, min_videos=min_videos)
+    except ValueError as error:
+        raise typer.BadParameter(str(error)) from error
 
     output_path = creator_profile_output_path(library_root=root, owner=owner)
     if dry_run:
@@ -541,6 +548,15 @@ def record_reflection(
         ),
     )
     console.print(f"recorded reflection at {path}")
+
+
+@app.command("suggest-revisions")
+def suggest_revisions(
+    owner: Annotated[str, typer.Option("--owner", help="Creator, UP, or author.")],
+    root: Annotated[Path, typer.Option("--root")] = Path("library"),
+) -> None:
+    path = write_revision_suggestions(library_root=root, owner=owner)
+    console.print(f"created revision suggestions at {path}")
 
 
 @app.command("build-video-dag")
