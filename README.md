@@ -26,6 +26,7 @@ library/              本地私有知识库，默认不提交内容
   transcripts/        转写文本
   notes/              人工或模型整理笔记
   semantics/          融合口播和视觉语言的视频语义
+  graphs/             可视化 DAG 图谱 JSON
   distilled/          UP/作者/主题总结
   skills/             Agent 可读取的 skills
   checks/             事前检查清单
@@ -48,6 +49,7 @@ seed analyze-frames library/frames/example --title "example" --model qwen-vl-max
 seed summarize-transcript library/transcripts/example.transcript.md --title "example" --platform bilibili
 seed summarize-transcript library/transcripts/example.transcript.md --title "example" --platform bilibili --visual-notes library/notes/example.visual.md
 seed analyze-video-semantics library/transcripts/example.transcript.md --title "example" --owner "some-up" --platform bilibili --visual-notes library/notes/example.visual.md
+seed build-video-dag --title "example" --owner "some-up" --platform bilibili --source-path library/raw/example.mp4 --transcript library/transcripts/example.transcript.md --frames library/frames/example --visual-notes library/notes/example.visual.md --semantics library/semantics/example.video-semantics.md
 seed aggregate-owner --owner "some-up" --platform bilibili
 seed distill-note library/transcripts/example.md --owner "some-up" --topic "增长方法论"
 ```
@@ -61,6 +63,7 @@ ASR 默认使用 DashScope/Qwen，模型为 `qwen3-asr-flash`，需要先配置 
 UP 主聚合阶段通过 `aggregate-owner` 读取同一 owner 的多个 `library/semantics/*.video-semantics.md`，结合 `skills/creator-profile-aggregator/SKILL.md`，输出创作者画像和可复用方法论到 `library/distilled/`。
 
 本地可视化原型在 `tools/video-dag-canvas.html`，可直接用浏览器打开。它提供无限画布、DAG 节点拖拽、缩放、平移、节点编辑和 JSON 导出，用于展示视频分析链路中的 source、transcript、frames、visual notes、timeline、semantics、creator profile 和 agent assets。
+`build-video-dag` 会生成 `library/graphs/*.video-dag.json`，可在画布中用“导入”按钮直接加载；支持的浏览器环境也可以用 `tools/video-dag-canvas.html?graph=../library/graphs/example.video-dag.json` 自动加载。
 
 ## 未来路线
 

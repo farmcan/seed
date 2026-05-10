@@ -13,6 +13,7 @@ LIBRARY_DIRS = [
     "transcripts",
     "notes",
     "semantics",
+    "graphs",
     "distilled",
     "skills",
     "checks",

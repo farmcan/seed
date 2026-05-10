@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Annotated
+from urllib.parse import quote
 
 import typer
 from rich.console import Console
@@ -12,6 +13,7 @@ from seed.asr.providers import (
     default_model_for_provider,
     transcribe_audio,
 )
+from seed.graphs.video_dag import build_video_dag_graph, video_dag_output_path, write_video_dag_graph
 from seed.library import init_library, save_methodology, save_source_record, slugify
 from seed.media import extract_audio, ensure_upload_size
 from seed.models import Methodology, Platform, SourceRecord
@@ -326,3 +328,35 @@ def aggregate_owner(
     )
     console.print(f"aggregated {len(semantics_paths)} video semantics files")
     console.print(f"created {'prompt' if dry_run else 'creator profile'} at {output_path}")
+
+
+@app.command("build-video-dag")
+def build_video_dag(
+    title: Annotated[str, typer.Option("--title", help="Video title for the graph artifact.")],
+    owner: Annotated[str | None, typer.Option("--owner")] = None,
+    platform: Annotated[str | None, typer.Option("--platform")] = None,
+    source_path: Annotated[Path | None, typer.Option("--source-path")] = None,
+    transcript_path: Annotated[Path | None, typer.Option("--transcript")] = None,
+    frame_dir: Annotated[Path | None, typer.Option("--frames")] = None,
+    visual_notes: Annotated[Path | None, typer.Option("--visual-notes")] = None,
+    semantics_path: Annotated[Path | None, typer.Option("--semantics")] = None,
+    creator_profile: Annotated[Path | None, typer.Option("--creator-profile")] = None,
+    root: Annotated[Path, typer.Option("--root")] = Path("library"),
+) -> None:
+    graph = build_video_dag_graph(
+        title=title,
+        owner=owner,
+        platform=platform,
+        source_path=source_path,
+        transcript_path=transcript_path,
+        frame_dir=frame_dir,
+        visual_notes_path=visual_notes,
+        semantics_path=semantics_path,
+        creator_profile_path=creator_profile,
+    )
+    output_path = video_dag_output_path(library_root=root, title=title)
+    write_video_dag_graph(output_path, graph)
+    graph_url = f"{(Path.cwd() / 'tools/video-dag-canvas.html').as_uri()}?graph={quote('../' + str(output_path))}"
+    console.print(f"created video DAG graph at {output_path}")
+    console.print("open tools/video-dag-canvas.html and import the graph JSON")
+    console.print(f"graph URL: {graph_url}")

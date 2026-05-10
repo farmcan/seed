@@ -430,6 +430,7 @@
       <div class="tool-group" aria-label="Graph tools">
         <button class="text-button" id="addNode" title="新增节点">＋ <span>节点</span></button>
         <button class="text-button" id="layoutGraph" title="重新布局">↔ <span>布局</span></button>
+        <button class="text-button" id="importGraph" title="导入 JSON">⇧ <span>导入</span></button>
         <button class="text-button" id="exportGraph" title="导出 JSON">⇩ <span>导出</span></button>
       </div>
       <div class="toolbar-spacer"></div>
@@ -496,6 +497,7 @@
       </div>
     </aside>
   </main>
+  <input id="graphFileInput" type="file" accept="application/json,.json" hidden>
 
   <script>
     const initialGraph = {
@@ -624,6 +626,7 @@
     const typeInput = document.getElementById("typeInput");
     const bodyInput = document.getElementById("bodyInput");
     const metricsInput = document.getElementById("metricsInput");
+    const graphFileInput = document.getElementById("graphFileInput");
 
     function selectedNode() {
       return state.graph.nodes.find((node) => node.id === state.selectedId) || state.graph.nodes[0];
@@ -641,6 +644,29 @@
       renderInspector();
       renderStatus();
       setTransform();
+    }
+
+    function loadGraph(graph) {
+      if (!graph || !Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) {
+        alert("JSON 格式不符合 Seed DAG: 需要 nodes 和 edges。");
+        return;
+      }
+      state.graph = graph;
+      state.selectedId = graph.nodes[0]?.id || null;
+      render();
+      fitView();
+    }
+
+    async function loadGraphFromUrl() {
+      const graphUrl = new URLSearchParams(window.location.search).get("graph");
+      if (!graphUrl) return;
+      try {
+        const response = await fetch(graphUrl);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        loadGraph(await response.json());
+      } catch (error) {
+        console.warn("Unable to auto-load graph URL:", error);
+      }
     }
 
     function renderNodes() {
@@ -879,6 +905,10 @@
       URL.revokeObjectURL(url);
     }
 
+    function importGraph() {
+      graphFileInput.click();
+    }
+
     function updateSelectedFromInspector() {
       const node = selectedNode();
       if (!node) return;
@@ -914,11 +944,18 @@
     document.getElementById("fitView").addEventListener("click", () => fitView());
     document.getElementById("addNode").addEventListener("click", addNode);
     document.getElementById("layoutGraph").addEventListener("click", layoutGraph);
+    document.getElementById("importGraph").addEventListener("click", importGraph);
     document.getElementById("exportGraph").addEventListener("click", exportGraph);
     document.getElementById("focusSemantics").addEventListener("click", () => fitView("semantics"));
     document.getElementById("resetGraph").addEventListener("click", resetGraph);
     [titleInput, typeInput, bodyInput, metricsInput].forEach((input) => {
       input.addEventListener("input", updateSelectedFromInspector);
+    });
+    graphFileInput.addEventListener("change", async () => {
+      const file = graphFileInput.files?.[0];
+      if (!file) return;
+      loadGraph(JSON.parse(await file.text()));
+      graphFileInput.value = "";
     });
 
     window.addEventListener("keydown", (event) => {
@@ -930,6 +967,7 @@
 
     render();
     fitView();
+    loadGraphFromUrl();
   </script>
 </body>
 </html>

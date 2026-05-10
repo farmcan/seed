@@ -15,6 +15,7 @@ URL / book / note
   -> raw asset
   -> transcript + visual notes
   -> video semantics
+  -> video DAG graph
   -> creator profile
   -> methodology / checks
   -> skill + pre-check + reflection log
@@ -30,6 +31,7 @@ URL / book / note
 - `summarizers/`：单条 transcript 的轻量总结，适合作为人工快速预览。
 - `semantics/analyzer.py`：单条视频语义融合，输入 transcript 和 visual notes，输出 `library/semantics/*.video-semantics.md`。
 - `semantics/aggregator.py`：按 owner 聚合多条视频语义，输出 `library/distilled/*.creator-profile.md`。
+- `graphs/video_dag.py`：把本地分析产物组装成画布可读 DAG JSON，输出 `library/graphs/*.video-dag.json`。
 - `agents/codex.py`：统一管理 `codex exec` 命令、dry-run、输出文件写入。内容分析模块不得直接调用 `subprocess` 跑 Codex。
 - `markdown.py`：统一读取 Markdown frontmatter、正文和 metadata 字段，避免不同 artifact 各写一套解析逻辑。
 - `cli.py`：只做参数接线、轻量校验和用户输出。业务逻辑应留在对应模块。
@@ -42,5 +44,6 @@ URL / book / note
 - `library/notes/*.visual.md`：视觉语言，来自 VL 模型。
 - `library/notes/*.summary.md`：快速摘要，不作为长期聚合主数据。
 - `library/semantics/*.video-semantics.md`：单条视频语义，是后续聚合的主数据。
+- `library/graphs/*.video-dag.json`：视频分析链路的可视化图谱，可由 `tools/video-dag-canvas.html` 直接展示。
 - `library/distilled/*.creator-profile.md`：创作者级聚合画像。
 - `library/skills/` 和 `library/checks/`：后续 Agent 可加载资产。
