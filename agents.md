@@ -38,6 +38,7 @@ fetch-creator-videos
 - Markdown artifact 工具：`src/seed/markdown.py`
 - Video DAG 构建：`src/seed/graphs/video_dag.py`
 - DAG 本地服务：`src/seed/dag_server.py`
+- DAG 静态导出：`src/seed/dag_export.py`
 - 画布 UI：`tools/video-dag-canvas.html`
 - Skills：
   - `skills/video-note-summarizer/SKILL.md`
@@ -60,7 +61,8 @@ fetch-creator-videos
 - Reflection log 只追加记录；`suggest-revisions` 只生成修订建议草稿，不直接覆盖 creator profile、skills 或 checks。
 - `aggregate-owner` 默认至少 3 条 video semantics；如果用 `--min-videos 1` 或 `2`，输出只能视为 provisional。
 - Video DAG 构建支持按标题自动发现本地产物；显式传入的路径优先，resolver 逻辑在 `seed.graphs.video_dag.resolve_video_dag_artifacts`。
-- DAG 画布优先用 `seed serve-video-dag <graph.json>` 打开；HTML 画布内置搜索过滤、边标签、简版/全展开、节点展开和节点卡片内媒体预览，不要再新增独立可视化入口。
+- DAG 画布调试优先用 `seed serve-video-dag <graph.json>` 打开；需要给用户直接查看时，用 `seed export-video-dag-html <graph.json>` 生成静态 HTML。
+- HTML 画布内置自动分层布局、搜索过滤、边标签、简版/全展开、节点展开和节点卡片内媒体预览，不要再新增独立可视化入口。
 - 内容分析模块不要直接调用 `codex exec`，统一用 `seed.agents.codex.run_codex_prompt`。
 - 不要在多个地方手写 Markdown frontmatter 解析，统一用 `seed.markdown`。
 - 本地私有产物都放在 `library/`，默认不要提交。
@@ -100,7 +102,7 @@ library/semantics/    单条视频语义
 library/timelines/    视频时间线 JSON
 library/claims/       待核验 claim JSON
 library/costs/        单条视频 Qwen-VL 成本 JSON
-library/graphs/       画布 DAG JSON
+library/graphs/       画布 DAG JSON 和静态 HTML 快照
 library/distilled/    creator profile 和方法论
 library/skills/       生成的 skills
 library/checks/       生成的 checks
@@ -123,6 +125,7 @@ git status -sb
 .venv/bin/seed --help
 .venv/bin/seed build-video-dag --help
 .venv/bin/seed serve-video-dag --help
+.venv/bin/seed export-video-dag-html --help
 .venv/bin/seed generate-agent-assets --help
 .venv/bin/seed record-reflection --help
 .venv/bin/seed suggest-revisions --help

@@ -869,11 +869,13 @@
       state.expandedIds = new Set();
       state.compactMode = true;
       state.selectedId = graph.nodes[0]?.id || null;
+      autoLayoutGraph({ fit: false });
       render();
       fitView();
     }
 
     async function loadGraphFromUrl() {
+      if (window.SEED_EMBEDDED_GRAPH) return;
       const graphUrl = new URLSearchParams(window.location.search).get("graph");
       if (!graphUrl) return;
       try {
@@ -1065,7 +1067,9 @@
       if (!path) return "";
       if (/^(https?:|file:|data:)/.test(path)) return path;
       if (path.startsWith("../")) return path;
-      return `../${path}`;
+      const base = String(window.SEED_ASSET_BASE || "..").replace(/\/$/, "");
+      if (!base || base === ".") return path;
+      return `${base}/${path}`;
     }
 
     function renderStatus() {
@@ -1225,28 +1229,103 @@
     }
 
     function layoutGraph() {
-      const columns = [
-        ["source"],
-        ["transcript", "visual", "frames"],
-        ["semantics", "timeline"],
-        ["creator", "factcheck"],
-        ["skills"]
-      ];
-      for (let col = 0; col < columns.length; col++) {
-        for (let row = 0; row < columns[col].length; row++) {
-          const node = state.graph.nodes.find((item) => item.id === columns[col][row]);
-          if (!node) continue;
-          node.x = -560 + col * 360;
-          node.y = -250 + row * 260 + (columns[col].length === 1 ? 130 : 0);
+      autoLayoutGraph({ fit: true });
+    }
+
+    function autoLayoutGraph({ fit = true } = {}) {
+      const coreNodes = state.graph.nodes.filter((node) => !isCollapsibleChild(node.id));
+      const coreIds = new Set(coreNodes.map((node) => node.id));
+      const rank = new Map(coreNodes.map((node) => [node.id, preferredLayer(node)]));
+      for (let pass = 0; pass < coreNodes.length + 2; pass++) {
+        let changed = false;
+        for (const [fromId, toId] of state.graph.edges) {
+          if (!coreIds.has(fromId) || !coreIds.has(toId)) continue;
+          const nextRank = Math.max(rank.get(toId) || 0, (rank.get(fromId) || 0) + 1);
+          if (nextRank !== rank.get(toId)) {
+            rank.set(toId, nextRank);
+            changed = true;
+          }
         }
+        if (!changed) break;
       }
-      const loose = state.graph.nodes.filter((node) => !columns.flat().includes(node.id));
-      loose.forEach((node, index) => {
-        node.x = 900;
-        node.y = 130 + index * 170;
-      });
+
+      const layers = new Map();
+      for (const node of coreNodes) {
+        const layer = rank.get(node.id) || 0;
+        if (!layers.has(layer)) layers.set(layer, []);
+        layers.get(layer).push(node);
+      }
+
+      const xStep = 340;
+      const yStep = 210;
+      const startX = -900;
+      for (const [layer, nodes] of [...layers.entries()].sort((a, b) => a[0] - b[0])) {
+        nodes.sort((a, b) => nodeOrder(a) - nodeOrder(b) || a.title.localeCompare(b.title));
+        const offset = (nodes.length - 1) / 2;
+        nodes.forEach((node, index) => {
+          node.x = startX + layer * xStep;
+          node.y = Math.round((index - offset) * yStep - 80);
+        });
+      }
+
+      for (const parent of coreNodes) {
+        const children = childNodeIds(parent.id)
+          .map((id) => state.graph.nodes.find((node) => node.id === id))
+          .filter(Boolean);
+        children.forEach((child, index) => {
+          child.x = parent.x + xStep;
+          child.y = parent.y + 210 + index * 155;
+        });
+      }
+
       render();
-      fitView();
+      if (fit) fitView();
+    }
+
+    function preferredLayer(node) {
+      const layers = {
+        source: 0,
+        "video-media": 1,
+        "audio-media": 2,
+        frames: 2,
+        transcript: 3,
+        visual: 3,
+        timeline: 4,
+        semantics: 4,
+        costs: 4,
+        claims: 5,
+        structure: 5,
+        methods: 5,
+        factcheck: 6,
+        "creator-signals": 6,
+        creator: 7,
+        skills: 8
+      };
+      if (Object.prototype.hasOwnProperty.call(layers, node.id)) return layers[node.id];
+      return Math.max(0, ["source", "transcript", "frame", "visual", "timeline", "semantics", "creator", "asset"].indexOf(node.type));
+    }
+
+    function nodeOrder(node) {
+      const order = [
+        "source",
+        "video-media",
+        "audio-media",
+        "frames",
+        "transcript",
+        "visual",
+        "timeline",
+        "semantics",
+        "costs",
+        "claims",
+        "structure",
+        "methods",
+        "creator-signals",
+        "factcheck",
+        "creator",
+        "skills"
+      ];
+      const index = order.indexOf(node.id);
+      return index >= 0 ? index : order.length;
     }
 
     function exportGraph() {
@@ -1278,8 +1357,7 @@
       state.expandedIds = new Set();
       state.compactMode = true;
       state.selectedId = "semantics";
-      render();
-      fitView();
+      autoLayoutGraph({ fit: true });
     }
 
     function escapeHtml(value) {
@@ -1345,8 +1423,11 @@
       if (event.key === "-") zoomBy(0.85);
     });
 
-    render();
-    fitView();
+    if (window.SEED_EMBEDDED_GRAPH) {
+      loadGraph(window.SEED_EMBEDDED_GRAPH);
+    } else {
+      autoLayoutGraph({ fit: true });
+    }
     loadGraphFromUrl();
   </script>
 </body>

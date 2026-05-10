@@ -21,6 +21,11 @@ from seed.asr.providers import (
 from seed.agent_assets import build_agent_assets_from_creator_profile, write_agent_assets
 from seed.asr.chunked import transcribe_audio_with_optional_chunks
 from seed.creator_ingest import ingest_creator_videos as ingest_creator_videos_from_list
+from seed.dag_export import (
+    export_video_dag_html,
+    relative_asset_base,
+    video_dag_html_output_path,
+)
 from seed.dag_server import serve_video_dag
 from seed.factcheck import build_claims_artifact, claims_output_path, write_claims_artifact
 from seed.graphs.video_dag import (
@@ -657,3 +662,26 @@ def serve_video_dag_cmd(
         port=port,
         open_browser=open_browser,
     )
+
+
+@app.command("export-video-dag-html")
+def export_video_dag_html_cmd(
+    graph_path: Annotated[Path, typer.Argument(help="Path to *.video-dag.json.")],
+    output_path: Annotated[Path | None, typer.Option("--output")] = None,
+    asset_base: Annotated[
+        str | None,
+        typer.Option("--asset-base", help="Relative base used to resolve library media paths."),
+    ] = None,
+) -> None:
+    resolved_output = output_path or video_dag_html_output_path(graph_path=graph_path)
+    resolved_asset_base = asset_base or relative_asset_base(
+        output_path=resolved_output,
+        repo_root=Path.cwd(),
+    )
+    path = export_video_dag_html(
+        graph_path=graph_path,
+        output_path=resolved_output,
+        asset_base=resolved_asset_base,
+    )
+    console.print(f"created standalone video DAG HTML at {path}")
+    console.print(f"asset base: {resolved_asset_base}")
