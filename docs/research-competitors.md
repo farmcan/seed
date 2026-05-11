@@ -55,6 +55,7 @@
 7. Qwen-VL 计费需要作为 artifact，而不是只在日志里打印。按单条视频记录 token usage、单价、pricing source、估算金额，并允许环境变量覆盖单价，避免价格变化导致历史结果不可解释。
 8. Pipeline 编排先不要引入重型服务。Prefect/Dagster/Temporal 都能解决状态、重试和可观测性，但当前 seed 主要是本地单人工作流；先用 `library/runs/*.yaml` 记录 step 状态，等出现定时调度、多 worker、复杂重试或团队协作再迁移。
 9. 视频分析 skills 需要一个共享 lens 层。Fabric、BiliNote、tldw 和 HoverNotes 的共同点不是某个固定 prompt，而是 transcript、timestamp、screenshot/keyframe、source-grounded analysis 和 reusable method extraction。Seed 应把这些作为 `video-analysis-lenses.md`，让 summarizer、semantics analyzer 和 creator aggregator 复用同一套词汇。
+10. 不要直接抄单个视频总结 prompt。Fabric 的 pattern 化适合拆成可复用 lens；BiliNote 类工具提醒我们截图、时间戳和 Markdown 必须对齐；tldw/NotebookLM 类工具强调来源 grounding。Seed 的落地方式是 prompt 构建时注入共享 lenses 和证据锚点，让输出天然带 `[T*]`、`[V*]`、`[F*]` 引用。
 
 ## Sources
 

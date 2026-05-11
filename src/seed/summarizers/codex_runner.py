@@ -4,6 +4,8 @@ from pathlib import Path
 
 from seed.agents.codex import run_codex_prompt
 from seed.library import init_library, slugify
+from seed.semantics.evidence import build_video_evidence_anchors
+from seed.skill_refs import read_video_analysis_lenses
 from seed.transcripts import read_transcript_text
 from seed.vision.notes import read_visual_notes_text
 
@@ -33,6 +35,11 @@ def build_summary_prompt(
 ) -> str:
     transcript = read_transcript_text(transcript_path)
     skill = skill_path.read_text(encoding="utf-8")
+    lenses = read_video_analysis_lenses()
+    evidence_anchors = build_video_evidence_anchors(
+        transcript_path=transcript_path,
+        visual_notes_path=visual_notes_path,
+    )
     visual_section = ""
     if visual_notes_path:
         visual_notes = read_visual_notes_text(visual_notes_path)
@@ -54,6 +61,14 @@ Metadata:
 <skill>
 {skill}
 </skill>
+
+<analysis_lenses>
+{lenses}
+</analysis_lenses>
+
+<evidence_anchors>
+{evidence_anchors}
+</evidence_anchors>
 
 <transcript>
 {transcript}

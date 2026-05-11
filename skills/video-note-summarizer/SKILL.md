@@ -63,7 +63,7 @@ Return only Markdown with these sections:
 
 ## Key Points
 
-- 5-12 facts or claims someone should remember.
+- 5-12 facts or claims someone should remember. Add evidence IDs like `[T1]`, `[V1]`, or `[F3]` when anchors are available.
 
 ## Actionable Takeaways
 
@@ -75,6 +75,7 @@ Return only Markdown with these sections:
 - **Steps:**
 - **Decision rules:**
 - **Failure modes:**
+- **Evidence references:**
 
 ## Video Structure
 

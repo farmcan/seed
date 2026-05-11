@@ -70,6 +70,7 @@ One paragraph that fuses what the video says and what it shows.
 - Argument pattern:
 - Repeated phrases or framing:
 - Notable quotes:
+- Evidence references:
 
 ## Visual Language
 
@@ -79,6 +80,7 @@ One paragraph that fuses what the video says and what it shows.
 - Product or demo evidence:
 - Visual trust builders:
 - Editing or retention devices:
+- Evidence references:
 
 ## Video Structure
 
@@ -98,6 +100,7 @@ One paragraph that fuses what the video says and what it shows.
 - Failure modes:
 - When this method applies:
 - When this method does not apply:
+- Evidence references:
 
 ## Creator Signals
 

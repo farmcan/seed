@@ -16,6 +16,9 @@
 
 ## P1：加强证据 DAG
 
+- [x] 视频分析 prompt 证据锚点。
+  - `summarize-transcript`、`analyze-video-semantics` 和 `aggregate-owner` 会注入共享 `video-analysis-lenses.md`。
+  - 单条视频 prompt 会从 transcript chunk、visual notes 和 keyframe metadata 生成 `[T*]`、`[V*]`、`[F*]` 证据 ID。
 - [x] 增加 `seed verify-claims` 的最小可用闭环。
   - 输入 `library/claims/*.claims.json`，输出带来源、证据摘录、URL、状态和不确定性的核验结果。
   - 当前版本只记录 evidence source，自动判断保持保守：有来源为 `unclear`，无来源为 `unverified`。
@@ -39,7 +42,7 @@
 - [x] 增加 `seed build-creator-dag`。
   - 按 UP/作者展示多条视频、每条状态、共性方法论、代表证据、反例、成本和 reflection 入口。
 - [ ] 强化 creator profile 的证据引用。
-  - 每个创作者级结论需要能回溯到具体视频、timestamp/keyframe/transcript chunk 或 semantic section。
+  - 当前 prompt 已注入共享 lenses；下一步要在输出后做结构校验，要求每个创作者级结论回溯到具体视频、timestamp/keyframe/transcript chunk 或 semantic section。
 - [ ] Agent 资产 review 流程。
   - 从 creator profile 生成的 skill/check 需要人工确认状态，例如 `draft`、`reviewed`、`installed`。
 
@@ -95,3 +98,4 @@
 - [x] 书籍/笔记入口：`seed import-book-note`、`seed analyze-book-note`、`seed aggregate-topic` 支持非视频来源的基础语义产物。
 - [x] Canvas 布局离线化：`tools/vendor/elk.bundled.js` 固定 `elkjs`，导出 HTML 不再依赖 CDN。
 - [x] 视频分析 lenses：`skills/video-semantics-analyzer/references/video-analysis-lenses.md` 收敛 Fabric、BiliNote、tldw、短视频结构等参考框架。
+- [x] 视频分析证据锚点：prompt 构建统一注入共享 lenses 和 `[T*]`、`[V*]`、`[F*]` 证据引用要求，避免纯主观总结。

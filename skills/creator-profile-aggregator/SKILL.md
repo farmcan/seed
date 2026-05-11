@@ -46,6 +46,7 @@ A concise synthesis of what this creator repeatedly teaches, demonstrates, or op
 - Evidence:
 - When to use:
 - Failure modes:
+- Source video references:
 
 ## Verbal Language Patterns
 
@@ -94,3 +95,4 @@ Questions an agent should ask after using this creator's methods.
 - Missing data:
 - More videos to collect:
 - Patterns that need confirmation:
+- Claims that lack repeated evidence:

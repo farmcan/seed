@@ -5,6 +5,7 @@ from pathlib import Path
 from seed.agents.codex import run_codex_prompt
 from seed.library import init_library, slugify
 from seed.markdown import find_markdown_field
+from seed.skill_refs import read_video_analysis_lenses
 
 
 DEFAULT_CREATOR_PROFILE_SKILL_PATH = Path("skills/creator-profile-aggregator/SKILL.md")
@@ -54,6 +55,7 @@ def build_creator_profile_prompt(
     platform: str | None = None,
 ) -> str:
     skill = skill_path.read_text(encoding="utf-8")
+    lenses = read_video_analysis_lenses()
     semantics_sections = "\n".join(
         f"""<video_semantics path="{path}">
 {path.read_text(encoding="utf-8").strip()}
@@ -72,6 +74,10 @@ Metadata:
 <skill>
 {skill}
 </skill>
+
+<analysis_lenses>
+{lenses}
+</analysis_lenses>
 
 {semantics_sections}
 """
