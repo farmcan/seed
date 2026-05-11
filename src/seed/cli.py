@@ -8,9 +8,13 @@ import typer
 from rich.console import Console
 
 from seed.costs import (
+    build_cost_ledger,
     build_qwen_vl_cost_item,
+    cost_ledger_output_path,
+    reserved_cost_item,
     reserved_codex_cost_item,
     video_cost_output_path,
+    write_cost_ledger,
     write_video_cost_report,
 )
 from seed.asr.providers import (
@@ -78,6 +82,11 @@ from seed.semantics.aggregator import (
     find_video_semantics_files,
     run_creator_profile_aggregation,
     validate_creator_profile_video_count,
+)
+from seed.semantics.validation import (
+    creator_profile_validation_output_path,
+    validate_creator_profile,
+    write_creator_profile_validation,
 )
 from seed.sources.creator_videos import fetch_creator_video_list
 from seed.sources.yt_dlp_adapter import download_url
@@ -273,6 +282,11 @@ def run_creator_pipeline_cmd(
     cookies_from_browser: Annotated[str | None, typer.Option("--cookies-from-browser")] = None,
     vision: Annotated[bool, typer.Option("--vision/--no-vision")] = True,
     force: Annotated[bool, typer.Option("--force/--skip-existing")] = False,
+    max_estimated_cost: Annotated[
+        float | None,
+        typer.Option("--max-estimated-cost", help="Stop before the next video once this budget is reached."),
+    ] = None,
+    cost_currency: Annotated[str, typer.Option("--cost-currency")] = "USD",
     root: Annotated[Path, typer.Option("--root")] = Path("library"),
 ) -> None:
     manifest, manifest_path = run_creator_pipeline(
@@ -291,10 +305,14 @@ def run_creator_pipeline_cmd(
             cookies_from_browser=cookies_from_browser,
             vision=vision,
             force=force,
+            max_estimated_cost=max_estimated_cost,
+            cost_currency=cost_currency,
         )
     )
     console.print(f"created creator pipeline manifest at {manifest_path}")
     console.print(f"video runs: {len(manifest['video_runs'])}")
+    if manifest.get("cost_ledger_path"):
+        console.print(f"created creator cost ledger at {manifest['cost_ledger_path']}")
 
 
 @app.command("run-video-pipeline")
@@ -355,6 +373,8 @@ def run_video_pipeline_cmd(
         console.print(f"created video semantics at {context.semantics_path}")
     if context.cost_path:
         console.print(f"created cost report at {context.cost_path}")
+    if context.cost_ledger_path:
+        console.print(f"created cost ledger at {context.cost_ledger_path}")
 
 
 @app.command("distill-note")
@@ -548,6 +568,42 @@ def analyze_frames(
     )
 
 
+@app.command("build-cost-ledger")
+def build_cost_ledger_cmd(
+    title: Annotated[str, typer.Option("--title", help="Title for the ledger artifact.")],
+    cost_report: Annotated[
+        list[Path] | None,
+        typer.Option("--cost-report", help="Input *.cost.json or *.ledger.json artifact."),
+    ] = None,
+    scope: Annotated[str, typer.Option("--scope")] = "video",
+    reserve_asr: Annotated[bool, typer.Option("--reserve-asr/--no-reserve-asr")] = True,
+    reserve_codex: Annotated[bool, typer.Option("--reserve-codex/--no-reserve-codex")] = True,
+    reserve_search: Annotated[bool, typer.Option("--reserve-search/--no-reserve-search")] = True,
+    root: Annotated[Path, typer.Option("--root")] = Path("library"),
+) -> None:
+    reserved_items = []
+    if reserve_asr:
+        reserved_items.append(
+            reserved_cost_item(kind="asr", provider="unknown", operation="transcribe-media")
+        )
+    if reserve_codex:
+        reserved_items.append(reserved_codex_cost_item())
+    if reserve_search:
+        reserved_items.append(
+            reserved_cost_item(kind="search", provider="unknown", operation="verify-claims")
+        )
+    ledger = build_cost_ledger(
+        title=title,
+        cost_report_paths=cost_report or [],
+        scope=scope,
+        reserved_items=reserved_items,
+    )
+    output_path = cost_ledger_output_path(library_root=root, title=title)
+    write_cost_ledger(output_path, ledger)
+    console.print(f"created cost ledger at {output_path}")
+    console.print(f"totals: {ledger['totals']}")
+
+
 @app.command("summarize-transcript")
 def summarize_transcript(
     transcript_path: Annotated[Path, typer.Argument(help="Transcript markdown file.")],
@@ -730,8 +786,28 @@ def aggregate_owner(
         cwd=Path.cwd(),
         dry_run=dry_run,
     )
+    if not dry_run:
+        validation = validate_creator_profile(output_path, owner=owner)
+        validation_path = creator_profile_validation_output_path(library_root=root, owner=owner)
+        write_creator_profile_validation(validation_path, validation)
+        console.print(f"created creator profile validation at {validation_path}")
+        console.print(f"validation status: {validation['status']}")
     console.print(f"aggregated {len(semantics_paths)} video semantics files")
     console.print(f"created {'prompt' if dry_run else 'creator profile'} at {output_path}")
+
+
+@app.command("validate-creator-profile")
+def validate_creator_profile_cmd(
+    profile_path: Annotated[Path, typer.Argument(help="Path to *.creator-profile.md.")],
+    owner: Annotated[str | None, typer.Option("--owner")] = None,
+    root: Annotated[Path, typer.Option("--root")] = Path("library"),
+) -> None:
+    resolved_owner = owner or profile_path.stem.removesuffix(".creator-profile")
+    report = validate_creator_profile(profile_path, owner=resolved_owner)
+    output_path = creator_profile_validation_output_path(library_root=root, owner=resolved_owner)
+    write_creator_profile_validation(output_path, report)
+    console.print(f"created creator profile validation at {output_path}")
+    console.print(f"status: {report['status']}, findings: {len(report['findings'])}")
 
 
 @app.command("build-creator-dag")
@@ -756,6 +832,8 @@ def build_creator_dag(
         creator_profile_path=creator_profile or assets["creator_profile_path"],
         skill_paths=assets["skill_paths"],
         check_paths=assets["check_paths"],
+        validation_path=assets["validation_path"],
+        cost_ledger_path=assets["cost_ledger_path"],
     )
     output_path = creator_dag_output_path(library_root=root, owner=owner)
     write_creator_dag_graph(output_path, graph)

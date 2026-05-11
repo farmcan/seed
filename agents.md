@@ -27,10 +27,10 @@ fetch-creator-videos
 
 ```text
 run-video-pipeline
-  -> video semantics + timeline + claims + cost + video DAG HTML
+  -> video semantics + timeline + claims + cost ledger + video DAG HTML
 
 run-creator-pipeline
-  -> 多条 video pipeline + creator profile + creator DAG + agent assets
+  -> 多条 video pipeline + budget gate + creator profile + creator DAG + agent assets
 ```
 
 ## 重要文件
@@ -42,6 +42,7 @@ run-creator-pipeline
 - 创作者 pipeline：`src/seed/creator_pipeline.py`
 - ASR 分段转写：`src/seed/asr/chunked.py`
 - 成本计量：`src/seed/costs.py`
+- Creator profile 证据校验：`src/seed/semantics/validation.py`
 - Claim verification：`src/seed/claim_verification.py`
 - 书籍/笔记：`src/seed/books.py`
 - Timeline artifact：`src/seed/timeline.py`
@@ -77,7 +78,8 @@ run-creator-pipeline
 - 创作者视频列表发现也属于 `sources/`，输出 `library/notes/*.creator-videos.yaml`，不要直接混入 ASR、视觉分析或总结逻辑。
 - 创作者批量入库从 `*.creator-videos.yaml` 读取 URL，复用 `download_url` 和 `save_source_record`，不要复制单链接下载逻辑。
 - ASR 长音频分段在 `seed.asr.chunked`，不要在 CLI 或 provider 里重复实现切片与合并。
-- Qwen-VL 成本记录在 `seed.costs`，`analyze-frames` 必须按单条视频写入 `library/costs/*.cost.json`；费用是基于 token usage 和配置单价的估算，实际账单以服务商后台为准。
+- Qwen-VL 成本记录在 `seed.costs`，`analyze-frames` 必须按单条视频写入 `library/costs/*.cost.json`；`run-video-pipeline` 和 `build-cost-ledger` 必须写入 `library/costs/*.ledger.json`；费用是基于 token usage 和配置单价的估算，实际账单以服务商后台为准。
+- 创作者批量任务支持 `--max-estimated-cost` 预算门槛；达到预算后停止后续视频，并在 run manifest 写入 `budget_exceeded`。
 - 任何外部模型/API 调用都要考虑成本记录；如果 provider 暂时拿不到 token，就写 `reserved` 或 `unknown`，不要伪造 token 或金额。
 - Timeline 生成在 `seed.timeline`，只做确定性抽取；无法定位具体时间时使用 `start_seconds: null`，不要伪造时间点。
 - Fact-check claim 抽取在 `seed.factcheck`，默认状态是 `unverified`；不要在没有外部证据时改成 verified。
@@ -92,6 +94,7 @@ run-creator-pipeline
 - 视频分析 skills 必须复用 `video-analysis-lenses.md`，不要在 summarizer、semantics analyzer 和 creator aggregator 里各写一套互相冲突的分析框架。
 - 视频总结、视频语义和创作者聚合 prompt 必须注入共享 lenses；单条视频 prompt 还必须注入 `[T*]`、`[V*]`、`[F*]` 证据锚点。
 - 视频语义和 creator profile 的强结论必须带证据引用；如果证据不足，写入 Open Questions 或 Evidence Gaps，不要用模型猜测补齐。
+- `aggregate-owner` 生成 creator profile 后要写 evidence validation report；手动检查已有 profile 时使用 `seed validate-creator-profile`。
 - 内容分析模块不要直接调用 `codex exec`，统一用 `seed.agents.codex.run_codex_prompt`。
 - 不要在多个地方手写 Markdown frontmatter 解析，统一用 `seed.markdown`。
 - 本地私有产物都放在 `library/`，默认不要提交。
@@ -103,7 +106,7 @@ run-creator-pipeline
 - 功能 lint：新增功能必须更新 `docs/todos.md` 的状态，长期存在的功能必须更新 `docs/architecture.md`。
 - Artifact lint：新增 `library/<dir>` 必须更新 `.gitignore`、`.gitkeep`、`src/seed/library.py`、`docs/architecture.md` 和本文件。
 - Pipeline lint：新增视频处理能力必须说明它在 pipeline 中的位置，不能只提供单步 demo。
-- Cost lint：新增外部模型/API/provider 调用必须记录或预留成本字段。
+- Cost lint：新增外部模型/API/provider 调用必须记录或预留成本字段，并接入 cost ledger；批量 pipeline 必须考虑预算门槛。
 - DAG lint：新增关键 artifact 必须考虑是否需要 DAG 节点；如果不接入 DAG，要在实现说明中解释原因。
 - Verification lint：涉及事实、价格、平台规则、模型价格、库选型等易变信息时，必须查官方或 primary source，并把来源写入调研或 artifact。
 - Canvas lint：不要再手写主布局算法；主路径使用 vendored 成熟布局库，手写逻辑只允许作为 fallback 或小交互 glue。
@@ -149,7 +152,7 @@ library/runs/         pipeline run manifest，待实现
 library/semantics/    单条视频语义
 library/timelines/    视频时间线 JSON
 library/claims/       待核验 claim JSON
-library/costs/        单条视频 Qwen-VL 成本 JSON
+library/costs/        单条视频 Qwen-VL 成本 JSON 和 pipeline cost ledger
 library/graphs/       画布 DAG JSON 和静态 HTML 快照
 library/distilled/    creator profile 和方法论
 library/skills/       生成的 skills
@@ -175,6 +178,7 @@ git status -sb
 .venv/bin/seed --help
 .venv/bin/seed run-video-pipeline --help
 .venv/bin/seed run-creator-pipeline --help
+.venv/bin/seed build-cost-ledger --help
 .venv/bin/seed build-video-dag --help
 .venv/bin/seed build-creator-dag --help
 .venv/bin/seed serve-video-dag --help
@@ -187,12 +191,12 @@ git status -sb
 .venv/bin/seed record-reflection --help
 .venv/bin/seed suggest-revisions --help
 .venv/bin/seed analyze-video-semantics --help
+.venv/bin/seed validate-creator-profile --help
 ```
 
 ## 已知缺口
 
 - `verify-claims` 当前只做 evidence source 记录和保守状态更新，还没有自动判断 supported/contradicted。
-- `run-creator-pipeline` 还没有成本预算上限。
-- Creator profile 的每个结论还没有强制回溯到具体 timestamp/keyframe/transcript chunk。
+- Creator profile 证据校验目前是 warning report，还没有阻断生成或自动修复。
 - Agent 资产还没有 `draft/reviewed/installed` 状态流转。
 - HTML 画布是单文件原型，不是完整前端应用；复杂交互继续先保持单文件，但主布局必须继续依赖成熟布局库。

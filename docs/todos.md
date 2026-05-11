@@ -7,7 +7,7 @@
 - [x] 增加 `seed run-video-pipeline`。
   - 输入 URL 或本地视频，串起下载/记录、ASR、抽帧、Qwen-VL、成本记录、video semantics、timeline、claims、DAG JSON 和静态 HTML。
   - 每一步要支持跳过已存在产物，失败后可以从中间步骤续跑。
-  - 输出最后的主入口路径：`*.video-dag.html`、`*.video-semantics.md`、`*.cost.json`。
+  - 输出最后的主入口路径：`*.video-dag.html`、`*.video-semantics.md`、`*.cost.json`、`*.ledger.json`。
 - [x] 增加 pipeline run manifest。
   - 记录每个 step 的输入、输出、开始/结束时间、状态、错误和 provider/model。
   - 后续 creator 批量处理和成本汇总都从 manifest 读状态。
@@ -28,7 +28,7 @@
   - 调研结论：按 claim decomposition、query planning、evidence retrieval、evidence synthesis、verdict prediction 分阶段实现，并保存每阶段 artifact。
 - [x] 把 fact-check 结果接入 DAG。
   - claim 节点展示核验状态、来源数量、证据链接和风险等级。
-- [ ] 做 pipeline 级 cost ledger。
+- [x] 做 pipeline 级 cost ledger。
   - 单条视频成本不只记录 Qwen-VL，还要预留并逐步接入 ASR、Codex、搜索/核验等步骤。
   - DAG 成本节点展示分项和总计。
   - 调研结论：Qwen-VL 价格会随 deployment/region 变化，成本 artifact 必须保存 pricing source、deployment 和计价快照。
@@ -39,12 +39,12 @@
 
 - [x] 增加 `seed run-creator-pipeline` 第一版。
   - 输入平台 + UP/作者名称，自动获取视频列表、批量入库、批量跑视频 pipeline。
-  - 已支持 limit、start-index、失败继续、跳过已完成；成本预算上限待补。
-- [ ] 为 `seed run-creator-pipeline` 增加成本预算上限。
+  - 已支持 limit、start-index、失败继续、跳过已完成和成本预算上限。
+- [x] 为 `seed run-creator-pipeline` 增加成本预算上限。
   - 建议先做本地 budget gate：开始处理下一条视频前读取已有 cost ledger，超过预算则停止并写入 run manifest。
 - [x] 增加 `seed build-creator-dag`。
   - 按 UP/作者展示多条视频、每条状态、共性方法论、代表证据、反例、成本和 reflection 入口。
-- [ ] 强化 creator profile 的证据引用。
+- [x] 强化 creator profile 的证据引用。
   - 当前 prompt 已注入共享 lenses；下一步要在输出后做结构校验，要求每个创作者级结论回溯到具体视频、timestamp/keyframe/transcript chunk 或 semantic section。
 - [ ] Agent 资产 review 流程。
   - 从 creator profile 生成的 skill/check 需要人工确认状态，例如 `draft`、`reviewed`、`installed`。
@@ -75,17 +75,17 @@
 
 ## P5：下一轮实现建议
 
-- [ ] 实现 pipeline 级 cost ledger。
+- [x] 实现 pipeline 级 cost ledger。
   - 汇总 Qwen-VL、ASR、Codex 预留、搜索/核验成本。
   - 输入来自现有 `library/costs/*.cost.json` 和 pipeline manifest。
   - 输出 `library/costs/*.ledger.json`，并接入 video DAG / creator DAG。
-- [ ] 实现 creator pipeline budget gate。
+- [x] 实现 creator pipeline budget gate。
   - 在处理每条视频前读取 ledger 或已知单条 cost。
   - 超出预算时停止后续视频，manifest 记录 `budget_exceeded`。
 - [ ] 实现 claim verification 分阶段 artifact。
   - claim -> query plan -> evidence snippets -> source score -> verdict -> uncertainty。
   - 没有足够来源时只能输出 `unclear` 或 `unverified`。
-- [ ] 实现 creator profile evidence validator。
+- [x] 实现 creator profile evidence validator。
   - 检查 creator profile 中强结论是否含视频、timestamp/keyframe/transcript chunk 或 semantic section 引用。
   - 不自动改写 profile，先输出 validation report。
 - [ ] 增强 DAG 媒体联动。
@@ -113,6 +113,9 @@
 - [x] DAG 画布体验：`seed serve-video-dag` 提供本地 server 打开 graph；HTML 画布支持节点搜索/过滤、边标签，以及节点卡片内媒体预览。
 - [x] DAG 静态导出：`seed export-video-dag-html` 会把 graph JSON 嵌进 HTML，默认全展开，避免关闭本地 server 后无法查看。
 - [x] 视频成本报告：`seed analyze-frames` 会按视频写入 `library/costs/*.cost.json`，记录 Qwen-VL tokens、估算费用、pricing source 和 Codex 预留项；`seed build-video-dag` 会把成本节点接入画布。
+- [x] Pipeline 成本账本：`seed build-cost-ledger` 和 `run-video-pipeline` 会写入 `library/costs/*.ledger.json`，汇总 Qwen-VL 并预留 ASR、Codex、搜索/核验费用。
+- [x] 创作者预算门槛：`seed run-creator-pipeline --max-estimated-cost ...` 在预算达到后停止后续视频，并把 `budget_exceeded` 写入 manifest。
+- [x] Creator profile 证据校验：`seed validate-creator-profile` 和 `aggregate-owner` 会输出 `*.creator-profile.validation.json`。
 - [x] Agent 资产生成：`seed generate-agent-assets` 从 creator profile 生成候选 `SKILL.md`、pre-check 和 post-task reflection checklist，默认需要人工 review。
 - [x] Reflection log：`seed record-reflection` 记录 Agent 使用 creator 方法后的 outcome、worked、failed 和 revise 项。
 - [x] Creator profile 最小样本约束：`seed aggregate-owner` 默认要求同一 owner 至少 3 条 video semantics；少量样本必须显式 `--min-videos` 降级。

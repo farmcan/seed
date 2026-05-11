@@ -74,6 +74,11 @@ def video_cost_output_path(*, library_root: Path, title: str) -> Path:
     return library_root / "costs" / f"{slugify(title)}.cost.json"
 
 
+def cost_ledger_output_path(*, library_root: Path, title: str) -> Path:
+    init_library(library_root)
+    return library_root / "costs" / f"{slugify(title)}.ledger.json"
+
+
 def qwen_vl_token_rate(model: str, *, region: str | None = None) -> TokenRate:
     resolved_region = region or os.getenv("SEED_QWEN_VL_PRICE_REGION", DEFAULT_QWEN_VL_PRICE_REGION)
     currency = os.getenv("SEED_QWEN_VL_PRICE_CURRENCY", DEFAULT_QWEN_VL_CURRENCY)
@@ -136,11 +141,19 @@ def build_qwen_vl_cost_item(
 
 
 def reserved_codex_cost_item() -> dict[str, Any]:
+    return reserved_cost_item(
+        kind="codex",
+        provider="codex",
+        operation="summarize-or-analyze",
+    )
+
+
+def reserved_cost_item(*, kind: str, provider: str, operation: str) -> dict[str, Any]:
     return {
-        "kind": "codex",
-        "provider": "codex",
+        "kind": kind,
+        "provider": provider,
         "status": "reserved",
-        "operation": "summarize-or-analyze",
+        "operation": operation,
         "usage": None,
         "rate": None,
         "estimated_cost": None,
@@ -181,3 +194,74 @@ def write_video_cost_report(
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     return path
+
+
+def build_cost_ledger(
+    *,
+    title: str,
+    cost_report_paths: list[Path],
+    scope: str = "video",
+    reserved_items: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    reports = [load_cost_report(path) for path in cost_report_paths if path.exists()]
+    items: list[dict[str, Any]] = []
+    for report in reports:
+        report_path = report.get("_path")
+        for item in report.get("items", []):
+            items.append({**item, "source_report_path": report_path})
+    items.extend(reserved_items or [])
+    return {
+        "version": 1,
+        "kind": "cost_ledger",
+        "scope": scope,
+        "title": title,
+        "created_at": datetime.now(UTC).isoformat(),
+        "pricing_note": (
+            "Estimated from recorded usage and configured rates. Provider invoices remain the "
+            "source of truth."
+        ),
+        "source_reports": [str(path) for path in cost_report_paths if path.exists()],
+        "items": items,
+        "totals": calculate_totals(items),
+    }
+
+
+def write_cost_ledger(path: Path, ledger: dict[str, Any]) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(ledger, ensure_ascii=False, indent=2), encoding="utf-8")
+    return path
+
+
+def load_cost_report(path: Path) -> dict[str, Any]:
+    report = json.loads(path.read_text(encoding="utf-8"))
+    if isinstance(report, dict):
+        report["_path"] = str(path)
+        return report
+    return {"_path": str(path), "items": [], "totals": {}}
+
+
+def calculate_totals(items: list[dict[str, Any]]) -> dict[str, float]:
+    currencies = sorted(
+        {
+            item["estimated_cost"]["currency"]
+            for item in items
+            if item.get("estimated_cost") and item["estimated_cost"].get("currency")
+        }
+    )
+    return {
+        currency: round(
+            sum(
+                float(item["estimated_cost"]["amount"])
+                for item in items
+                if item.get("estimated_cost")
+                and item["estimated_cost"].get("currency") == currency
+                and item["estimated_cost"].get("amount") is not None
+            ),
+            8,
+        )
+        for currency in currencies
+    }
+
+
+def ledger_total(ledger: dict[str, Any], *, currency: str = DEFAULT_QWEN_VL_CURRENCY) -> float:
+    return float((ledger.get("totals") or {}).get(currency, 0.0))

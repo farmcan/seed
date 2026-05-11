@@ -11,9 +11,13 @@ import yaml
 from seed.asr.chunked import transcribe_audio_with_optional_chunks
 from seed.asr.providers import default_max_upload_mb_for_provider, default_model_for_provider
 from seed.costs import (
+    build_cost_ledger,
     build_qwen_vl_cost_item,
+    cost_ledger_output_path,
+    reserved_cost_item,
     reserved_codex_cost_item,
     video_cost_output_path,
+    write_cost_ledger,
     write_video_cost_report,
 )
 from seed.dag_export import export_video_dag_html, relative_asset_base, video_dag_html_output_path
@@ -85,6 +89,7 @@ class VideoPipelineContext:
     frame_dir: Path | None = None
     visual_notes_path: Path | None = None
     cost_path: Path | None = None
+    cost_ledger_path: Path | None = None
     semantics_path: Path | None = None
     timeline_path: Path | None = None
     claims_path: Path | None = None
@@ -190,6 +195,7 @@ def run_video_pipeline(options: VideoPipelineOptions) -> tuple[VideoPipelineCont
         provider="codex",
         model=options.codex_model,
     )
+    run_step("build_cost_ledger", lambda: _cost_ledger_step(options, context), inputs={"title": context.title})
     run_step("build_timeline", lambda: _timeline_step(options, context), inputs={"title": context.title})
     run_step("extract_claims", lambda: _claims_step(options, context), inputs={"semantics_path": context.semantics_path})
     run_step("build_video_dag", lambda: _dag_step(options, context), inputs={"title": context.title})
@@ -379,6 +385,27 @@ def _visual_step(options: VideoPipelineOptions, context: VideoPipelineContext) -
     }
 
 
+def _cost_ledger_step(options: VideoPipelineOptions, context: VideoPipelineContext) -> dict[str, Any]:
+    output_path = cost_ledger_output_path(library_root=options.library_root, title=context.title)
+    if output_path.exists() and not options.force:
+        context.cost_ledger_path = output_path
+        return {"status": "skipped", "cost_ledger_path": output_path}
+    cost_report_paths = [context.cost_path] if context.cost_path else []
+    ledger = build_cost_ledger(
+        title=context.title,
+        cost_report_paths=[path for path in cost_report_paths if path],
+        scope="video",
+        reserved_items=[
+            reserved_cost_item(kind="asr", provider=options.asr_provider, operation="transcribe-media"),
+            reserved_codex_cost_item(),
+            reserved_cost_item(kind="search", provider="unknown", operation="verify-claims"),
+        ],
+    )
+    write_cost_ledger(output_path, ledger)
+    context.cost_ledger_path = output_path
+    return {"cost_ledger_path": output_path, "totals": ledger["totals"]}
+
+
 def _semantics_step(options: VideoPipelineOptions, context: VideoPipelineContext) -> dict[str, Any]:
     transcript_path = _require_path(context.transcript_path, "transcript_path")
     output_path = video_semantics_output_path(
@@ -453,7 +480,7 @@ def _dag_step(options: VideoPipelineOptions, context: VideoPipelineContext) -> d
         semantics_path=context.semantics_path,
         timeline_path=context.timeline_path,
         claims_path=context.claims_path,
-        cost_path=context.cost_path,
+        cost_path=context.cost_ledger_path or context.cost_path,
     )
     graph = build_video_dag_graph(
         title=context.title,

@@ -85,6 +85,7 @@ def test_run_video_pipeline_for_local_media(tmp_path, monkeypatch):
 
     assert context.transcript_path.exists()
     assert context.semantics_path.exists()
+    assert context.cost_ledger_path.exists()
     assert context.timeline_path.exists()
     assert context.claims_path.exists()
     assert context.graph_path.exists()
@@ -96,6 +97,7 @@ def test_run_video_pipeline_for_local_media(tmp_path, monkeypatch):
         "transcribe",
         "extract_frames",
         "analyze_video_semantics",
+        "build_cost_ledger",
         "build_timeline",
         "extract_claims",
         "build_video_dag",

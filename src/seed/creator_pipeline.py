@@ -7,6 +7,13 @@ from typing import Any
 
 import yaml
 
+from seed.costs import (
+    DEFAULT_QWEN_VL_CURRENCY,
+    build_cost_ledger,
+    cost_ledger_output_path,
+    ledger_total,
+    write_cost_ledger,
+)
 from seed.creator_ingest import ingest_creator_videos
 from seed.library import init_library, save_creator_video_list, slugify
 from seed.models import Platform
@@ -30,6 +37,8 @@ class CreatorPipelineOptions:
     cookies_from_browser: str | None = None
     vision: bool = True
     force: bool = False
+    max_estimated_cost: float | None = None
+    cost_currency: str = DEFAULT_QWEN_VL_CURRENCY
 
 
 def creator_pipeline_manifest_path(*, library_root: Path, owner: str) -> Path:
@@ -61,7 +70,24 @@ def run_creator_pipeline(options: CreatorPipelineOptions) -> tuple[dict[str, Any
     )
 
     video_runs = []
+    cost_paths: list[Path] = []
+    current_ledger = build_cost_ledger(
+        title=video_list.owner,
+        cost_report_paths=[],
+        scope="creator",
+    )
     for item in ingest_result.items:
+        if budget_exceeded(current_ledger, options):
+            video_runs.append(
+                {
+                    "url": item.url,
+                    "title": item.title,
+                    "status": "skipped",
+                    "reason": "budget_exceeded",
+                    "budget": budget_record(current_ledger, options),
+                }
+            )
+            continue
         if not item.raw_path:
             video_runs.append(
                 {
@@ -86,6 +112,14 @@ def run_creator_pipeline(options: CreatorPipelineOptions) -> tuple[dict[str, Any
                     force=options.force,
                 )
             )
+            cost_path = getattr(context, "cost_ledger_path", None) or getattr(context, "cost_path", None)
+            if cost_path:
+                cost_paths.append(Path(cost_path))
+                current_ledger = build_cost_ledger(
+                    title=video_list.owner,
+                    cost_report_paths=cost_paths,
+                    scope="creator",
+                )
             video_runs.append(
                 {
                     "url": item.url,
@@ -93,6 +127,8 @@ def run_creator_pipeline(options: CreatorPipelineOptions) -> tuple[dict[str, Any
                     "status": "completed",
                     "manifest_path": str(manifest_path),
                     "html_path": str(context.html_path) if context.html_path else None,
+                    "cost_path": str(cost_path) if cost_path else None,
+                    "budget": budget_record(current_ledger, options),
                 }
             )
         except Exception as error:
@@ -115,8 +151,12 @@ def run_creator_pipeline(options: CreatorPipelineOptions) -> tuple[dict[str, Any
         "updated_at": datetime.now(UTC).isoformat(),
         "creator_video_list_path": str(list_path),
         "ingest": ingest_result.model_dump(mode="json"),
+        "budget": budget_record(current_ledger, options),
         "video_runs": video_runs,
     }
+    ledger_path = cost_ledger_output_path(library_root=options.library_root, title=f"{video_list.owner}-creator")
+    write_cost_ledger(ledger_path, current_ledger)
+    manifest["cost_ledger_path"] = str(ledger_path)
     manifest_path = creator_pipeline_manifest_path(
         library_root=options.library_root,
         owner=video_list.owner,
@@ -126,3 +166,18 @@ def run_creator_pipeline(options: CreatorPipelineOptions) -> tuple[dict[str, Any
         encoding="utf-8",
     )
     return manifest, manifest_path
+
+
+def budget_exceeded(ledger: dict[str, Any], options: CreatorPipelineOptions) -> bool:
+    if options.max_estimated_cost is None:
+        return False
+    return ledger_total(ledger, currency=options.cost_currency) >= options.max_estimated_cost
+
+
+def budget_record(ledger: dict[str, Any], options: CreatorPipelineOptions) -> dict[str, Any]:
+    return {
+        "currency": options.cost_currency,
+        "max_estimated_cost": options.max_estimated_cost,
+        "current_estimated_cost": ledger_total(ledger, currency=options.cost_currency),
+        "exceeded": budget_exceeded(ledger, options),
+    }

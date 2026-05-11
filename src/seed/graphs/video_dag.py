@@ -297,7 +297,12 @@ def resolve_video_dag_artifacts(
             preferred_suffix=".verified",
         ),
         "cost_path": cost_path
-        or find_matching_file(library_root / "costs", title_slug=title_slug, suffixes={".json"}),
+        or find_matching_file(
+            library_root / "costs",
+            title_slug=title_slug,
+            suffixes={".json"},
+            preferred_suffix=".ledger",
+        ),
         "creator_profile_path": creator_profile_path,
     }
 
@@ -406,6 +411,15 @@ def factcheck_summary(claims: list[dict[str, Any]]) -> str:
 def cost_summary(report: dict[str, Any]) -> str:
     if not report:
         return "按单条视频记录 Qwen-VL token 用量、估算单价和总费用；Codex 费用先预留字段。当前没有找到 cost artifact。"
+    if report.get("kind") == "cost_ledger":
+        qwen_items = [item for item in report.get("items", []) if item.get("kind") == "qwen_vl"]
+        reserved_items = [item for item in report.get("items", []) if item.get("status") == "reserved"]
+        return (
+            "已生成 pipeline 级成本 ledger："
+            f"{len(qwen_items)} 条 Qwen-VL 明细，"
+            f"{len(reserved_items)} 个预留项，"
+            f"总计 {cost_metric(report)}。"
+        )
     qwen_items = [item for item in report.get("items", []) if item.get("kind") == "qwen_vl"]
     if not qwen_items:
         return "已生成成本 artifact，但未找到 Qwen-VL 明细。"

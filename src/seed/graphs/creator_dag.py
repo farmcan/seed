@@ -24,6 +24,8 @@ def build_creator_dag_graph(
     creator_profile_path: Path | None = None,
     skill_paths: list[Path] | None = None,
     check_paths: list[Path] | None = None,
+    validation_path: Path | None = None,
+    cost_ledger_path: Path | None = None,
 ) -> dict[str, Any]:
     nodes = [
         node(
@@ -59,8 +61,33 @@ def build_creator_dag_graph(
             ],
             None,
         ),
+        node(
+            "profile-validation",
+            "asset",
+            "Profile Evidence Validation",
+            "检查 creator profile 中的强结论是否带视频、timestamp、keyframe、transcript chunk 或 provisional 标记。",
+            720,
+            220,
+            [path_metric(validation_path)],
+            validation_path,
+        ),
+        node(
+            "cost-ledger",
+            "asset",
+            "Creator Cost Ledger",
+            "汇总创作者级 pipeline 的视频分析成本，并为预算门槛提供依据。",
+            720,
+            420,
+            [path_metric(cost_ledger_path)],
+            cost_ledger_path,
+        ),
     ]
-    edges = [["creator", "profile"], ["profile", "agent-assets"]]
+    edges = [
+        ["creator", "profile"],
+        ["profile", "agent-assets"],
+        ["profile", "profile-validation"],
+        ["creator", "cost-ledger"],
+    ]
 
     for index, semantics_path in enumerate(semantics_paths, start=1):
         title = video_title_from_semantics(semantics_path) or semantics_path.stem.removesuffix(
@@ -132,12 +159,16 @@ def find_creator_asset_paths(*, library_root: Path, owner: str) -> dict[str, lis
     owner_slug = slugify(owner)
     distilled = library_root / "distilled"
     profile_candidates = sorted(distilled.glob(f"*{owner_slug}*.creator-profile.md"))
+    validation_candidates = sorted(distilled.glob(f"*{owner_slug}*.creator-profile.validation.json"))
+    cost_candidates = sorted((library_root / "costs").glob(f"*{owner_slug}*.ledger.json"))
     skills_dir = library_root / "skills"
     checks_dir = library_root / "checks"
     return {
         "creator_profile_path": profile_candidates[-1] if profile_candidates else None,
         "skill_paths": sorted(skills_dir.glob(f"*{owner_slug}*/SKILL.md")),
         "check_paths": sorted(checks_dir.glob(f"*{owner_slug}*.md")),
+        "validation_path": validation_candidates[-1] if validation_candidates else None,
+        "cost_ledger_path": cost_candidates[-1] if cost_candidates else None,
     }
 
 
