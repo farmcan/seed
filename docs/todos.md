@@ -93,7 +93,7 @@
   - 已给带 `start_seconds` 的 timeline event 写入 `media_anchor`，画布详情区可按时间点预览视频/音频。
 - [x] 优化 DOM/ELK 卡片式画布性能。
   - 保留当前 canvas 视觉，不切到低信息密度图谱库。
-  - 已做默认简版、视口裁剪、按需媒体加载和右侧详情可收起。
+  - 已做默认简版、卡片正文手动展开、视口裁剪、按需媒体加载和右侧详情可收起。
 
 ## 已完成基础
 
@@ -113,7 +113,7 @@
 - [x] DAG 自动发现：`seed build-video-dag --title "..."` 会自动找齐本地 raw、audio、transcript、frames、visual notes、semantics 和 timeline。
 - [x] DAG timeline 展示：video DAG 会读取 timeline artifact，并生成 timeline event 子节点；带时间点的事件会接入视频/音频跳转。
 - [x] Fact-check claim 节点：`seed extract-claims` 从 `video-semantics.md` 拆出 `library/claims/*.claims.json`，DAG 会展示 claim 子节点，默认状态是 `unverified`。
-- [x] DAG 画布体验：`seed serve-video-dag` 提供本地 server 打开 graph；HTML 画布支持节点搜索/过滤、边标签，以及节点卡片内媒体预览。
+- [x] DAG 画布体验：`seed serve-video-dag` 提供本地 server 打开 graph；HTML 画布支持节点搜索/过滤、边标签、轻量卡片，以及右侧详情按需加载媒体预览。
 - [x] DAG 静态导出：`seed export-video-dag-html` 会把 graph JSON 嵌进 HTML，默认全展开，避免关闭本地 server 后无法查看。
 - [x] 视频成本报告：`seed analyze-frames` 会按视频写入 `library/costs/*.cost.json`，记录 Qwen-VL tokens、估算费用、pricing source 和 Codex 预留项；`seed build-video-dag` 会把成本节点接入画布。
 - [x] Pipeline 成本账本：`seed build-cost-ledger` 和 `run-video-pipeline` 会写入 `library/costs/*.ledger.json`，汇总 Qwen-VL 并预留 ASR、Codex、搜索/核验费用。

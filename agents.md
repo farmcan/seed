@@ -91,6 +91,7 @@ run-creator-pipeline
 - DAG 画布调试优先用 `seed serve-video-dag <graph.json>` 打开；需要给用户直接查看时，用 `seed export-video-dag-html <graph.json>` 生成静态 HTML。
 - DAG timeline event 如果有 `start_seconds`，应通过 `media_anchor` 连接本地视频/音频；不要只把时间点写成普通文本。
 - DOM/ELK 画布使用 vendored `elkjs` layered layout 做自动分层布局；手写布局只能作为本地脚本加载失败的 fallback。画布必须保留卡片式信息密度和媒体详情能力，不能降级成低信息密度图谱。
+- DAG HTML 默认必须轻量：简版、卡片正文折叠、右侧详情关闭、媒体按钮触发加载；不要默认创建 video/audio/img 元素。
 - 给用户看的 DAG 默认优先生成静态 HTML；本地 server 只用于调试。
 - 视频分析 skills 必须复用 `video-analysis-lenses.md`，不要在 summarizer、semantics analyzer 和 creator aggregator 里各写一套互相冲突的分析框架。
 - 视频总结、视频语义和创作者聚合 prompt 必须注入共享 lenses；单条视频 prompt 还必须注入 `[T*]`、`[V*]`、`[F*]` 证据锚点。
@@ -110,7 +111,7 @@ run-creator-pipeline
 - Cost lint：新增外部模型/API/provider 调用必须记录或预留成本字段，并接入 cost ledger；批量 pipeline 必须考虑预算门槛。
 - DAG lint：新增关键 artifact 必须考虑是否需要 DAG 节点；如果节点能回到视频/音频证据，必须写入 `media_anchor` 或说明缺少时间点的原因。
 - Verification lint：涉及事实、价格、平台规则、模型价格、库选型等易变信息时，必须查官方或 primary source，并把来源写入调研或 artifact。
-- Canvas lint：不要再手写主布局算法；主路径使用 vendored 成熟布局库，手写逻辑只允许作为 fallback 或小交互 glue。遇到卡顿先做默认简版、视口裁剪、按需媒体加载和右侧详情收起，不要降级成低信息密度图谱。
+- Canvas lint：不要再手写主布局算法；主路径使用 vendored 成熟布局库，手写逻辑只允许作为 fallback 或小交互 glue。遇到卡顿先做默认简版、卡片正文折叠、视口裁剪、媒体按钮加载和右侧详情收起，不要降级成低信息密度图谱。
 - Skill lint：新增视频分析 prompt/skill 之前，先检查 `video-analysis-lenses.md` 是否能扩展；优先更新共享 lens，避免重复造轮子。
 - Evidence lint：新增或改动内容分析 prompt 时，必须保留证据锚点注入；不要输出无法追溯到 transcript、visual notes、timeline 或 keyframe 的强判断。
 - Vendor lint：新增 vendored 前端库必须固定版本，并提交对应 LICENSE 或来源说明。
