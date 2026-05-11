@@ -89,6 +89,7 @@ run-creator-pipeline
 - `aggregate-owner` 默认至少 3 条 video semantics；如果用 `--min-videos 1` 或 `2`，输出只能视为 provisional。
 - Video DAG 构建支持按标题自动发现本地产物；显式传入的路径优先，resolver 逻辑在 `seed.graphs.video_dag.resolve_video_dag_artifacts`。
 - DAG 画布调试优先用 `seed serve-video-dag <graph.json>` 打开；需要给用户直接查看时，用 `seed export-video-dag-html <graph.json>` 生成静态 HTML。
+- DAG timeline event 如果有 `start_seconds`，应通过 `media_anchor` 连接本地视频/音频；不要只把时间点写成普通文本。
 - DOM/ELK 画布使用 vendored `elkjs` layered layout 做自动分层布局；手写布局只能作为本地脚本加载失败的 fallback。画布必须保留卡片式信息密度和媒体详情能力，不能降级成低信息密度图谱。
 - 给用户看的 DAG 默认优先生成静态 HTML；本地 server 只用于调试。
 - 视频分析 skills 必须复用 `video-analysis-lenses.md`，不要在 summarizer、semantics analyzer 和 creator aggregator 里各写一套互相冲突的分析框架。
@@ -107,7 +108,7 @@ run-creator-pipeline
 - Artifact lint：新增 `library/<dir>` 必须更新 `.gitignore`、`.gitkeep`、`src/seed/library.py`、`docs/architecture.md` 和本文件。
 - Pipeline lint：新增视频处理能力必须说明它在 pipeline 中的位置，不能只提供单步 demo。
 - Cost lint：新增外部模型/API/provider 调用必须记录或预留成本字段，并接入 cost ledger；批量 pipeline 必须考虑预算门槛。
-- DAG lint：新增关键 artifact 必须考虑是否需要 DAG 节点；如果不接入 DAG，要在实现说明中解释原因。
+- DAG lint：新增关键 artifact 必须考虑是否需要 DAG 节点；如果节点能回到视频/音频证据，必须写入 `media_anchor` 或说明缺少时间点的原因。
 - Verification lint：涉及事实、价格、平台规则、模型价格、库选型等易变信息时，必须查官方或 primary source，并把来源写入调研或 artifact。
 - Canvas lint：不要再手写主布局算法；主路径使用 vendored 成熟布局库，手写逻辑只允许作为 fallback 或小交互 glue。遇到卡顿先做默认简版、视口裁剪、按需媒体加载和右侧详情收起，不要降级成低信息密度图谱。
 - Skill lint：新增视频分析 prompt/skill 之前，先检查 `video-analysis-lenses.md` 是否能扩展；优先更新共享 lens，避免重复造轮子。

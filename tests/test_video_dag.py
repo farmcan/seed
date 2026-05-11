@@ -110,6 +110,8 @@ def test_build_video_dag_graph_uses_artifact_paths_and_metadata(tmp_path):
     audio_node = next(node for node in graph["nodes"] if node["id"] == "audio-media")
     creator_signal_node = next(node for node in graph["nodes"] if node["id"] == "creator-signals")
     timeline_node = next(node for node in graph["nodes"] if node["id"] == "timeline")
+    timeline_event_node = next(node for node in graph["nodes"] if node["id"] == "timeline-event-1")
+    cta_event_node = next(node for node in graph["nodes"] if node["id"] == "timeline-event-2")
     factcheck_node = next(node for node in graph["nodes"] if node["id"] == "factcheck")
     cost_node = next(node for node in graph["nodes"] if node["id"] == "costs")
     assert "2 chunks" in transcript_node["metrics"]
@@ -117,6 +119,11 @@ def test_build_video_dag_graph_uses_artifact_paths_and_metadata(tmp_path):
     assert "2 events" in timeline_node["metrics"]
     assert "真实 timeline artifact" in timeline_node["body"]
     assert any(node["id"] == "timeline-event-1" for node in graph["nodes"])
+    assert timeline_event_node["media_anchor"]["start_seconds"] == 0
+    assert timeline_event_node["media_anchor"]["label"] == "00:00:00"
+    assert timeline_event_node["media_anchor"]["video_src"] == str(video)
+    assert timeline_event_node["media_anchor"]["audio_src"] == str(audio)
+    assert "media_anchor" not in cta_event_node
     assert ["timeline", "timeline-event-1"] in graph["edges"]
     assert "1 claims" in factcheck_node["metrics"]
     assert any(node["id"] == "claim-1" for node in graph["nodes"])

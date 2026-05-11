@@ -214,7 +214,12 @@ def build_video_dag_graph(
         ),
     ]
 
-    timeline_nodes = build_timeline_event_nodes(timeline_events, timeline_path)
+    timeline_nodes = build_timeline_event_nodes(
+        timeline_events,
+        timeline_path,
+        source_path=source_path,
+        audio_path=resolved_audio_path,
+    )
     nodes.extend(timeline_nodes)
     claim_nodes = build_claim_nodes(claims, claims_path)
     nodes.extend(claim_nodes)
@@ -357,6 +362,7 @@ def node(
     metrics: list[str],
     path: Path | None,
     preview: dict[str, Any] | None = None,
+    media_anchor: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     clean_metrics = [metric for metric in metrics if metric and metric != "missing"]
     result: dict[str, Any] = {
@@ -372,6 +378,8 @@ def node(
         result["path"] = str(path)
     if preview:
         result["preview"] = preview
+    if media_anchor:
+        result["media_anchor"] = media_anchor
     return result
 
 
@@ -445,6 +453,8 @@ def build_timeline_event_nodes(
     events: list[dict[str, Any]],
     timeline_path: Path | None,
     *,
+    source_path: Path | None = None,
+    audio_path: Path | None = None,
     max_events: int = 8,
 ) -> list[dict[str, Any]]:
     nodes: list[dict[str, Any]] = []
@@ -467,9 +477,43 @@ def build_timeline_event_nodes(
                 280 + index * 110,
                 metrics,
                 Path(str(event["evidence_path"])) if event.get("evidence_path") else timeline_path,
+                media_anchor=media_anchor_for_event(
+                    event,
+                    source_path=source_path,
+                    audio_path=audio_path,
+                ),
             )
         )
     return nodes
+
+
+def media_anchor_for_event(
+    event: dict[str, Any],
+    *,
+    source_path: Path | None,
+    audio_path: Path | None,
+) -> dict[str, Any] | None:
+    start_seconds = optional_seconds(event.get("start_seconds"))
+    if start_seconds is None:
+        return None
+    anchor: dict[str, Any] = {
+        "start_seconds": start_seconds,
+        "label": format_event_timestamp(start_seconds),
+    }
+    if source_path:
+        anchor["video_src"] = str(source_path)
+    if audio_path:
+        anchor["audio_src"] = str(audio_path)
+    return anchor
+
+
+def optional_seconds(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def build_claim_nodes(

@@ -418,6 +418,37 @@
       background: #f8fafc;
     }
 
+    .media-anchor {
+      display: grid;
+      gap: 8px;
+      padding: 10px;
+      border-top: 1px solid var(--line);
+      background: white;
+    }
+
+    .media-anchor-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .anchor-button {
+      height: 30px;
+      padding: 0 10px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      color: var(--accent);
+      background: var(--accent-soft);
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .anchor-button:hover {
+      border-color: #93c5fd;
+      background: #eff6ff;
+    }
+
     .preview-gallery {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1108,7 +1139,7 @@
       preview.className = "preview";
       preview.innerHTML = "";
       const previewData = previewDataForNode(node);
-      if (!previewData && !node.path) return;
+      if (!previewData && !node.path && !node.media_anchor) return;
 
       if (previewData?.type === "video") {
         preview.innerHTML = `<video controls preload="none" src="${escapeAttr(resolveAssetUrl(previewData.src))}"></video>`;
@@ -1121,11 +1152,80 @@
         preview.innerHTML = `<div class="preview-gallery">${items.map((item) => `<img loading="lazy" decoding="async" src="${escapeAttr(resolveAssetUrl(item))}" alt="">`).join("")}</div>`;
       }
 
+      if (node.media_anchor) {
+        preview.insertAdjacentHTML("beforeend", mediaAnchorHtml(node.media_anchor));
+        attachMediaAnchorHandlers(preview, node.media_anchor);
+      }
+
       if (node.path) {
         const linkPath = resolveAssetUrl(node.path);
         preview.insertAdjacentHTML("beforeend", `<a class="path-link" href="${escapeAttr(linkPath)}" target="_blank">${escapeHtml(node.path)}</a>`);
       }
       preview.classList.add("active");
+    }
+
+    function mediaAnchorHtml(anchor) {
+      const startSeconds = Number(anchor.start_seconds || 0);
+      const label = anchor.label || formatSeconds(startSeconds);
+      const actions = [];
+      const players = [];
+      if (anchor.video_src) {
+        actions.push(`<button class="anchor-button" data-anchor-target="video">Video ${escapeHtml(label)}</button>`);
+        players.push(`<video controls preload="metadata" data-anchor-player="video" data-seek-seconds="${escapeAttr(startSeconds)}" src="${escapeAttr(resolveAssetUrl(anchor.video_src))}"></video>`);
+      }
+      if (anchor.audio_src) {
+        actions.push(`<button class="anchor-button" data-anchor-target="audio">Audio ${escapeHtml(label)}</button>`);
+        players.push(`<audio controls preload="metadata" data-anchor-player="audio" data-seek-seconds="${escapeAttr(startSeconds)}" src="${escapeAttr(resolveAssetUrl(anchor.audio_src))}"></audio>`);
+      }
+      if (!players.length) return "";
+      return `
+        <div class="media-anchor">
+          <div class="media-anchor-actions">${actions.join("")}</div>
+          ${players.join("")}
+        </div>
+      `;
+    }
+
+    function attachMediaAnchorHandlers(container, anchor) {
+      const startSeconds = Number(anchor.start_seconds || 0);
+      container.querySelectorAll("[data-anchor-player]").forEach((media) => {
+        seekMedia(media, startSeconds, false);
+      });
+      container.querySelectorAll("[data-anchor-target]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const target = button.dataset.anchorTarget;
+          const media = container.querySelector(`[data-anchor-player="${cssEscape(target)}"]`);
+          if (!media) return;
+          seekMedia(media, startSeconds, true);
+        });
+      });
+    }
+
+    function seekMedia(media, seconds, play) {
+      const seek = () => {
+        try {
+          media.currentTime = seconds;
+          if (play) {
+            const playResult = media.play();
+            if (playResult?.catch) playResult.catch(() => {});
+          }
+        } catch (error) {
+          console.warn("Unable to seek media:", error);
+        }
+      };
+      if (media.readyState >= 1) {
+        seek();
+      } else {
+        media.addEventListener("loadedmetadata", seek, { once: true });
+      }
+    }
+
+    function formatSeconds(value) {
+      const seconds = Math.max(0, Number(value || 0));
+      const hours = Math.floor(seconds / 3600);
+      const minutes = Math.floor((seconds % 3600) / 60);
+      const remaining = Math.floor(seconds % 60);
+      return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(remaining).padStart(2, "0")}`;
     }
 
     function isImagePath(path) {

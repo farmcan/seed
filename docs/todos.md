@@ -88,9 +88,9 @@
 - [x] 实现 creator profile evidence validator。
   - 检查 creator profile 中强结论是否含视频、timestamp/keyframe/transcript chunk 或 semantic section 引用。
   - 不自动改写 profile，先输出 validation report。
-- [ ] 增强 DAG 媒体联动。
+- [x] 增强 DAG 媒体联动。
   - 从 timeline event、transcript chunk 或 keyframe 节点跳转到视频/音频对应位置。
-  - 借鉴 Readwise 的 time-synced transcript，而不是只展示静态节点。
+  - 已给带 `start_seconds` 的 timeline event 写入 `media_anchor`，画布详情区可按时间点预览视频/音频。
 - [x] 优化 DOM/ELK 卡片式画布性能。
   - 保留当前 canvas 视觉，不切到低信息密度图谱库。
   - 已做默认简版、视口裁剪、按需媒体加载和右侧详情可收起。
@@ -111,7 +111,7 @@
 - [x] Timeline artifact：`seed build-timeline` 生成 `library/timelines/*.timeline.json`，包含 transcript chunk、关键帧、内容结构、广告候选和不确定性。
 - [x] 下载可靠性记录：source record 会保存 `download_provider`、`fallback_used` 和 `download_notes`；下载失败时提示平台 cookies 配置。
 - [x] DAG 自动发现：`seed build-video-dag --title "..."` 会自动找齐本地 raw、audio、transcript、frames、visual notes、semantics 和 timeline。
-- [x] DAG timeline 展示：video DAG 会读取 timeline artifact，并生成 timeline event 子节点。
+- [x] DAG timeline 展示：video DAG 会读取 timeline artifact，并生成 timeline event 子节点；带时间点的事件会接入视频/音频跳转。
 - [x] Fact-check claim 节点：`seed extract-claims` 从 `video-semantics.md` 拆出 `library/claims/*.claims.json`，DAG 会展示 claim 子节点，默认状态是 `unverified`。
 - [x] DAG 画布体验：`seed serve-video-dag` 提供本地 server 打开 graph；HTML 画布支持节点搜索/过滤、边标签，以及节点卡片内媒体预览。
 - [x] DAG 静态导出：`seed export-video-dag-html` 会把 graph JSON 嵌进 HTML，默认全展开，避免关闭本地 server 后无法查看。
