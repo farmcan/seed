@@ -65,7 +65,7 @@ seed run-creator-pipeline --platform <platform> <owner>
 | 创作者聚合 | `seed aggregate-owner`, `seed validate-creator-profile` | `src/seed/semantics/aggregator.py`, `src/seed/semantics/validation.py` | `library/distilled/*.creator-profile.md`, `*.creator-profile.validation.json` |
 | Agent 资产生成 | `seed generate-agent-assets`, `seed review-agent-assets`, `seed record-reflection`, `seed suggest-revisions` | `src/seed/agent_assets.py`, `src/seed/reflections.py` | `library/skills/*/SKILL.md`, `library/checks/*.md`, `library/checks/*.agent-assets.review.json`, `library/reflections/*` |
 
-当前视频 DAG 会展示本地视频、音频、关键帧截图、transcript、visual notes、cost ledger、timeline event、semantic 子节点、creator signals、fact-check queue 和 agent assets。带 `start_seconds` 的 timeline event 会写入 `media_anchor`，画布详情区可以把视频/音频定位到对应时间点。DOM/ELK 画布保留卡片式视觉，默认简版显示，卡片正文默认折叠，右侧详情默认关闭；右侧详情打开后可直接预览媒体，也可以用顶部图片/视频按钮进入全局审阅。
+当前视频 DAG 会展示本地视频、音频、关键帧截图、transcript、visual notes、cost ledger、timeline event、semantic 子节点、creator signals、fact-check queue 和 agent assets。带 `start_seconds` 的 timeline event 会写入 `media_anchor`，画布详情区可以把视频/音频定位到对应时间点。DOM/ELK 画布保留卡片式视觉，默认简版显示，节点媒体默认渲染，顶部 `媒体` 按钮可一键隐藏或恢复，卡片正文默认折叠，右侧详情默认关闭。
 
 ## 模块边界
 

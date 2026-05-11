@@ -308,11 +308,35 @@
       border-radius: 7px;
       overflow: hidden;
       background: #0f172a;
-      pointer-events: none;
+      pointer-events: auto;
     }
 
-    .node-card-preview.interactive {
-      pointer-events: auto;
+    .node-card-preview video,
+    .node-card-preview audio,
+    .node-card-preview img {
+      display: block;
+      width: 100%;
+      max-height: 132px;
+      object-fit: contain;
+      background: #0f172a;
+    }
+
+    .node-card-preview audio {
+      padding: 8px;
+      background: #f8fafc;
+    }
+
+    .node-card-gallery {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 4px;
+      padding: 4px;
+      background: #0f172a;
+    }
+
+    .node-card-gallery img {
+      height: 72px;
+      border-radius: 4px;
     }
 
     .node-card-placeholder {
@@ -463,39 +487,6 @@
       font-size: 12px;
       line-height: 1.35;
       background: white;
-    }
-
-    .review-list {
-      display: grid;
-      gap: 10px;
-    }
-
-    .review-item {
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      overflow: hidden;
-      background: #f8fafc;
-    }
-
-    .review-item-header {
-      display: grid;
-      gap: 4px;
-      padding: 10px;
-      background: white;
-      border-bottom: 1px solid var(--line);
-    }
-
-    .review-item-title {
-      font-size: 13px;
-      font-weight: 700;
-      line-height: 1.3;
-    }
-
-    .review-item-meta {
-      color: var(--muted);
-      font-size: 12px;
-      line-height: 1.35;
-      word-break: break-all;
     }
 
     .preview-gallery {
@@ -651,13 +642,12 @@
       <div class="tool-group" aria-label="Expansion tools">
         <button class="text-button active" id="compactGraph" title="只显示核心链路">简版</button>
         <button class="text-button" id="expandGraph" title="展开所有子节点">全展开</button>
+        <button class="text-button active" id="toggleNodeMedia" title="显示或隐藏节点媒体">媒体</button>
         <button class="text-button" id="toggleCardDetails" title="显示或隐藏卡片正文">卡片正文</button>
       </div>
       <input class="search-input" id="graphSearch" type="search" placeholder="搜索节点">
       <div class="toolbar-spacer"></div>
       <div class="tool-group" aria-label="View modes">
-        <button class="text-button" id="reviewImages" title="审阅全部图片">▧ <span>图片</span></button>
-        <button class="text-button" id="reviewVideos" title="审阅全部视频">▶ <span>视频</span></button>
         <button class="text-button" id="focusSemantics" title="聚焦语义层">◎ <span>语义</span></button>
         <button class="text-button" id="toggleInspector" title="显示或隐藏右侧详情">☰ <span>详情</span></button>
         <button class="text-button" id="resetGraph" title="重置样例">↺ <span>重置</span></button>
@@ -847,7 +837,7 @@
       renderFrame: 0,
       inspectorOpen: false,
       cardDetails: false,
-      reviewMode: null,
+      nodeMedia: true,
       renderedIds: new Set()
     };
 
@@ -870,10 +860,9 @@
     const graphSearch = document.getElementById("graphSearch");
     const compactGraph = document.getElementById("compactGraph");
     const expandGraph = document.getElementById("expandGraph");
+    const toggleNodeMedia = document.getElementById("toggleNodeMedia");
     const toggleCardDetails = document.getElementById("toggleCardDetails");
     const toggleInspector = document.getElementById("toggleInspector");
-    const reviewImages = document.getElementById("reviewImages");
-    const reviewVideos = document.getElementById("reviewVideos");
     const preview = document.getElementById("preview");
 
     function selectedNode() {
@@ -946,9 +935,8 @@
     function updateExpansionButtons() {
       compactGraph.classList.toggle("active", state.compactMode);
       expandGraph.classList.toggle("active", !state.compactMode);
+      toggleNodeMedia.classList.toggle("active", state.nodeMedia);
       toggleCardDetails.classList.toggle("active", state.cardDetails);
-      reviewImages.classList.toggle("active", state.reviewMode === "image");
-      reviewVideos.classList.toggle("active", state.reviewMode === "video");
     }
 
     function setTransform() {
@@ -993,13 +981,6 @@
         preview.className = "preview";
         requestAnimationFrame(() => fitView());
       }
-    }
-
-    function openReviewMode(kind) {
-      state.reviewMode = state.reviewMode === kind ? null : kind;
-      updateExpansionButtons();
-      setInspectorOpen(true);
-      renderInspector();
     }
 
     function render() {
@@ -1061,7 +1042,7 @@
             <span class="node-title">${escapeHtml(node.title)}</span>
             ${expandButtonHtml(node)}
           </div>
-          ${state.cardDetails ? nodePreviewHtml(node) : ""}
+          ${state.nodeMedia ? nodePreviewHtml(node) : ""}
           <div class="node-body ${state.cardDetails ? "" : "collapsed"}">${escapeHtml(node.body)}</div>
           <div class="node-metrics">${node.metrics.map((metric) => `<span class="metric">${escapeHtml(metric)}</span>`).join("")}</div>
         `;
@@ -1165,17 +1146,17 @@
       const previewData = previewDataForNode(node);
       if (!previewData) return "";
       if (previewData.type === "video") {
-        return `<div class="node-card-preview"><div class="node-card-placeholder">Video preview opens in details</div></div>`;
+        return `<div class="node-card-preview"><video controls preload="metadata" src="${escapeAttr(resolveAssetUrl(previewData.src))}"></video></div>`;
       }
       if (previewData.type === "audio") {
-        return `<div class="node-card-preview"><div class="node-card-placeholder">Audio preview opens in details</div></div>`;
+        return `<div class="node-card-preview"><audio controls preload="metadata" src="${escapeAttr(resolveAssetUrl(previewData.src))}"></audio></div>`;
       }
       if (previewData.type === "image") {
-        return `<div class="node-card-preview"><div class="node-card-placeholder">Image preview opens in details</div></div>`;
+        return `<div class="node-card-preview"><img loading="lazy" decoding="async" src="${escapeAttr(resolveAssetUrl(previewData.src))}" alt=""></div>`;
       }
       if (previewData.type === "gallery") {
-        const count = (previewData.items || []).length;
-        return `<div class="node-card-preview"><div class="node-card-placeholder">${count} keyframes open in details</div></div>`;
+        const items = previewData.items || [];
+        return `<div class="node-card-preview"><div class="node-card-gallery">${items.map((item) => `<img loading="lazy" decoding="async" src="${escapeAttr(resolveAssetUrl(item))}" alt="">`).join("")}</div></div>`;
       }
       return "";
     }
@@ -1191,10 +1172,6 @@
 
     function renderInspector() {
       if (!state.inspectorOpen) return;
-      if (state.reviewMode) {
-        renderReviewInspector(state.reviewMode);
-        return;
-      }
       const node = selectedNode();
       if (!node) return;
       inspectorType.textContent = node.type;
@@ -1204,131 +1181,6 @@
       typeInput.value = node.type;
       bodyInput.value = node.body;
       metricsInput.value = node.metrics.join("\n");
-    }
-
-    function renderReviewInspector(kind) {
-      const items = mediaReviewItems(kind);
-      inspectorType.textContent = kind === "image" ? "Image Review" : "Video Review";
-      inspectorTitle.textContent = kind === "image" ? `图片审阅 (${items.length})` : `视频审阅 (${items.length})`;
-      titleInput.value = "";
-      typeInput.value = "";
-      bodyInput.value = "";
-      metricsInput.value = "";
-      preview.className = "preview active";
-      preview.innerHTML = reviewListHtml(items, kind);
-      attachReviewHandlers(preview, items);
-    }
-
-    function mediaReviewItems(kind) {
-      const items = [];
-      const seen = new Set();
-      for (const node of state.graph.nodes) {
-        const previewData = previewDataForNode(node);
-        if (kind === "video" && previewData?.type === "video") {
-          addReviewItem(items, seen, {
-            kind: "video",
-            title: node.title,
-            nodeId: node.id,
-            src: previewData.src,
-            startSeconds: null
-          });
-        }
-        if (kind === "image" && previewData?.type === "image") {
-          addReviewItem(items, seen, {
-            kind: "image",
-            title: node.title,
-            nodeId: node.id,
-            src: previewData.src,
-            startSeconds: null
-          });
-        }
-        if (kind === "image" && previewData?.type === "gallery") {
-          for (const [index, src] of (previewData.items || []).entries()) {
-            addReviewItem(items, seen, {
-              kind: "image",
-              title: `${node.title} #${index + 1}`,
-              nodeId: node.id,
-              src,
-              startSeconds: null
-            });
-          }
-        }
-        if (kind === "video" && node.media_anchor?.video_src) {
-          addReviewItem(items, seen, {
-            kind: "video",
-            title: `${node.title} ${node.media_anchor.label || ""}`.trim(),
-            nodeId: node.id,
-            src: node.media_anchor.video_src,
-            startSeconds: Number(node.media_anchor.start_seconds || 0)
-          });
-        }
-      }
-      return items;
-    }
-
-    function addReviewItem(items, seen, item) {
-      const key = `${item.kind}:${item.src}:${item.startSeconds ?? ""}`;
-      if (seen.has(key)) return;
-      seen.add(key);
-      items.push(item);
-    }
-
-    function reviewListHtml(items, kind) {
-      if (!items.length) return `<div class="preview-note">没有找到可审阅的${kind === "image" ? "图片" : "视频"}。</div>`;
-      return `
-        <div class="review-list">
-          ${items.map((item, index) => reviewItemHtml(item, index)).join("")}
-        </div>
-      `;
-    }
-
-    function reviewItemHtml(item, index) {
-      const time = item.startSeconds === null ? "" : ` · ${formatSeconds(item.startSeconds)}`;
-      return `
-        <div class="review-item">
-          <div class="review-item-header">
-            <div class="review-item-title">${escapeHtml(item.title)}${escapeHtml(time)}</div>
-            <div class="review-item-meta">${escapeHtml(item.nodeId)} · ${escapeHtml(item.src)}</div>
-            <div class="media-anchor-actions">
-              <button class="anchor-button" data-review-load="${index}">${item.kind === "image" ? "加载图片" : "加载视频"}</button>
-              <button class="anchor-button" data-review-focus="${escapeAttr(item.nodeId)}">定位节点</button>
-            </div>
-          </div>
-          <div class="preview-slot" data-review-slot="${index}"></div>
-        </div>
-      `;
-    }
-
-    function attachReviewHandlers(container, items) {
-      container.querySelectorAll("[data-review-load]").forEach((button) => {
-        button.addEventListener("click", () => {
-          const index = Number(button.dataset.reviewLoad);
-          const item = items[index];
-          const slot = container.querySelector(`[data-review-slot="${index}"]`);
-          if (!item || !slot) return;
-          loadReviewItem(slot, item);
-        });
-      });
-      container.querySelectorAll("[data-review-focus]").forEach((button) => {
-        button.addEventListener("click", () => {
-          const id = button.dataset.reviewFocus;
-          state.reviewMode = null;
-          state.selectedId = id;
-          updateExpansionButtons();
-          fitView(id);
-          renderInspector();
-        });
-      });
-    }
-
-    function loadReviewItem(slot, item) {
-      if (item.kind === "image") {
-        slot.innerHTML = `<img loading="lazy" decoding="async" src="${escapeAttr(resolveAssetUrl(item.src))}" alt="">`;
-        return;
-      }
-      slot.innerHTML = `<video controls preload="metadata" src="${escapeAttr(resolveAssetUrl(item.src))}"></video>`;
-      const media = slot.querySelector("video");
-      if (media && item.startSeconds !== null) seekMedia(media, item.startSeconds, false);
     }
 
     function renderPreview(node) {
@@ -1505,7 +1357,6 @@
       const id = event.currentTarget.dataset.id;
       const node = state.graph.nodes.find((item) => item.id === id);
       if (!node) return;
-      state.reviewMode = null;
       state.selectedId = id;
       state.draggingNode = {
         id,
@@ -1706,14 +1557,13 @@
     }
 
     function estimatedNodeHeight(node) {
-      if (!state.cardDetails) {
-        return Math.max(nodeMinHeight, 92 + Math.max(32, Math.ceil((node.metrics || []).length / 2) * 32));
-      }
       const previewData = previewDataForNode(node);
-      const previewHeight = previewData ? previewData.type === "gallery" ? 160 : 128 : 0;
-      const textHeight = Math.min(210, Math.max(56, Math.ceil(String(node.body || "").length / 25) * 18));
+      const previewHeight = state.nodeMedia && previewData ? previewData.type === "gallery" ? 170 : 148 : 0;
+      const textHeight = state.cardDetails
+        ? Math.min(210, Math.max(56, Math.ceil(String(node.body || "").length / 25) * 18))
+        : 0;
       const metricsHeight = Math.max(32, Math.ceil((node.metrics || []).length / 2) * 32);
-      return 52 + previewHeight + textHeight + metricsHeight;
+      return Math.max(nodeMinHeight, 52 + previewHeight + textHeight + metricsHeight);
     }
 
     function layoutHiddenChildren(visibleIds) {
@@ -1850,7 +1700,9 @@
       state.graph = structuredClone(initialGraph);
       state.expandedIds = new Set();
       state.compactMode = true;
+      state.nodeMedia = true;
       state.selectedId = "semantics";
+      updateExpansionButtons();
       autoLayoutGraph({ fit: true });
     }
 
@@ -1885,8 +1737,6 @@
     document.getElementById("exportGraph").addEventListener("click", exportGraph);
     document.getElementById("focusSemantics").addEventListener("click", () => fitView("semantics"));
     toggleInspector.addEventListener("click", () => setInspectorOpen(!state.inspectorOpen));
-    reviewImages.addEventListener("click", () => openReviewMode("image"));
-    reviewVideos.addEventListener("click", () => openReviewMode("video"));
     document.getElementById("resetGraph").addEventListener("click", resetGraph);
     graphSearch.addEventListener("input", () => {
       state.filter = graphSearch.value;
@@ -1895,14 +1745,17 @@
     compactGraph.addEventListener("click", () => {
       state.compactMode = true;
       state.expandedIds = new Set();
-      state.reviewMode = null;
       updateExpansionButtons();
       layoutGraph();
     });
     expandGraph.addEventListener("click", () => {
       state.compactMode = false;
       state.expandedIds = new Set(state.graph.nodes.filter((node) => hasChildren(node.id)).map((node) => node.id));
-      state.reviewMode = null;
+      updateExpansionButtons();
+      layoutGraph();
+    });
+    toggleNodeMedia.addEventListener("click", () => {
+      state.nodeMedia = !state.nodeMedia;
       updateExpansionButtons();
       layoutGraph();
     });
