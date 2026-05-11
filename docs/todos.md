@@ -25,11 +25,13 @@
 - [ ] 增强 `seed verify-claims` 的自动判断。
   - 状态至少支持 `supported`、`contradicted`、`unclear`、`unverified`。
   - 没有外部证据时不得把 claim 标成 verified。
+  - 调研结论：按 claim decomposition、query planning、evidence retrieval、evidence synthesis、verdict prediction 分阶段实现，并保存每阶段 artifact。
 - [x] 把 fact-check 结果接入 DAG。
   - claim 节点展示核验状态、来源数量、证据链接和风险等级。
 - [ ] 做 pipeline 级 cost ledger。
   - 单条视频成本不只记录 Qwen-VL，还要预留并逐步接入 ASR、Codex、搜索/核验等步骤。
   - DAG 成本节点展示分项和总计。
+  - 调研结论：Qwen-VL 价格会随 deployment/region 变化，成本 artifact 必须保存 pricing source、deployment 和计价快照。
 - [x] 让 DAG 静态 HTML 离线可用。
   - `elkjs` 已 vendor 到 `tools/vendor/`，静态导出默认使用本地脚本。
 
@@ -39,6 +41,7 @@
   - 输入平台 + UP/作者名称，自动获取视频列表、批量入库、批量跑视频 pipeline。
   - 已支持 limit、start-index、失败继续、跳过已完成；成本预算上限待补。
 - [ ] 为 `seed run-creator-pipeline` 增加成本预算上限。
+  - 建议先做本地 budget gate：开始处理下一条视频前读取已有 cost ledger，超过预算则停止并写入 run manifest。
 - [x] 增加 `seed build-creator-dag`。
   - 按 UP/作者展示多条视频、每条状态、共性方法论、代表证据、反例、成本和 reflection 入口。
 - [ ] 强化 creator profile 的证据引用。
@@ -57,15 +60,37 @@
 
 ## P4：继续调研
 
-- [ ] 继续调研类似产品和视觉笔记工具。
+- [x] 继续调研类似产品和视觉笔记工具。
   - 入口：`docs/research-competitors.md`
-  - 重点：BiliNote、NotebookLM、tldw、Readwise、Recall、GraphRAG、tldraw、React Flow、ELK、Excalidraw。
-- [ ] 调研 timeline extraction 和 fact-check prompt。
+  - 已补充：NotebookLM 只导入 YouTube transcript 的限制、Readwise time-synced transcript 体验、tldw API-first 媒体研究形态、React Flow/ELK 布局取舍。
+- [x] 调研 timeline extraction 和 fact-check prompt。
   - 不再新增零散调研文档；先把结论合并到本文件或 `docs/research-competitors.md`。
-- [ ] 定期核验 Qwen-VL 单价。
+  - 已补充：fact-check 下一步按 claim、query、evidence、verdict、uncertainty 分阶段落 artifact。
+- [x] 定期核验 Qwen-VL 单价。
   - 当前成本估算默认引用阿里云百炼价格页，实际账单以服务商后台为准。
-- [ ] 调研 pipeline orchestration 的轻量实现。
+  - 2026-05-11 核验：阿里云百炼官方价格页最后更新时间为 2026-04-01；`qwen-vl-max` 在不同部署区价格不同，后续成本记录必须带 deployment/region。
+- [x] 调研 pipeline orchestration 的轻量实现。
   - 先看是否需要 Prefect/Dagster/Temporal 这类外部依赖；短期倾向本地 manifest + step runner。
+  - 结论：暂不引入重型编排；先实现 cost ledger、budget gate、resume semantics 和 evidence validation。
+
+## P5：下一轮实现建议
+
+- [ ] 实现 pipeline 级 cost ledger。
+  - 汇总 Qwen-VL、ASR、Codex 预留、搜索/核验成本。
+  - 输入来自现有 `library/costs/*.cost.json` 和 pipeline manifest。
+  - 输出 `library/costs/*.ledger.json`，并接入 video DAG / creator DAG。
+- [ ] 实现 creator pipeline budget gate。
+  - 在处理每条视频前读取 ledger 或已知单条 cost。
+  - 超出预算时停止后续视频，manifest 记录 `budget_exceeded`。
+- [ ] 实现 claim verification 分阶段 artifact。
+  - claim -> query plan -> evidence snippets -> source score -> verdict -> uncertainty。
+  - 没有足够来源时只能输出 `unclear` 或 `unverified`。
+- [ ] 实现 creator profile evidence validator。
+  - 检查 creator profile 中强结论是否含视频、timestamp/keyframe/transcript chunk 或 semantic section 引用。
+  - 不自动改写 profile，先输出 validation report。
+- [ ] 增强 DAG 媒体联动。
+  - 从 timeline event、transcript chunk 或 keyframe 节点跳转到视频/音频对应位置。
+  - 借鉴 Readwise 的 time-synced transcript，而不是只展示静态节点。
 
 ## 已完成基础
 
