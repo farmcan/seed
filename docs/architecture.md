@@ -60,12 +60,12 @@ seed run-creator-pipeline --platform <platform> <owner>
 | 时间线 | `seed build-timeline` | `src/seed/timeline.py` | `library/timelines/*.timeline.json` |
 | 事实核验队列 | `seed extract-claims` | `src/seed/factcheck.py` | `library/claims/*.claims.json` |
 | 事实核验 | `seed verify-claims` | `src/seed/claim_verification.py` | `library/claims/*.verified.json` |
-| DAG 图谱 | `seed build-video-dag`, `seed serve-video-dag`, `seed export-video-dag-html` | `src/seed/graphs/video_dag.py`, `src/seed/dag_server.py`, `src/seed/dag_export.py`, `tools/video-dag-canvas.html` | `library/graphs/*.video-dag.json`, `library/graphs/*.video-dag.html` |
+| DAG 图谱 | `seed build-video-dag`, `seed serve-video-dag`, `seed export-video-dag-html`, `seed export-video-dag-cytoscape-html` | `src/seed/graphs/video_dag.py`, `src/seed/dag_server.py`, `src/seed/dag_export.py`, `tools/video-dag-canvas.html`, `tools/video-dag-cytoscape.html` | `library/graphs/*.video-dag.json`, `library/graphs/*.video-dag.html`, `*.video-dag-cytoscape.html` |
 | Creator DAG | `seed build-creator-dag` | `src/seed/graphs/creator_dag.py` | `library/graphs/*.creator-dag.json`, `library/graphs/*.creator-dag.html` |
 | 创作者聚合 | `seed aggregate-owner`, `seed validate-creator-profile` | `src/seed/semantics/aggregator.py`, `src/seed/semantics/validation.py` | `library/distilled/*.creator-profile.md`, `*.creator-profile.validation.json` |
 | Agent 资产生成 | `seed generate-agent-assets`, `seed record-reflection`, `seed suggest-revisions` | `src/seed/agent_assets.py`, `src/seed/reflections.py` | `library/skills/*/SKILL.md`, `library/checks/*.md`, `library/reflections/*` |
 
-当前视频 DAG 会展示本地视频、音频、关键帧截图、transcript、visual notes、cost ledger、timeline event、semantic 子节点、creator signals、fact-check queue 和 agent assets。视频、音频、截图、gallery 类节点会在画布节点卡片内直接展示媒体预览；音频节点卡片和右侧 inspector 都可以播放本地 mp3。画布使用 vendored `elkjs` 的 layered layout 自动排布并适配视图；服务模式默认使用简版核心链路，静态导出默认全展开，timeline event 和 claim 子节点仍可按父节点收起。
+当前视频 DAG 会展示本地视频、音频、关键帧截图、transcript、visual notes、cost ledger、timeline event、semantic 子节点、creator signals、fact-check queue 和 agent assets。旧版 DOM/ELK 画布保留为可编辑原型；Cytoscape 画布是性能优先实验入口，主画布只渲染轻量图谱，媒体只在右侧详情打开后加载。
 
 ## 模块边界
 
@@ -92,7 +92,7 @@ seed run-creator-pipeline --platform <platform> <owner>
 - `graphs/video_dag.py`：把本地分析产物组装成画布可读 DAG JSON，输出 `library/graphs/*.video-dag.json`；支持按标题自动发现 raw、audio、transcript、frames、visual notes、cost ledger、semantics 和 timeline。
 - `graphs/creator_dag.py`：把同一 UP/作者的多条 video semantics、creator profile、profile validation、cost ledger 和 agent assets 组装成 creator DAG。
 - `dag_server.py`：用本地 HTTP server 打开 DAG HTML 和 graph JSON，避免 `file://` 下浏览器策略影响素材加载。
-- `dag_export.py`：把 graph JSON 嵌入一份独立 HTML，适合直接打开和分享本地快照，不要求 server 一直运行；导出的 HTML 默认全展开。
+- `dag_export.py`：把 graph JSON 嵌入独立 HTML，适合直接打开和分享本地快照，不要求 server 一直运行；支持旧版 DOM/ELK 模板和新的 Cytoscape 性能优先模板。
 - `agents/codex.py`：统一管理 `codex exec` 命令、dry-run、输出文件写入。内容分析模块不得直接调用 `subprocess` 跑 Codex。
 - `markdown.py`：统一读取 Markdown frontmatter、正文和 metadata 字段，避免不同 artifact 各写一套解析逻辑。
 - `cli.py`：只做参数接线、轻量校验和用户输出。业务逻辑应留在对应模块。
@@ -130,6 +130,7 @@ prompt 构建时会自动注入：
 - `library/claims/*.verified.json`：外部核验后的 claim 状态、来源和证据；当前自动判断仍保持保守。
 - `library/graphs/*.video-dag.json`：视频分析链路的可视化图谱，可由 `tools/video-dag-canvas.html` 直接展示。
 - `library/graphs/*.video-dag.html`：嵌入 graph JSON 的静态画布快照，本地打开即可查看；媒体文件仍按相对路径读取 `library/`。
+- `library/graphs/*.video-dag-cytoscape.html`：Cytoscape 图谱快照，优先解决卡顿问题；默认简版显示，右侧详情默认关闭。
 - `library/graphs/*.creator-dag.json` 和 `*.creator-dag.html`：UP/作者级画布。
 - `library/distilled/*.topic-profile.md`：跨书籍/笔记/视频的主题聚合草稿。
 - `library/distilled/*.creator-profile.md`：创作者级聚合画像。

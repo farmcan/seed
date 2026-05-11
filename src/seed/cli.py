@@ -40,8 +40,10 @@ from seed.claim_verification import (
 from seed.creator_ingest import ingest_creator_videos as ingest_creator_videos_from_list
 from seed.creator_pipeline import CreatorPipelineOptions, run_creator_pipeline
 from seed.dag_export import (
+    DEFAULT_CYTOSCAPE_TEMPLATE,
     export_video_dag_html,
     relative_asset_base,
+    video_dag_cytoscape_html_output_path,
     video_dag_html_output_path,
 )
 from seed.dag_server import serve_video_dag
@@ -1001,4 +1003,29 @@ def export_video_dag_html_cmd(
         asset_base=resolved_asset_base,
     )
     console.print(f"created standalone video DAG HTML at {path}")
+    console.print(f"asset base: {resolved_asset_base}")
+
+
+@app.command("export-video-dag-cytoscape-html")
+def export_video_dag_cytoscape_html_cmd(
+    graph_path: Annotated[Path, typer.Argument(help="Path to *.video-dag.json.")],
+    output_path: Annotated[Path | None, typer.Option("--output")] = None,
+    asset_base: Annotated[
+        str | None,
+        typer.Option("--asset-base", help="Relative base used to resolve library media paths."),
+    ] = None,
+) -> None:
+    resolved_output = output_path or video_dag_cytoscape_html_output_path(graph_path=graph_path)
+    resolved_asset_base = asset_base or relative_asset_base(
+        output_path=resolved_output,
+        repo_root=Path.cwd(),
+    )
+    path = export_video_dag_html(
+        graph_path=graph_path,
+        output_path=resolved_output,
+        template_path=DEFAULT_CYTOSCAPE_TEMPLATE,
+        asset_base=resolved_asset_base,
+        default_compact=True,
+    )
+    console.print(f"created Cytoscape video DAG HTML at {path}")
     console.print(f"asset base: {resolved_asset_base}")
