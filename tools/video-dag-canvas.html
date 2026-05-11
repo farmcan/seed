@@ -465,6 +465,39 @@
       background: white;
     }
 
+    .review-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .review-item {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      background: #f8fafc;
+    }
+
+    .review-item-header {
+      display: grid;
+      gap: 4px;
+      padding: 10px;
+      background: white;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .review-item-title {
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 1.3;
+    }
+
+    .review-item-meta {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+      word-break: break-all;
+    }
+
     .preview-gallery {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -623,6 +656,8 @@
       <input class="search-input" id="graphSearch" type="search" placeholder="搜索节点">
       <div class="toolbar-spacer"></div>
       <div class="tool-group" aria-label="View modes">
+        <button class="text-button" id="reviewImages" title="审阅全部图片">▧ <span>图片</span></button>
+        <button class="text-button" id="reviewVideos" title="审阅全部视频">▶ <span>视频</span></button>
         <button class="text-button" id="focusSemantics" title="聚焦语义层">◎ <span>语义</span></button>
         <button class="text-button" id="toggleInspector" title="显示或隐藏右侧详情">☰ <span>详情</span></button>
         <button class="text-button" id="resetGraph" title="重置样例">↺ <span>重置</span></button>
@@ -812,6 +847,7 @@
       renderFrame: 0,
       inspectorOpen: false,
       cardDetails: false,
+      reviewMode: null,
       renderedIds: new Set()
     };
 
@@ -836,6 +872,8 @@
     const expandGraph = document.getElementById("expandGraph");
     const toggleCardDetails = document.getElementById("toggleCardDetails");
     const toggleInspector = document.getElementById("toggleInspector");
+    const reviewImages = document.getElementById("reviewImages");
+    const reviewVideos = document.getElementById("reviewVideos");
     const preview = document.getElementById("preview");
 
     function selectedNode() {
@@ -909,6 +947,8 @@
       compactGraph.classList.toggle("active", state.compactMode);
       expandGraph.classList.toggle("active", !state.compactMode);
       toggleCardDetails.classList.toggle("active", state.cardDetails);
+      reviewImages.classList.toggle("active", state.reviewMode === "image");
+      reviewVideos.classList.toggle("active", state.reviewMode === "video");
     }
 
     function setTransform() {
@@ -953,6 +993,13 @@
         preview.className = "preview";
         requestAnimationFrame(() => fitView());
       }
+    }
+
+    function openReviewMode(kind) {
+      state.reviewMode = state.reviewMode === kind ? null : kind;
+      updateExpansionButtons();
+      setInspectorOpen(true);
+      renderInspector();
     }
 
     function render() {
@@ -1144,6 +1191,10 @@
 
     function renderInspector() {
       if (!state.inspectorOpen) return;
+      if (state.reviewMode) {
+        renderReviewInspector(state.reviewMode);
+        return;
+      }
       const node = selectedNode();
       if (!node) return;
       inspectorType.textContent = node.type;
@@ -1155,15 +1206,146 @@
       metricsInput.value = node.metrics.join("\n");
     }
 
+    function renderReviewInspector(kind) {
+      const items = mediaReviewItems(kind);
+      inspectorType.textContent = kind === "image" ? "Image Review" : "Video Review";
+      inspectorTitle.textContent = kind === "image" ? `图片审阅 (${items.length})` : `视频审阅 (${items.length})`;
+      titleInput.value = "";
+      typeInput.value = "";
+      bodyInput.value = "";
+      metricsInput.value = "";
+      preview.className = "preview active";
+      preview.innerHTML = reviewListHtml(items, kind);
+      attachReviewHandlers(preview, items);
+    }
+
+    function mediaReviewItems(kind) {
+      const items = [];
+      const seen = new Set();
+      for (const node of state.graph.nodes) {
+        const previewData = previewDataForNode(node);
+        if (kind === "video" && previewData?.type === "video") {
+          addReviewItem(items, seen, {
+            kind: "video",
+            title: node.title,
+            nodeId: node.id,
+            src: previewData.src,
+            startSeconds: null
+          });
+        }
+        if (kind === "image" && previewData?.type === "image") {
+          addReviewItem(items, seen, {
+            kind: "image",
+            title: node.title,
+            nodeId: node.id,
+            src: previewData.src,
+            startSeconds: null
+          });
+        }
+        if (kind === "image" && previewData?.type === "gallery") {
+          for (const [index, src] of (previewData.items || []).entries()) {
+            addReviewItem(items, seen, {
+              kind: "image",
+              title: `${node.title} #${index + 1}`,
+              nodeId: node.id,
+              src,
+              startSeconds: null
+            });
+          }
+        }
+        if (kind === "video" && node.media_anchor?.video_src) {
+          addReviewItem(items, seen, {
+            kind: "video",
+            title: `${node.title} ${node.media_anchor.label || ""}`.trim(),
+            nodeId: node.id,
+            src: node.media_anchor.video_src,
+            startSeconds: Number(node.media_anchor.start_seconds || 0)
+          });
+        }
+      }
+      return items;
+    }
+
+    function addReviewItem(items, seen, item) {
+      const key = `${item.kind}:${item.src}:${item.startSeconds ?? ""}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      items.push(item);
+    }
+
+    function reviewListHtml(items, kind) {
+      if (!items.length) return `<div class="preview-note">没有找到可审阅的${kind === "image" ? "图片" : "视频"}。</div>`;
+      return `
+        <div class="review-list">
+          ${items.map((item, index) => reviewItemHtml(item, index)).join("")}
+        </div>
+      `;
+    }
+
+    function reviewItemHtml(item, index) {
+      const time = item.startSeconds === null ? "" : ` · ${formatSeconds(item.startSeconds)}`;
+      return `
+        <div class="review-item">
+          <div class="review-item-header">
+            <div class="review-item-title">${escapeHtml(item.title)}${escapeHtml(time)}</div>
+            <div class="review-item-meta">${escapeHtml(item.nodeId)} · ${escapeHtml(item.src)}</div>
+            <div class="media-anchor-actions">
+              <button class="anchor-button" data-review-load="${index}">${item.kind === "image" ? "加载图片" : "加载视频"}</button>
+              <button class="anchor-button" data-review-focus="${escapeAttr(item.nodeId)}">定位节点</button>
+            </div>
+          </div>
+          <div class="preview-slot" data-review-slot="${index}"></div>
+        </div>
+      `;
+    }
+
+    function attachReviewHandlers(container, items) {
+      container.querySelectorAll("[data-review-load]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const index = Number(button.dataset.reviewLoad);
+          const item = items[index];
+          const slot = container.querySelector(`[data-review-slot="${index}"]`);
+          if (!item || !slot) return;
+          loadReviewItem(slot, item);
+        });
+      });
+      container.querySelectorAll("[data-review-focus]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const id = button.dataset.reviewFocus;
+          state.reviewMode = null;
+          state.selectedId = id;
+          updateExpansionButtons();
+          fitView(id);
+          renderInspector();
+        });
+      });
+    }
+
+    function loadReviewItem(slot, item) {
+      if (item.kind === "image") {
+        slot.innerHTML = `<img loading="lazy" decoding="async" src="${escapeAttr(resolveAssetUrl(item.src))}" alt="">`;
+        return;
+      }
+      slot.innerHTML = `<video controls preload="metadata" src="${escapeAttr(resolveAssetUrl(item.src))}"></video>`;
+      const media = slot.querySelector("video");
+      if (media && item.startSeconds !== null) seekMedia(media, item.startSeconds, false);
+    }
+
     function renderPreview(node) {
       preview.className = "preview";
       preview.innerHTML = "";
       const previewData = previewDataForNode(node);
       if (!previewData && !node.path && !node.media_anchor) return;
 
-      if (previewData) {
-        preview.insertAdjacentHTML("beforeend", previewLoaderHtml(previewData));
-        attachPreviewLoader(preview, previewData);
+      if (previewData?.type === "video") {
+        preview.innerHTML = `<video controls preload="none" src="${escapeAttr(resolveAssetUrl(previewData.src))}"></video>`;
+      } else if (previewData?.type === "audio") {
+        preview.innerHTML = `<audio controls preload="none" src="${escapeAttr(resolveAssetUrl(previewData.src))}"></audio>`;
+      } else if (previewData?.type === "image") {
+        preview.innerHTML = `<img loading="lazy" decoding="async" src="${escapeAttr(resolveAssetUrl(previewData.src))}" alt="">`;
+      } else if (previewData?.type === "gallery") {
+        const items = previewData.items || [];
+        preview.innerHTML = `<div class="preview-gallery">${items.map((item) => `<img loading="lazy" decoding="async" src="${escapeAttr(resolveAssetUrl(item))}" alt="">`).join("")}</div>`;
       }
 
       if (node.media_anchor) {
@@ -1176,51 +1358,6 @@
         preview.insertAdjacentHTML("beforeend", `<a class="path-link" href="${escapeAttr(linkPath)}" target="_blank">${escapeHtml(node.path)}</a>`);
       }
       preview.classList.add("active");
-    }
-
-    function previewLoaderHtml(previewData) {
-      return `
-        <div class="media-anchor">
-          <div class="media-anchor-actions">
-            <button class="anchor-button" data-preview-load="main">${escapeHtml(previewLoadLabel(previewData))}</button>
-          </div>
-          <div class="preview-note">${escapeHtml(previewLazyNote(previewData))}</div>
-          <div class="preview-slot" data-preview-slot="main"></div>
-        </div>
-      `;
-    }
-
-    function previewLoadLabel(previewData) {
-      if (previewData.type === "video") return "加载视频";
-      if (previewData.type === "audio") return "加载音频";
-      if (previewData.type === "image") return "加载图片";
-      if (previewData.type === "gallery") return `加载截图 ${(previewData.items || []).length}`;
-      return "加载预览";
-    }
-
-    function previewLazyNote(previewData) {
-      if (previewData.type === "gallery") return "截图默认不渲染，点击后才加载到右侧详情。";
-      return "媒体默认不渲染，点击后才创建播放器或图片。";
-    }
-
-    function attachPreviewLoader(container, previewData) {
-      const button = container.querySelector("[data-preview-load='main']");
-      const slot = container.querySelector("[data-preview-slot='main']");
-      if (!button || !slot) return;
-      button.addEventListener("click", () => loadPreviewIntoSlot(slot, previewData));
-    }
-
-    function loadPreviewIntoSlot(slot, previewData) {
-      if (previewData.type === "video") {
-        slot.innerHTML = `<video controls preload="metadata" src="${escapeAttr(resolveAssetUrl(previewData.src))}"></video>`;
-      } else if (previewData.type === "audio") {
-        slot.innerHTML = `<audio controls preload="metadata" src="${escapeAttr(resolveAssetUrl(previewData.src))}"></audio>`;
-      } else if (previewData.type === "image") {
-        slot.innerHTML = `<img loading="lazy" decoding="async" src="${escapeAttr(resolveAssetUrl(previewData.src))}" alt="">`;
-      } else if (previewData.type === "gallery") {
-        const items = previewData.items || [];
-        slot.innerHTML = `<div class="preview-gallery">${items.map((item) => `<img loading="lazy" decoding="async" src="${escapeAttr(resolveAssetUrl(item))}" alt="">`).join("")}</div>`;
-      }
     }
 
     function mediaAnchorHtml(anchor) {
@@ -1368,6 +1505,7 @@
       const id = event.currentTarget.dataset.id;
       const node = state.graph.nodes.find((item) => item.id === id);
       if (!node) return;
+      state.reviewMode = null;
       state.selectedId = id;
       state.draggingNode = {
         id,
@@ -1379,6 +1517,7 @@
       event.currentTarget.setPointerCapture(event.pointerId);
       event.currentTarget.classList.add("dragging");
       updateSelectedNode(id);
+      updateExpansionButtons();
       scheduleEdgeRender();
       renderInspector();
       event.stopPropagation();
@@ -1746,6 +1885,8 @@
     document.getElementById("exportGraph").addEventListener("click", exportGraph);
     document.getElementById("focusSemantics").addEventListener("click", () => fitView("semantics"));
     toggleInspector.addEventListener("click", () => setInspectorOpen(!state.inspectorOpen));
+    reviewImages.addEventListener("click", () => openReviewMode("image"));
+    reviewVideos.addEventListener("click", () => openReviewMode("video"));
     document.getElementById("resetGraph").addEventListener("click", resetGraph);
     graphSearch.addEventListener("input", () => {
       state.filter = graphSearch.value;
@@ -1754,12 +1895,14 @@
     compactGraph.addEventListener("click", () => {
       state.compactMode = true;
       state.expandedIds = new Set();
+      state.reviewMode = null;
       updateExpansionButtons();
       layoutGraph();
     });
     expandGraph.addEventListener("click", () => {
       state.compactMode = false;
       state.expandedIds = new Set(state.graph.nodes.filter((node) => hasChildren(node.id)).map((node) => node.id));
+      state.reviewMode = null;
       updateExpansionButtons();
       layoutGraph();
     });

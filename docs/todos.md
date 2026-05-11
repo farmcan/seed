@@ -22,10 +22,10 @@
 - [x] 增加 `seed verify-claims` 的最小可用闭环。
   - 输入 `library/claims/*.claims.json`，输出带来源、证据摘录、URL、状态和不确定性的核验结果。
   - 当前版本只记录 evidence source，自动判断保持保守：有来源为 `unclear`，无来源为 `unverified`。
-- [ ] 增强 `seed verify-claims` 的自动判断。
+- [x] 增强 `seed verify-claims` 的自动判断。
   - 状态至少支持 `supported`、`contradicted`、`unclear`、`unverified`。
   - 没有外部证据时不得把 claim 标成 verified。
-  - 调研结论：按 claim decomposition、query planning、evidence retrieval、evidence synthesis、verdict prediction 分阶段实现，并保存每阶段 artifact。
+  - 已按 claim decomposition、query planning、evidence snippets、source score、verdict 分阶段写入 artifact；自动判断保持保守。
 - [x] 把 fact-check 结果接入 DAG。
   - claim 节点展示核验状态、来源数量、证据链接和风险等级。
 - [x] 做 pipeline 级 cost ledger。
@@ -46,8 +46,9 @@
   - 按 UP/作者展示多条视频、每条状态、共性方法论、代表证据、反例、成本和 reflection 入口。
 - [x] 强化 creator profile 的证据引用。
   - 当前 prompt 已注入共享 lenses；下一步要在输出后做结构校验，要求每个创作者级结论回溯到具体视频、timestamp/keyframe/transcript chunk 或 semantic section。
-- [ ] Agent 资产 review 流程。
+- [x] Agent 资产 review 流程。
   - 从 creator profile 生成的 skill/check 需要人工确认状态，例如 `draft`、`reviewed`、`installed`。
+  - `generate-agent-assets` 会写入 review manifest；`review-agent-assets` 支持 `draft/reviewed/installed/deprecated` 状态流转。
 
 ## P3：书籍和非视频来源
 
@@ -82,7 +83,7 @@
 - [x] 实现 creator pipeline budget gate。
   - 在处理每条视频前读取 ledger 或已知单条 cost。
   - 超出预算时停止后续视频，manifest 记录 `budget_exceeded`。
-- [ ] 实现 claim verification 分阶段 artifact。
+- [x] 实现 claim verification 分阶段 artifact。
   - claim -> query plan -> evidence snippets -> source score -> verdict -> uncertainty。
   - 没有足够来源时只能输出 `unclear` 或 `unverified`。
 - [x] 实现 creator profile evidence validator。
@@ -93,7 +94,7 @@
   - 已给带 `start_seconds` 的 timeline event 写入 `media_anchor`，画布详情区可按时间点预览视频/音频。
 - [x] 优化 DOM/ELK 卡片式画布性能。
   - 保留当前 canvas 视觉，不切到低信息密度图谱库。
-  - 已做默认简版、卡片正文手动展开、视口裁剪、按需媒体加载和右侧详情可收起。
+  - 已做默认简版、卡片正文手动展开、视口裁剪、右侧详情可收起，并提供显式图片/视频审阅入口。
 
 ## 已完成基础
 
@@ -113,13 +114,13 @@
 - [x] DAG 自动发现：`seed build-video-dag --title "..."` 会自动找齐本地 raw、audio、transcript、frames、visual notes、semantics 和 timeline。
 - [x] DAG timeline 展示：video DAG 会读取 timeline artifact，并生成 timeline event 子节点；带时间点的事件会接入视频/音频跳转。
 - [x] Fact-check claim 节点：`seed extract-claims` 从 `video-semantics.md` 拆出 `library/claims/*.claims.json`，DAG 会展示 claim 子节点，默认状态是 `unverified`。
-- [x] DAG 画布体验：`seed serve-video-dag` 提供本地 server 打开 graph；HTML 画布支持节点搜索/过滤、边标签、轻量卡片，以及右侧详情按需加载媒体预览。
+- [x] DAG 画布体验：`seed serve-video-dag` 提供本地 server 打开 graph；HTML 画布支持节点搜索/过滤、边标签、轻量卡片、右侧详情媒体预览，以及全局图片/视频审阅入口。
 - [x] DAG 静态导出：`seed export-video-dag-html` 会把 graph JSON 嵌进 HTML，默认全展开，避免关闭本地 server 后无法查看。
 - [x] 视频成本报告：`seed analyze-frames` 会按视频写入 `library/costs/*.cost.json`，记录 Qwen-VL tokens、估算费用、pricing source 和 Codex 预留项；`seed build-video-dag` 会把成本节点接入画布。
 - [x] Pipeline 成本账本：`seed build-cost-ledger` 和 `run-video-pipeline` 会写入 `library/costs/*.ledger.json`，汇总 Qwen-VL 并预留 ASR、Codex、搜索/核验费用。
 - [x] 创作者预算门槛：`seed run-creator-pipeline --max-estimated-cost ...` 在预算达到后停止后续视频，并把 `budget_exceeded` 写入 manifest。
 - [x] Creator profile 证据校验：`seed validate-creator-profile` 和 `aggregate-owner` 会输出 `*.creator-profile.validation.json`。
-- [x] Agent 资产生成：`seed generate-agent-assets` 从 creator profile 生成候选 `SKILL.md`、pre-check 和 post-task reflection checklist，默认需要人工 review。
+- [x] Agent 资产生成：`seed generate-agent-assets` 从 creator profile 生成候选 `SKILL.md`、pre-check、post-task reflection checklist 和 review manifest，默认需要人工 review。
 - [x] Reflection log：`seed record-reflection` 记录 Agent 使用 creator 方法后的 outcome、worked、failed 和 revise 项。
 - [x] Creator profile 最小样本约束：`seed aggregate-owner` 默认要求同一 owner 至少 3 条 video semantics；少量样本必须显式 `--min-videos` 降级。
 - [x] Reflection 修订建议：`seed suggest-revisions` 基于 reflection log 生成 revision suggestions 草稿，不自动覆盖原资产。

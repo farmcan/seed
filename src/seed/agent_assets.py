@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import json
 import re
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from seed.library import init_library, slugify
 from seed.markdown import find_markdown_field, read_markdown_body
+
+AGENT_ASSET_REVIEW_STATUSES = {"draft", "reviewed", "installed", "deprecated"}
 
 
 def skill_output_path(*, library_root: Path, owner: str) -> Path:
@@ -21,6 +25,11 @@ def precheck_output_path(*, library_root: Path, owner: str) -> Path:
 def reflection_check_output_path(*, library_root: Path, owner: str) -> Path:
     init_library(library_root)
     return library_root / "checks" / f"{slugify(owner)}.post-task-reflection.md"
+
+
+def agent_asset_review_output_path(*, library_root: Path, owner: str) -> Path:
+    init_library(library_root)
+    return library_root / "checks" / f"{slugify(owner)}.agent-assets.review.json"
 
 
 def build_agent_assets_from_creator_profile(
@@ -75,11 +84,84 @@ def write_agent_assets(
     skill_path.write_text(assets["skill"], encoding="utf-8")
     precheck_path.write_text(assets["pre_check"], encoding="utf-8")
     reflection_path.write_text(assets["post_task_reflection"], encoding="utf-8")
-    return {
+    paths = {
         "skill": skill_path,
         "pre_check": precheck_path,
         "post_task_reflection": reflection_path,
     }
+    review = build_agent_asset_review(owner=owner, asset_paths=paths, status="draft")
+    write_agent_asset_review(agent_asset_review_output_path(library_root=library_root, owner=owner), review)
+    return paths
+
+
+def build_agent_asset_review(
+    *,
+    owner: str,
+    asset_paths: dict[str, Path],
+    status: str = "draft",
+    reviewer: str | None = None,
+    notes: list[str] | None = None,
+) -> dict[str, Any]:
+    validate_review_status(status)
+    now = datetime.now(UTC).isoformat()
+    return {
+        "owner": owner,
+        "status": status,
+        "created_at": now,
+        "updated_at": now,
+        "reviewer": reviewer,
+        "notes": notes or [],
+        "assets": [
+            {
+                "type": asset_type,
+                "path": str(path),
+                "status": status,
+                "reviewed_at": now if status != "draft" else None,
+                "reviewer": reviewer,
+                "notes": notes or [],
+            }
+            for asset_type, path in asset_paths.items()
+        ],
+    }
+
+
+def write_agent_asset_review(path: Path, review: dict[str, Any]) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(review, ensure_ascii=False, indent=2), encoding="utf-8")
+    return path
+
+
+def update_agent_asset_review(
+    *,
+    review_path: Path,
+    status: str,
+    asset_paths: list[Path] | None = None,
+    reviewer: str | None = None,
+    notes: list[str] | None = None,
+) -> dict[str, Any]:
+    validate_review_status(status)
+    review = json.loads(review_path.read_text(encoding="utf-8"))
+    now = datetime.now(UTC).isoformat()
+    selected = {str(path) for path in asset_paths or []}
+    for asset in review.get("assets", []):
+        if selected and asset.get("path") not in selected:
+            continue
+        asset["status"] = status
+        asset["reviewed_at"] = now if status != "draft" else None
+        asset["reviewer"] = reviewer or asset.get("reviewer")
+        asset["notes"] = [*(asset.get("notes") or []), *(notes or [])]
+    statuses = {asset.get("status") for asset in review.get("assets", [])}
+    review["status"] = status if len(statuses) == 1 else "mixed"
+    review["updated_at"] = now
+    review["reviewer"] = reviewer or review.get("reviewer")
+    review["notes"] = [*(review.get("notes") or []), *(notes or [])]
+    return review
+
+
+def validate_review_status(status: str) -> None:
+    if status not in AGENT_ASSET_REVIEW_STATUSES:
+        allowed = ", ".join(sorted(AGENT_ASSET_REVIEW_STATUSES))
+        raise ValueError(f"Unsupported review status: {status}. Allowed: {allowed}")
 
 
 def _render_skill(

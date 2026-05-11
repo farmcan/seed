@@ -22,7 +22,14 @@ from seed.asr.providers import (
     default_max_upload_mb_for_provider,
     default_model_for_provider,
 )
-from seed.agent_assets import build_agent_assets_from_creator_profile, write_agent_assets
+from seed.agent_assets import (
+    agent_asset_review_output_path,
+    build_agent_asset_review,
+    build_agent_assets_from_creator_profile,
+    update_agent_asset_review,
+    write_agent_asset_review,
+    write_agent_assets,
+)
 from seed.asr.chunked import transcribe_audio_with_optional_chunks
 from seed.books import (
     book_note_output_path,
@@ -867,6 +874,49 @@ def generate_agent_assets(
     console.print(f"created skill draft at {paths['skill']}")
     console.print(f"created pre-check at {paths['pre_check']}")
     console.print(f"created post-task reflection at {paths['post_task_reflection']}")
+    console.print(f"created agent asset review at {agent_asset_review_output_path(library_root=root, owner=resolved_owner)}")
+
+
+@app.command("review-agent-assets")
+def review_agent_assets(
+    owner: Annotated[str, typer.Option("--owner", help="Creator, UP, or author.")],
+    status: Annotated[str, typer.Option("--status", help="draft, reviewed, installed, or deprecated.")],
+    asset_path: Annotated[
+        list[Path] | None,
+        typer.Option("--asset", help="Only update selected asset path. Repeat for multiple assets."),
+    ] = None,
+    reviewer: Annotated[str | None, typer.Option("--reviewer")] = None,
+    note: Annotated[list[str] | None, typer.Option("--note")] = None,
+    root: Annotated[Path, typer.Option("--root")] = Path("library"),
+) -> None:
+    review_path = agent_asset_review_output_path(library_root=root, owner=owner)
+    if not review_path.exists():
+        assets = find_creator_asset_paths(library_root=root, owner=owner)
+        skill_paths = list(assets["skill_paths"])
+        check_paths = list(assets["check_paths"])
+        asset_paths = {
+            "skill": skill_paths[0] if skill_paths else None,
+            "pre_check": next((path for path in check_paths if "pre-check" in path.name), None),
+            "post_task_reflection": next(
+                (path for path in check_paths if "post-task-reflection" in path.name),
+                None,
+            ),
+        }
+        review = build_agent_asset_review(
+            owner=owner,
+            asset_paths={key: path for key, path in asset_paths.items() if path is not None},
+        )
+        write_agent_asset_review(review_path, review)
+    review = update_agent_asset_review(
+        review_path=review_path,
+        status=status,
+        asset_paths=asset_path or [],
+        reviewer=reviewer,
+        notes=note or [],
+    )
+    write_agent_asset_review(review_path, review)
+    console.print(f"updated agent asset review at {review_path}")
+    console.print(f"status: {review['status']}, assets: {len(review.get('assets', []))}")
 
 
 @app.command("record-reflection")

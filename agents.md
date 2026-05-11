@@ -83,15 +83,15 @@ run-creator-pipeline
 - 任何外部模型/API 调用都要考虑成本记录；如果 provider 暂时拿不到 token，就写 `reserved` 或 `unknown`，不要伪造 token 或金额。
 - Timeline 生成在 `seed.timeline`，只做确定性抽取；无法定位具体时间时使用 `start_seconds: null`，不要伪造时间点。
 - Fact-check claim 抽取在 `seed.factcheck`，默认状态是 `unverified`；不要在没有外部证据时改成 verified。
-- Claim verification 必须保留来源 URL、访问日期、证据摘要和不确定性；不允许只有模型判断。
-- 从 creator profile 生成的 `library/skills/` 和 `library/checks/` 都是 draft，必须人工 review 后再安装或长期使用。
+- Claim verification 必须保留来源 URL、访问日期、证据摘要、分阶段 artifact 和不确定性；不允许只有模型判断，没有外部证据时必须保持 `unverified`。
+- 从 creator profile 生成的 `library/skills/` 和 `library/checks/` 都是 draft，必须通过 `review-agent-assets` 更新 review manifest 后再安装或长期使用。
 - Reflection log 只追加记录；`suggest-revisions` 只生成修订建议草稿，不直接覆盖 creator profile、skills 或 checks。
 - `aggregate-owner` 默认至少 3 条 video semantics；如果用 `--min-videos 1` 或 `2`，输出只能视为 provisional。
 - Video DAG 构建支持按标题自动发现本地产物；显式传入的路径优先，resolver 逻辑在 `seed.graphs.video_dag.resolve_video_dag_artifacts`。
 - DAG 画布调试优先用 `seed serve-video-dag <graph.json>` 打开；需要给用户直接查看时，用 `seed export-video-dag-html <graph.json>` 生成静态 HTML。
 - DAG timeline event 如果有 `start_seconds`，应通过 `media_anchor` 连接本地视频/音频；不要只把时间点写成普通文本。
 - DOM/ELK 画布使用 vendored `elkjs` layered layout 做自动分层布局；手写布局只能作为本地脚本加载失败的 fallback。画布必须保留卡片式信息密度和媒体详情能力，不能降级成低信息密度图谱。
-- DAG HTML 默认必须轻量：简版、卡片正文折叠、右侧详情关闭、媒体按钮触发加载；不要默认创建 video/audio/img 元素。
+- DAG HTML 默认必须轻量：简版、卡片正文折叠、右侧详情关闭；右侧详情和全局图片/视频审阅按钮可以渲染媒体。
 - 给用户看的 DAG 默认优先生成静态 HTML；本地 server 只用于调试。
 - 视频分析 skills 必须复用 `video-analysis-lenses.md`，不要在 summarizer、semantics analyzer 和 creator aggregator 里各写一套互相冲突的分析框架。
 - 视频总结、视频语义和创作者聚合 prompt 必须注入共享 lenses；单条视频 prompt 还必须注入 `[T*]`、`[V*]`、`[F*]` 证据锚点。
@@ -111,7 +111,7 @@ run-creator-pipeline
 - Cost lint：新增外部模型/API/provider 调用必须记录或预留成本字段，并接入 cost ledger；批量 pipeline 必须考虑预算门槛。
 - DAG lint：新增关键 artifact 必须考虑是否需要 DAG 节点；如果节点能回到视频/音频证据，必须写入 `media_anchor` 或说明缺少时间点的原因。
 - Verification lint：涉及事实、价格、平台规则、模型价格、库选型等易变信息时，必须查官方或 primary source，并把来源写入调研或 artifact。
-- Canvas lint：不要再手写主布局算法；主路径使用 vendored 成熟布局库，手写逻辑只允许作为 fallback 或小交互 glue。遇到卡顿先做默认简版、卡片正文折叠、视口裁剪、媒体按钮加载和右侧详情收起，不要降级成低信息密度图谱。
+- Canvas lint：不要再手写主布局算法；主路径使用 vendored 成熟布局库，手写逻辑只允许作为 fallback 或小交互 glue。遇到卡顿先做默认简版、卡片正文折叠、视口裁剪和右侧详情收起，不要降级成低信息密度图谱。
 - Skill lint：新增视频分析 prompt/skill 之前，先检查 `video-analysis-lenses.md` 是否能扩展；优先更新共享 lens，避免重复造轮子。
 - Evidence lint：新增或改动内容分析 prompt 时，必须保留证据锚点注入；不要输出无法追溯到 transcript、visual notes、timeline 或 keyframe 的强判断。
 - Vendor lint：新增 vendored 前端库必须固定版本，并提交对应 LICENSE 或来源说明。
@@ -190,6 +190,7 @@ git status -sb
 .venv/bin/seed analyze-book-note --help
 .venv/bin/seed aggregate-topic --help
 .venv/bin/seed generate-agent-assets --help
+.venv/bin/seed review-agent-assets --help
 .venv/bin/seed record-reflection --help
 .venv/bin/seed suggest-revisions --help
 .venv/bin/seed analyze-video-semantics --help
@@ -198,7 +199,5 @@ git status -sb
 
 ## 已知缺口
 
-- `verify-claims` 当前只做 evidence source 记录和保守状态更新，还没有自动判断 supported/contradicted。
 - Creator profile 证据校验目前是 warning report，还没有阻断生成或自动修复。
-- Agent 资产还没有 `draft/reviewed/installed` 状态流转。
 - HTML 画布是单文件原型，不是完整前端应用；复杂交互继续先保持单文件，但主布局必须继续依赖成熟布局库。

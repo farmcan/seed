@@ -63,9 +63,9 @@ seed run-creator-pipeline --platform <platform> <owner>
 | DAG 图谱 | `seed build-video-dag`, `seed serve-video-dag`, `seed export-video-dag-html` | `src/seed/graphs/video_dag.py`, `src/seed/dag_server.py`, `src/seed/dag_export.py`, `tools/video-dag-canvas.html` | `library/graphs/*.video-dag.json`, `library/graphs/*.video-dag.html` |
 | Creator DAG | `seed build-creator-dag` | `src/seed/graphs/creator_dag.py` | `library/graphs/*.creator-dag.json`, `library/graphs/*.creator-dag.html` |
 | 创作者聚合 | `seed aggregate-owner`, `seed validate-creator-profile` | `src/seed/semantics/aggregator.py`, `src/seed/semantics/validation.py` | `library/distilled/*.creator-profile.md`, `*.creator-profile.validation.json` |
-| Agent 资产生成 | `seed generate-agent-assets`, `seed record-reflection`, `seed suggest-revisions` | `src/seed/agent_assets.py`, `src/seed/reflections.py` | `library/skills/*/SKILL.md`, `library/checks/*.md`, `library/reflections/*` |
+| Agent 资产生成 | `seed generate-agent-assets`, `seed review-agent-assets`, `seed record-reflection`, `seed suggest-revisions` | `src/seed/agent_assets.py`, `src/seed/reflections.py` | `library/skills/*/SKILL.md`, `library/checks/*.md`, `library/checks/*.agent-assets.review.json`, `library/reflections/*` |
 
-当前视频 DAG 会展示本地视频、音频、关键帧截图、transcript、visual notes、cost ledger、timeline event、semantic 子节点、creator signals、fact-check queue 和 agent assets。带 `start_seconds` 的 timeline event 会写入 `media_anchor`，画布详情区可以把视频/音频定位到对应时间点。DOM/ELK 画布保留卡片式视觉，默认简版显示，卡片正文默认折叠，右侧详情默认关闭，媒体必须点击按钮后才创建播放器或图片。
+当前视频 DAG 会展示本地视频、音频、关键帧截图、transcript、visual notes、cost ledger、timeline event、semantic 子节点、creator signals、fact-check queue 和 agent assets。带 `start_seconds` 的 timeline event 会写入 `media_anchor`，画布详情区可以把视频/音频定位到对应时间点。DOM/ELK 画布保留卡片式视觉，默认简版显示，卡片正文默认折叠，右侧详情默认关闭；右侧详情打开后可直接预览媒体，也可以用顶部图片/视频按钮进入全局审阅。
 
 ## 模块边界
 
@@ -83,10 +83,10 @@ seed run-creator-pipeline --platform <platform> <owner>
 - `semantics/analyzer.py`：单条视频语义融合，输入 transcript 和 visual notes，输出 `library/semantics/*.video-semantics.md`；强结论要引用 transcript、visual notes 或 keyframe 证据 ID。
 - `timeline.py`：从 transcript chunk、关键帧 manifest、video semantics 和 visual notes 生成确定性 timeline JSON；抽不到时间点时保留 `start_seconds: null`。
 - `factcheck.py`：从 video semantics 的 main claims 和 open questions 中拆出待核验 claim，默认状态是 `unverified`。
-- `claim_verification.py`：只负责外部证据检索、来源记录和 claim 状态更新，不负责生成新的视频语义；当前版本保守输出 `unclear/unverified`，后续再接自动支持/反驳判断。
+- `claim_verification.py`：只负责外部证据检索、来源记录和 claim 状态更新，不负责生成新的视频语义；按 claim decomposition、query plan、evidence snippets、source score 和 verdict 分阶段写入 artifact，没有外部证据时保持 `unverified`。
 - `semantics/aggregator.py`：按 owner 聚合多条视频语义，输出 `library/distilled/*.creator-profile.md`；prompt 复用共享 lenses，跨视频结论需要能回到具体视频语义和证据引用。
 - `semantics/validation.py`：对 creator profile 做输出后证据校验，发现缺少视频、timestamp、keyframe、transcript chunk 或 provisional 标记的强结论时写入 warning report，不自动改写原文。
-- `agent_assets.py`：从 creator profile 生成待人工 review 的候选 `SKILL.md`、pre-check 和 post-task reflection checklist。
+- `agent_assets.py`：从 creator profile 生成待人工 review 的候选 `SKILL.md`、pre-check、post-task reflection checklist 和 review manifest；状态流为 `draft/reviewed/installed/deprecated`。
 - `reflections.py`：记录 Agent 使用某个 creator 方法后的结果、有效点、失败点和需要修订的地方。
 - `semantics/aggregator.py`：默认要求同一 owner 至少 3 条 video semantics 才生成 creator profile；单条或少量视频需要显式 `--min-videos` 降级为 provisional。
 - `graphs/video_dag.py`：把本地分析产物组装成画布可读 DAG JSON，输出 `library/graphs/*.video-dag.json`；支持按标题自动发现 raw、audio、transcript、frames、visual notes、cost ledger、semantics 和 timeline；timeline event 有时间点时会生成视频/音频 `media_anchor`。
@@ -127,7 +127,7 @@ prompt 构建时会自动注入：
 - `library/semantics/*.book-semantics.md`：书籍/笔记语义，默认没有 visual language。
 - `library/timelines/*.timeline.json`：视频时间线事件，包含 transcript chunk、keyframe、内容结构、广告候选和不确定性。
 - `library/claims/*.claims.json`：待核验 claim 队列，状态至少从 `unverified` 开始。
-- `library/claims/*.verified.json`：外部核验后的 claim 状态、来源和证据；当前自动判断仍保持保守。
+- `library/claims/*.verified.json`：外部核验后的 claim 状态、来源、分阶段证据和 verdict；自动判断支持 `supported`、`contradicted`、`unclear`、`unverified`，但没有外部证据时不得升级状态。
 - `library/graphs/*.video-dag.json`：视频分析链路的可视化图谱，可由 `tools/video-dag-canvas.html` 直接展示。
 - `library/graphs/*.video-dag.html`：嵌入 graph JSON 的静态画布快照，本地打开即可查看；媒体文件仍按相对路径读取 `library/`。
 - `library/graphs/*.creator-dag.json` 和 `*.creator-dag.html`：UP/作者级画布。
@@ -135,5 +135,6 @@ prompt 构建时会自动注入：
 - `library/distilled/*.creator-profile.md`：创作者级聚合画像。
 - `library/distilled/*.creator-profile.validation.json`：creator profile 输出后证据校验报告，只提示缺口，不自动改写 profile。
 - `library/skills/` 和 `library/checks/`：从 creator profile 生成、待人工 review 的 Agent 可加载资产。
+- `library/checks/*.agent-assets.review.json`：Agent 资产 review manifest，记录每个 skill/check 的 `draft/reviewed/installed/deprecated` 状态。
 - `library/reflections/*.reflection.jsonl`：Agent 使用方法论后的复盘记录，用于后续修订 creator profile、skills 和 checks。
 - `library/reflections/*.revision-suggestions.md`：基于 reflection log 的修订建议草稿，不自动覆盖原资产。
