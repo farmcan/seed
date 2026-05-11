@@ -177,6 +177,7 @@
       width: 1px;
       height: 1px;
       transform-origin: 0 0;
+      will-change: transform;
     }
 
     .edges {
@@ -226,6 +227,7 @@
       cursor: grab;
       user-select: none;
       overflow: hidden;
+      contain: layout paint style;
     }
 
     .node.dragging {
@@ -767,7 +769,8 @@
       expandedIds: new Set(),
       compactMode: defaultCompactMode,
       panning: null,
-      draggingNode: null
+      draggingNode: null,
+      minimapFrame: 0
     };
 
     const canvas = document.getElementById("canvas");
@@ -865,7 +868,6 @@
     function setTransform() {
       world.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.zoom})`;
       zoomReadout.textContent = `${Math.round(state.zoom * 100)}%`;
-      renderMinimap();
     }
 
     function render() {
@@ -932,7 +934,7 @@
           event.stopPropagation();
         });
       });
-      nodesEl.querySelectorAll("audio").forEach((media) => {
+      nodesEl.querySelectorAll("audio, video").forEach((media) => {
         media.addEventListener("pointerdown", (event) => event.stopPropagation());
         media.addEventListener("click", (event) => event.stopPropagation());
       });
@@ -1004,17 +1006,17 @@
       const previewData = previewDataForNode(node);
       if (!previewData) return "";
       if (previewData.type === "video") {
-        return `<div class="node-card-preview"><video muted preload="metadata" src="${escapeAttr(resolveAssetUrl(previewData.src))}"></video></div>`;
+        return `<div class="node-card-preview interactive"><video muted controls preload="none" src="${escapeAttr(resolveAssetUrl(previewData.src))}"></video></div>`;
       }
       if (previewData.type === "audio") {
-        return `<div class="node-card-preview interactive audio"><audio controls preload="metadata" src="${escapeAttr(resolveAssetUrl(previewData.src))}"></audio></div>`;
+        return `<div class="node-card-preview interactive audio"><audio controls preload="none" src="${escapeAttr(resolveAssetUrl(previewData.src))}"></audio></div>`;
       }
       if (previewData.type === "image") {
-        return `<div class="node-card-preview"><img src="${escapeAttr(resolveAssetUrl(previewData.src))}" alt=""></div>`;
+        return `<div class="node-card-preview"><img loading="lazy" decoding="async" src="${escapeAttr(resolveAssetUrl(previewData.src))}" alt=""></div>`;
       }
       if (previewData.type === "gallery") {
         const items = (previewData.items || []).slice(0, 4);
-        return `<div class="node-card-preview"><div class="node-card-gallery">${items.map((item) => `<img src="${escapeAttr(resolveAssetUrl(item))}" alt="">`).join("")}</div></div>`;
+        return `<div class="node-card-preview"><div class="node-card-gallery">${items.map((item) => `<img loading="lazy" decoding="async" src="${escapeAttr(resolveAssetUrl(item))}" alt="">`).join("")}</div></div>`;
       }
       return "";
     }
@@ -1051,10 +1053,10 @@
       } else if (previewData?.type === "audio") {
         preview.innerHTML = `<audio controls src="${escapeAttr(resolveAssetUrl(previewData.src))}"></audio>`;
       } else if (previewData?.type === "image") {
-        preview.innerHTML = `<img src="${escapeAttr(resolveAssetUrl(previewData.src))}" alt="">`;
+        preview.innerHTML = `<img loading="lazy" decoding="async" src="${escapeAttr(resolveAssetUrl(previewData.src))}" alt="">`;
       } else if (previewData?.type === "gallery") {
         const items = previewData.items || [];
-        preview.innerHTML = `<div class="preview-gallery">${items.map((item) => `<img src="${escapeAttr(resolveAssetUrl(item))}" alt="">`).join("")}</div>`;
+        preview.innerHTML = `<div class="preview-gallery">${items.map((item) => `<img loading="lazy" decoding="async" src="${escapeAttr(resolveAssetUrl(item))}" alt="">`).join("")}</div>`;
       }
 
       if (node.path) {
@@ -1093,6 +1095,7 @@
     }
 
     function renderMinimap() {
+      state.minimapFrame = 0;
       minimap.innerHTML = "";
       const bounds = graphBounds();
       const width = Math.max(bounds.maxX - bounds.minX, 1);
@@ -1107,6 +1110,11 @@
         mini.style.height = `${Math.max(8, nodeMinHeight * scale)}px`;
         minimap.appendChild(mini);
       }
+    }
+
+    function scheduleMinimapRender() {
+      if (state.minimapFrame) return;
+      state.minimapFrame = requestAnimationFrame(renderMinimap);
     }
 
     function graphBounds() {
@@ -1136,8 +1144,25 @@
       };
       event.currentTarget.setPointerCapture(event.pointerId);
       event.currentTarget.classList.add("dragging");
-      render();
+      updateSelectedNode(id);
+      renderEdges();
+      renderInspector();
       event.stopPropagation();
+    }
+
+    function updateSelectedNode(id) {
+      state.selectedId = id;
+      nodesEl.querySelectorAll(".node").forEach((nodeEl) => {
+        nodeEl.classList.toggle("selected", nodeEl.dataset.id === id);
+      });
+    }
+
+    function updateNodeElementPosition(id) {
+      const node = state.graph.nodes.find((item) => item.id === id);
+      const nodeEl = nodesEl.querySelector(`[data-id="${cssEscape(id)}"]`);
+      if (!node || !nodeEl) return;
+      nodeEl.style.left = `${node.x}px`;
+      nodeEl.style.top = `${node.y}px`;
     }
 
     window.addEventListener("pointermove", (event) => {
@@ -1146,7 +1171,9 @@
         if (!node) return;
         node.x = state.draggingNode.nodeX + (event.clientX - state.draggingNode.startX) / state.zoom;
         node.y = state.draggingNode.nodeY + (event.clientY - state.draggingNode.startY) / state.zoom;
-        render();
+        updateNodeElementPosition(node.id);
+        renderEdges();
+        scheduleMinimapRender();
         return;
       }
       if (state.panning) {
@@ -1157,10 +1184,15 @@
     });
 
     window.addEventListener("pointerup", () => {
+      const dragged = Boolean(state.draggingNode);
       state.draggingNode = null;
       state.panning = null;
       canvas.classList.remove("panning");
       [...document.querySelectorAll(".node.dragging")].forEach((node) => node.classList.remove("dragging"));
+      if (dragged) {
+        renderInspector();
+        renderMinimap();
+      }
     });
 
     canvas.addEventListener("pointerdown", (event) => {
@@ -1453,6 +1485,11 @@
 
     function escapeAttr(value) {
       return escapeHtml(value);
+    }
+
+    function cssEscape(value) {
+      if (window.CSS && CSS.escape) return CSS.escape(String(value));
+      return String(value).replace(/["\\]/g, "\\$&");
     }
 
     function clamp(value, min, max) {
