@@ -8,19 +8,12 @@ from seed.library import slugify
 
 
 DEFAULT_CANVAS_TEMPLATE = Path("tools/video-dag-canvas.html")
-DEFAULT_CYTOSCAPE_TEMPLATE = Path("tools/video-dag-cytoscape.html")
 
 
 def video_dag_html_output_path(*, graph_path: Path, output_dir: Path | None = None) -> Path:
     directory = output_dir or graph_path.parent
     stem = graph_path.name.removesuffix(".video-dag.json").removesuffix(".json")
     return directory / f"{slugify(stem)}.video-dag.html"
-
-
-def video_dag_cytoscape_html_output_path(*, graph_path: Path, output_dir: Path | None = None) -> Path:
-    directory = output_dir or graph_path.parent
-    stem = graph_path.name.removesuffix(".video-dag.json").removesuffix(".json")
-    return directory / f"{slugify(stem)}.video-dag-cytoscape.html"
 
 
 def relative_asset_base(*, output_path: Path, repo_root: Path) -> str:
@@ -34,7 +27,7 @@ def export_video_dag_html(
     output_path: Path,
     template_path: Path = DEFAULT_CANVAS_TEMPLATE,
     asset_base: str,
-    default_compact: bool = False,
+    default_compact: bool = True,
 ) -> Path:
     graph = json.loads(graph_path.read_text(encoding="utf-8"))
     template = template_path.read_text(encoding="utf-8")
@@ -48,13 +41,7 @@ def export_video_dag_html(
         ]
     )
     local_elk_src = f"{asset_base.rstrip('/')}/tools/vendor/elk.bundled.js"
-    local_cytoscape_src = f"{asset_base.rstrip('/')}/tools/vendor/cytoscape.min.js"
     html = template.replace('src="vendor/elk.bundled.js"', f'src="{local_elk_src}"', 1)
-    html = html.replace(
-        'src="vendor/cytoscape.min.js"',
-        f'src="{local_cytoscape_src}"',
-        1,
-    )
     html = html.replace("  <script>\n", f"  {payload}\n  <script>\n", 1)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(html, encoding="utf-8")

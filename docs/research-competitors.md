@@ -37,7 +37,6 @@
 | tldraw workflow starter kit | 官方 workflow starter kit 演示节点、连接、port binding、图执行和数据流。 | 可参考它的节点/边数据模型，但当前不直接引入 React 前端。 |
 | `xyflow/react` / React Flow | Node-based UI 生态成熟，官方 auto layout 示例支持在 dagre、d3-hierarchy 和 elk 之间切换；expand/collapse 生态也成熟。 | 如果后续要做“可折叠分析 DAG + 自动布局 + 节点编辑器”，React Flow 是迁移首选；当前单文件 HTML 只保留为本地快照和原型。 |
 | `kieler/elkjs` | ELK 的 JavaScript 布局引擎，选项丰富，适合有方向的 node-link diagram、layered layout、边标签和复杂间距控制。 | 当前继续作为 DAG 自动布局主算法；不要回到手写布局。 |
-| `cytoscape/cytoscape.js` | 图谱渲染库，支持 large graph visualization、内置布局、Canvas renderer 和 viewport 性能选项。 | 当 DOM card canvas 卡顿时，优先用它做图谱优先视图：主画布只画轻量节点和边，媒体放右侧详情按需加载。 |
 | `jagenjo/litegraph.js` | 老牌 HTML5 Canvas2D graph node editor，偏蓝图/工作流。 | 可参考紧凑节点和 JSON graph 思路；富媒体 DOM 节点不如 React Flow/tldraw 直接。 |
 | Prefect | Python-native workflow orchestration；官方 docs 强调 task state lifecycle、client-side orchestration、`.submit()` 并发和 `.delay()` worker 分发。 | 后续 pipeline 复杂到需要调度、重试 UI 和 worker 时再考虑；当前先把本地 run manifest 做扎实。 |
 | Dagster | 面向 data assets 的 orchestrator，强调 integrated lineage、observability、declarative model 和 testability。 | 如果 `library/` 产物变成大量数据资产和跨主题依赖，可以参考 asset model；当前项目还不到引入 Dagster 的复杂度。 |
@@ -63,7 +62,7 @@
 13. Fact-check 应按研究里的分阶段流程做，而不是一次 prompt 给 verdict。最小实现顺序：claim -> search queries -> evidence snippets -> source score -> verdict -> uncertainty；所有中间产物进 `library/claims/` 或 run manifest。
 14. Orchestration 暂不引入 Prefect/Dagster/Temporal。Prefect 最接近 Seed 的 Python step runner，但当前痛点不是缺框架，而是 cost ledger、budget gate、resume semantics 和 evidence validation 还没做完整。
 15. 阿里云百炼价格在 2026-04-01 官方页显示不同部署区价格差异明显：International 下 `qwen-vl-max` 为 $0.8/$3.2 per 1M input/output tokens，Global 下 `qwen-vl-max` 为 $0.23/$0.574 per 1M input/output tokens。Seed 成本 artifact 必须记录 deployment/region 或 pricing source snapshot，不能只记 model 名。
-16. DAG 卡顿时不要继续把 DOM 卡片做重。React Flow 适合可编辑节点工具，Cytoscape 更适合当前 Seed 的只读图谱快照。下一步应先用 Cytoscape 验证图谱优先视图，如果明显更顺，再把默认导出切过去。
+16. DAG 卡顿时不能牺牲视觉表达直接降级成低信息密度图谱。后续仍应保留卡片式画布视觉，通过默认简版、视口裁剪、按需媒体加载和更成熟的 canvas SDK 解决性能。
 
 ## Sources
 
@@ -92,7 +91,6 @@
 - tldraw workflow starter kit: https://tldraw.dev/starter-kits/workflow
 - React Flow auto layout: https://reactflow.dev/examples/layout/auto-layout
 - elkjs: https://github.com/kieler/elkjs
-- Cytoscape.js: https://js.cytoscape.org/
 - litegraph.js: https://github.com/jagenjo/litegraph.js
 - ELK layout options: https://eclipse.dev/elk/reference/options.html
 - 阿里云百炼模型价格： https://www.alibabacloud.com/help/zh/model-studio/model-pricing

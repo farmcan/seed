@@ -91,9 +91,9 @@
 - [ ] 增强 DAG 媒体联动。
   - 从 timeline event、transcript chunk 或 keyframe 节点跳转到视频/音频对应位置。
   - 借鉴 Readwise 的 time-synced transcript，而不是只展示静态节点。
-- [ ] 评估 Cytoscape DAG 是否替代默认 DOM/ELK 画布。
-  - 如果当前样本和后续大图都明显更顺，把 `export-video-dag-html` 默认模板切到 Cytoscape。
-  - 旧 DOM/ELK 画布保留为可编辑 fallback。
+- [x] 优化 DOM/ELK 卡片式画布性能。
+  - 保留当前 canvas 视觉，不切到低信息密度图谱库。
+  - 已做默认简版、视口裁剪、按需媒体加载和右侧详情可收起。
 
 ## 已完成基础
 
@@ -115,7 +115,6 @@
 - [x] Fact-check claim 节点：`seed extract-claims` 从 `video-semantics.md` 拆出 `library/claims/*.claims.json`，DAG 会展示 claim 子节点，默认状态是 `unverified`。
 - [x] DAG 画布体验：`seed serve-video-dag` 提供本地 server 打开 graph；HTML 画布支持节点搜索/过滤、边标签，以及节点卡片内媒体预览。
 - [x] DAG 静态导出：`seed export-video-dag-html` 会把 graph JSON 嵌进 HTML，默认全展开，避免关闭本地 server 后无法查看。
-- [x] Cytoscape DAG 实验入口：`seed export-video-dag-cytoscape-html` 会生成性能优先的图谱快照，主画布只渲染轻量节点，媒体在右侧详情按需加载。
 - [x] 视频成本报告：`seed analyze-frames` 会按视频写入 `library/costs/*.cost.json`，记录 Qwen-VL tokens、估算费用、pricing source 和 Codex 预留项；`seed build-video-dag` 会把成本节点接入画布。
 - [x] Pipeline 成本账本：`seed build-cost-ledger` 和 `run-video-pipeline` 会写入 `library/costs/*.ledger.json`，汇总 Qwen-VL 并预留 ASR、Codex、搜索/核验费用。
 - [x] 创作者预算门槛：`seed run-creator-pipeline --max-estimated-cost ...` 在预算达到后停止后续视频，并把 `budget_exceeded` 写入 manifest。
@@ -129,6 +128,5 @@
 - [x] Creator DAG 第一版：`seed build-creator-dag` 生成 UP/作者级 DAG JSON 和静态 HTML。
 - [x] 书籍/笔记入口：`seed import-book-note`、`seed analyze-book-note`、`seed aggregate-topic` 支持非视频来源的基础语义产物。
 - [x] Canvas 布局离线化：`tools/vendor/elk.bundled.js` 固定 `elkjs`，导出 HTML 不再依赖 CDN。
-- [x] Cytoscape 图谱渲染实验：`tools/vendor/cytoscape.min.js` 固定 `cytoscape@3.29.2`，用于验证图谱引擎是否比 DOM card canvas 更顺。
 - [x] 视频分析 lenses：`skills/video-semantics-analyzer/references/video-analysis-lenses.md` 收敛 Fabric、BiliNote、tldw、短视频结构等参考框架。
 - [x] 视频分析证据锚点：prompt 构建统一注入共享 lenses 和 `[T*]`、`[V*]`、`[F*]` 证据引用要求，避免纯主观总结。

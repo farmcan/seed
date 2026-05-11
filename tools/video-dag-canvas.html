@@ -761,7 +761,9 @@
       minimapFrame: 0,
       transformFrame: 0,
       edgeFrame: 0,
-      inspectorOpen: false
+      renderFrame: 0,
+      inspectorOpen: false,
+      renderedIds: new Set()
     };
 
     const appEl = document.querySelector(".app");
@@ -879,6 +881,16 @@
       });
     }
 
+    function scheduleViewportRender() {
+      if (state.renderFrame) return;
+      state.renderFrame = requestAnimationFrame(() => {
+        state.renderFrame = 0;
+        renderNodes();
+        renderEdges();
+        renderStatus();
+      });
+    }
+
     function setInspectorOpen(open) {
       state.inspectorOpen = open;
       appEl.classList.toggle("inspector-open", open);
@@ -937,7 +949,9 @@
       if (state.selectedId && !nodes.some((node) => node.id === state.selectedId)) {
         state.selectedId = nodes[0]?.id || null;
       }
-      for (const node of nodes) {
+      const renderedNodes = nodes.filter((node) => node.id === state.selectedId || nodeInRenderViewport(node));
+      state.renderedIds = new Set(renderedNodes.map((node) => node.id));
+      for (const node of renderedNodes) {
         const el = document.createElement("article");
         el.className = `node ${node.type} ${node.id === state.selectedId ? "selected" : ""}`;
         el.style.left = `${node.x}px`;
@@ -969,11 +983,29 @@
       });
     }
 
+    function nodeInRenderViewport(node) {
+      const buffer = 480;
+      const rect = canvas.getBoundingClientRect();
+      const x = node.x * state.zoom + state.panX;
+      const y = node.y * state.zoom + state.panY;
+      const width = nodeWidth * state.zoom;
+      const height = estimatedNodeHeight(node) * state.zoom;
+      return (
+        x + width >= -buffer
+        && y + height >= -buffer
+        && x <= rect.width + buffer
+        && y <= rect.height + buffer
+      );
+    }
+
     function renderEdges() {
       [...edgesEl.querySelectorAll("path.edge, text.edge-label")].forEach((item) => item.remove());
       const byId = new Map(state.graph.nodes.map((node) => [node.id, node]));
       for (const edge of visibleEdges()) {
         const [fromId, toId] = edge;
+        if (state.renderedIds.size && (!state.renderedIds.has(fromId) || !state.renderedIds.has(toId))) {
+          continue;
+        }
         const from = byId.get(fromId);
         const to = byId.get(toId);
         if (!from || !to) continue;
@@ -1210,6 +1242,7 @@
         state.panX = state.panning.panX + event.clientX - state.panning.startX;
         state.panY = state.panning.panY + event.clientY - state.panning.startY;
         scheduleTransform();
+        scheduleViewportRender();
       }
     });
 
@@ -1244,6 +1277,7 @@
       state.panX = event.clientX - rect.left - before.x * nextZoom;
       state.panY = event.clientY - rect.top - before.y * nextZoom;
       scheduleTransform();
+      scheduleViewportRender();
     }, { passive: false });
 
     function screenToWorld(x, y) {
@@ -1260,6 +1294,7 @@
       state.panX = rect.width / 2 - center.x * state.zoom;
       state.panY = rect.height / 2 - center.y * state.zoom;
       setTransform();
+      scheduleViewportRender();
     }
 
     function fitView(targetId = null) {
@@ -1272,6 +1307,7 @@
       state.panX = rect.width / 2 - (bounds.minX + bounds.maxX) / 2 * state.zoom;
       state.panY = rect.height / 2 - (bounds.minY + bounds.maxY) / 2 * state.zoom;
       setTransform();
+      scheduleViewportRender();
     }
 
     function boundsForNodes(nodes) {
