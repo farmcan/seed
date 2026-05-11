@@ -95,6 +95,9 @@
 - [x] 优化 DOM/ELK 卡片式画布性能。
   - 保留当前 canvas 视觉，不切到低信息密度图谱库。
   - 已做默认简版、节点媒体默认显示、媒体一键开关、卡片正文手动展开、视口裁剪和右侧详情可收起。
+- [x] 增强 Creator DAG 的媒体证据入口。
+  - UP/作者级画布默认展示 profile、方法论、视频语义和 Agent 资产；每条视频节点可展开 4 个子节点：单条 video DAG HTML、本地视频、本地音频、关键帧截图 gallery。
+  - 顶部 toolbar 改为自适应高度，控件换行时不再被 canvas 覆盖。
 
 ## P6：真实样本验证
 
@@ -139,7 +142,7 @@
 - [x] Reflection 修订建议：`seed suggest-revisions` 基于 reflection log 生成 revision suggestions 草稿，不自动覆盖原资产。
 - [x] 单条视频 pipeline：`seed run-video-pipeline` 串起现有分析步骤并写入 `library/runs/*.video-pipeline.yaml`。
 - [x] 创作者 pipeline 第一版：`seed run-creator-pipeline` 可以获取视频列表、批量入库并逐条运行视频 pipeline。
-- [x] Creator DAG 第一版：`seed build-creator-dag` 生成 UP/作者级 DAG JSON 和静态 HTML。
+- [x] Creator DAG 第一版：`seed build-creator-dag` 生成 UP/作者级 DAG JSON 和静态 HTML，并可从每条视频展开本地视频、音频、截图和单条 video DAG。
 - [x] 真实创作者样本：`影视飓风` 已生成 3 条 video semantics、creator profile、validation、agent asset draft 和 creator DAG。
 - [x] 书籍/笔记入口：`seed import-book-note`、`seed analyze-book-note`、`seed aggregate-topic` 支持非视频来源的基础语义产物。
 - [x] Canvas 布局离线化：`tools/vendor/elk.bundled.js` 固定 `elkjs`，导出 HTML 不再依赖 CDN。

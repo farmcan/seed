@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from seed.dag_export import video_dag_html_output_path
+from seed.graphs.video_dag import count_frames, list_frame_paths, resolve_video_dag_artifacts, video_dag_output_path
 from seed.library import init_library, slugify
 from seed.markdown import find_markdown_field
 
@@ -21,6 +23,7 @@ def build_creator_dag_graph(
     *,
     owner: str,
     semantics_paths: list[Path],
+    library_root: Path | None = None,
     creator_profile_path: Path | None = None,
     skill_paths: list[Path] | None = None,
     check_paths: list[Path] | None = None,
@@ -94,6 +97,11 @@ def build_creator_dag_graph(
             ".video-semantics"
         )
         video_id = f"video-{index:03d}"
+        artifacts = resolve_creator_video_artifacts(
+            library_root=library_root,
+            title=title,
+            semantics_path=semantics_path,
+        )
         nodes.append(
             node(
                 video_id,
@@ -107,6 +115,14 @@ def build_creator_dag_graph(
             )
         )
         edges.append([video_id, "creator"])
+        media_nodes, media_edges = build_creator_video_media_nodes(
+            video_id=video_id,
+            title=title,
+            artifacts=artifacts,
+            index=index,
+        )
+        nodes.extend(media_nodes)
+        edges.extend(media_edges)
 
     for index, skill_path in enumerate(skill_paths or [], start=1):
         skill_id = f"skill-{index:03d}"
@@ -181,6 +197,7 @@ def node(
     y: int,
     metrics: list[str],
     path: Path | None,
+    preview: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     result: dict[str, Any] = {
         "id": node_id,
@@ -193,6 +210,8 @@ def node(
     }
     if path:
         result["path"] = str(path)
+    if preview:
+        result["preview"] = preview
     return result
 
 
@@ -215,3 +234,98 @@ def path_metric(path: Path | None) -> str:
     if not path:
         return "missing"
     return path.name if path.exists() else f"missing: {path.name}"
+
+
+def resolve_creator_video_artifacts(
+    *,
+    library_root: Path | None,
+    title: str,
+    semantics_path: Path,
+) -> dict[str, Path | None]:
+    if library_root is None:
+        return {
+            "source_path": None,
+            "audio_path": None,
+            "frame_dir": None,
+            "video_dag_path": None,
+            "video_dag_html_path": None,
+        }
+    artifacts = resolve_video_dag_artifacts(
+        library_root=library_root,
+        title=title,
+        semantics_path=semantics_path,
+    )
+    graph_path = video_dag_output_path(library_root=library_root, title=title)
+    html_path = video_dag_html_output_path(graph_path=graph_path)
+    artifacts["video_dag_path"] = graph_path if graph_path.exists() else None
+    artifacts["video_dag_html_path"] = html_path if html_path.exists() else None
+    return artifacts
+
+
+def build_creator_video_media_nodes(
+    *,
+    video_id: str,
+    title: str,
+    artifacts: dict[str, Path | None],
+    index: int,
+) -> tuple[list[dict[str, Any]], list[list[str]]]:
+    y = (index - 1) * 300
+    source_path = artifacts.get("source_path")
+    audio_path = artifacts.get("audio_path")
+    frame_dir = artifacts.get("frame_dir")
+    video_dag_html_path = artifacts.get("video_dag_html_path")
+    frame_paths = list_frame_paths(frame_dir)
+    nodes: list[dict[str, Any]] = [
+        node(
+            f"{video_id}-dag",
+            "asset",
+            "Video DAG HTML",
+            f"单条视频的完整证据 DAG，可展开查看 {title} 的视频、音频、截图、timeline、claims 和 cost ledger。",
+            -720,
+            y,
+            [path_metric(video_dag_html_path), "single video DAG"],
+            video_dag_html_path,
+        ),
+        node(
+            f"{video_id}-video",
+            "source",
+            "Video Preview",
+            "本地原始视频。UP 级画布中保留它，方便从创作者画像回到具体视频证据。",
+            -1080,
+            y,
+            [path_metric(source_path), "video"],
+            source_path,
+            preview={"type": "video", "src": str(source_path)} if source_path else None,
+        ),
+        node(
+            f"{video_id}-audio",
+            "transcript",
+            "Audio Preview",
+            "ASR 使用的本地音频，可回听口播节奏、语气和广告段。",
+            -1080,
+            y + 190,
+            [path_metric(audio_path), "audio"],
+            audio_path,
+            preview={"type": "audio", "src": str(audio_path)} if audio_path else None,
+        ),
+        node(
+            f"{video_id}-frames",
+            "frame",
+            "Frame Gallery",
+            "抽样关键帧截图，用于从创作者级结论回看视觉证据。",
+            -1080,
+            y + 380,
+            [path_metric(frame_dir), f"{count_frames(frame_dir)} frames" if frame_dir else "no frames"],
+            frame_dir,
+            preview={"type": "gallery", "items": [str(path) for path in frame_paths[:8]]}
+            if frame_paths
+            else None,
+        ),
+    ]
+    edges = [
+        [video_id, f"{video_id}-video"],
+        [video_id, f"{video_id}-audio"],
+        [video_id, f"{video_id}-frames"],
+        [video_id, f"{video_id}-dag"],
+    ]
+    return nodes, edges

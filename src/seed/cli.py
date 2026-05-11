@@ -846,6 +846,7 @@ def build_creator_dag(
     graph = build_creator_dag_graph(
         owner=owner,
         semantics_paths=semantics_paths,
+        library_root=root,
         creator_profile_path=creator_profile or assets["creator_profile_path"],
         skill_paths=assets["skill_paths"],
         check_paths=assets["check_paths"],

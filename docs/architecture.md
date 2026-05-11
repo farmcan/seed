@@ -65,7 +65,7 @@ seed run-creator-pipeline --platform <platform> <owner>
 | 创作者聚合 | `seed aggregate-owner`, `seed validate-creator-profile` | `src/seed/semantics/aggregator.py`, `src/seed/semantics/validation.py` | `library/distilled/*.creator-profile.md`, `*.creator-profile.validation.json` |
 | Agent 资产生成 | `seed generate-agent-assets`, `seed review-agent-assets`, `seed record-reflection`, `seed suggest-revisions` | `src/seed/agent_assets.py`, `src/seed/reflections.py` | `library/skills/*/SKILL.md`, `library/checks/*.md`, `library/checks/*.agent-assets.review.json`, `library/reflections/*` |
 
-当前视频 DAG 会展示本地视频、音频、关键帧截图、transcript、visual notes、cost ledger、timeline event、semantic 子节点、creator signals、fact-check queue 和 agent assets。带 `start_seconds` 的 timeline event 会写入 `media_anchor`，画布详情区可以把视频/音频定位到对应时间点。DOM/ELK 画布保留卡片式视觉，默认简版显示，节点媒体默认渲染，顶部 `媒体` 按钮可一键隐藏或恢复，卡片正文默认折叠，右侧详情默认关闭。
+当前视频 DAG 会展示本地视频、音频、关键帧截图、transcript、visual notes、cost ledger、timeline event、semantic 子节点、creator signals、fact-check queue 和 agent assets。Creator DAG 以 UP/作者级 profile、方法论和 Agent 资产为主，同时每条视频节点都可展开本地视频、音频、截图 gallery 和单条 video DAG HTML 入口。带 `start_seconds` 的 timeline event 会写入 `media_anchor`，画布详情区可以把视频/音频定位到对应时间点。DOM/ELK 画布保留卡片式视觉，默认简版显示，节点媒体默认渲染，顶部 `媒体` 按钮可一键隐藏或恢复，卡片正文默认折叠，右侧详情默认关闭。
 
 ## 模块边界
 
@@ -90,7 +90,7 @@ seed run-creator-pipeline --platform <platform> <owner>
 - `reflections.py`：记录 Agent 使用某个 creator 方法后的结果、有效点、失败点和需要修订的地方。
 - `semantics/aggregator.py`：默认要求同一 owner 至少 3 条 video semantics 才生成 creator profile；单条或少量视频需要显式 `--min-videos` 降级为 provisional。
 - `graphs/video_dag.py`：把本地分析产物组装成画布可读 DAG JSON，输出 `library/graphs/*.video-dag.json`；支持按标题自动发现 raw、audio、transcript、frames、visual notes、cost ledger、semantics 和 timeline；timeline event 有时间点时会生成视频/音频 `media_anchor`。
-- `graphs/creator_dag.py`：把同一 UP/作者的多条 video semantics、creator profile、profile validation、cost ledger 和 agent assets 组装成 creator DAG。
+- `graphs/creator_dag.py`：把同一 UP/作者的多条 video semantics、creator profile、profile validation、cost ledger 和 agent assets 组装成 creator DAG；每条视频节点会按标题解析本地 raw/audio/frames/video DAG HTML，并作为可折叠媒体证据子节点接入。
 - `dag_server.py`：用本地 HTTP server 打开 DAG HTML 和 graph JSON，避免 `file://` 下浏览器策略影响素材加载。
 - `dag_export.py`：把 graph JSON 嵌入独立 HTML，适合直接打开和分享本地快照，不要求 server 一直运行；默认使用 DOM/ELK 卡片式画布模板。
 - `agents/codex.py`：统一管理 `codex exec` 命令、dry-run、输出文件写入。内容分析模块不得直接调用 `subprocess` 跑 Codex。

@@ -92,6 +92,7 @@ run-creator-pipeline
 - DAG timeline event 如果有 `start_seconds`，应通过 `media_anchor` 连接本地视频/音频；不要只把时间点写成普通文本。
 - DOM/ELK 画布使用 vendored `elkjs` layered layout 做自动分层布局；手写布局只能作为本地脚本加载失败的 fallback。画布必须保留卡片式信息密度和媒体详情能力，不能降级成低信息密度图谱。
 - DAG HTML 默认必须保留节点媒体预览；顶部 `媒体` 按钮用于一键隐藏或恢复节点媒体。默认仍保持简版、卡片正文折叠、右侧详情关闭。
+- Creator DAG 默认是 UP/作者级聚合入口，不应把所有媒体一次性铺满；每条视频节点通过折叠子节点挂载单条 video DAG、本地视频、本地音频和关键帧 gallery。
 - 给用户看的 DAG 默认优先生成静态 HTML；本地 server 只用于调试。
 - 视频分析 skills 必须复用 `video-analysis-lenses.md`，不要在 summarizer、semantics analyzer 和 creator aggregator 里各写一套互相冲突的分析框架。
 - 视频总结、视频语义和创作者聚合 prompt 必须注入共享 lenses；单条视频 prompt 还必须注入 `[T*]`、`[V*]`、`[F*]` 证据锚点。
