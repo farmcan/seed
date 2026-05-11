@@ -20,10 +20,11 @@ Turn a transcript into a structured knowledge artifact that a human can review a
 
 1. Identify the content type: lecture, tutorial, interview, podcast, tech talk, vlog/story, product review, or short-form viral video.
 2. Produce a grounded summary. Separate what the speaker said, what the visual notes show, and inferred interpretation.
-3. Extract reusable ideas, insights, quotes, habits/practices, key points, and takeaways.
-4. If the content teaches a method, extract methodology candidates: principles, steps, decision rules, failure modes.
-5. If the content is short-form or obviously performance-oriented, analyze the video structure: hook, promise, proof, retention devices, CTA, and reusable script pattern.
-6. End with Agent checks: questions an Agent should ask before applying this content to a real task.
+3. Use `../video-semantics-analyzer/references/video-analysis-lenses.md` for shared video structure, evidence, method, retention, and creator-signal lenses.
+4. Extract reusable ideas, insights, quotes, habits/practices, key points, and takeaways.
+5. If the content teaches a method, extract methodology candidates: principles, steps, decision rules, failure modes.
+6. If the content is short-form or obviously performance-oriented, analyze the video structure: hook, promise, proof, retention devices, CTA, and reusable script pattern.
+7. End with Agent checks: questions an Agent should ask before applying this content to a real task.
 
 ## Output Format
 
@@ -97,6 +98,7 @@ Return only Markdown with these sections:
 
 - Ground claims in the transcript. Do not invent metrics, visuals, or unstated facts.
 - If visual notes are present, use them to identify on-screen text, scene structure, product/demo evidence, and editing patterns.
+- Prefer timestamp, chunk, keyframe, screenshot, or source path references when available.
 - Mention when visual context is missing or sampled sparsely, especially for tutorials, demos, product reviews, and visual-first short videos.
 - Keep quotes short and only use exact wording from the transcript.
 - Prefer methodology extraction over generic summary when the content contains repeatable methods.

@@ -65,7 +65,7 @@ seed run-creator-pipeline --platform <platform> <owner>
 | 创作者聚合 | `seed aggregate-owner` | `src/seed/semantics/aggregator.py` | `library/distilled/*.creator-profile.md` |
 | Agent 资产生成 | `seed generate-agent-assets`, `seed record-reflection`, `seed suggest-revisions` | `src/seed/agent_assets.py`, `src/seed/reflections.py` | `library/skills/*/SKILL.md`, `library/checks/*.md`, `library/reflections/*` |
 
-当前视频 DAG 会展示本地视频、音频、关键帧截图、transcript、visual notes、cost report、timeline event、semantic 子节点、creator signals、fact-check queue 和 agent assets。视频、音频、截图、gallery 类节点会在画布节点卡片内直接展示媒体预览；音频节点卡片和右侧 inspector 都可以播放本地 mp3。画布使用 `elkjs` 的 layered layout 自动排布并适配视图；服务模式默认使用简版核心链路，静态导出默认全展开，timeline event 和 claim 子节点仍可按父节点收起。
+当前视频 DAG 会展示本地视频、音频、关键帧截图、transcript、visual notes、cost report、timeline event、semantic 子节点、creator signals、fact-check queue 和 agent assets。视频、音频、截图、gallery 类节点会在画布节点卡片内直接展示媒体预览；音频节点卡片和右侧 inspector 都可以播放本地 mp3。画布使用 vendored `elkjs` 的 layered layout 自动排布并适配视图；服务模式默认使用简版核心链路，静态导出默认全展开，timeline event 和 claim 子节点仍可按父节点收起。
 
 ## 模块边界
 
@@ -93,6 +93,13 @@ seed run-creator-pipeline --platform <platform> <owner>
 - `agents/codex.py`：统一管理 `codex exec` 命令、dry-run、输出文件写入。内容分析模块不得直接调用 `subprocess` 跑 Codex。
 - `markdown.py`：统一读取 Markdown frontmatter、正文和 metadata 字段，避免不同 artifact 各写一套解析逻辑。
 - `cli.py`：只做参数接线、轻量校验和用户输出。业务逻辑应留在对应模块。
+
+## Skills 边界
+
+- `skills/video-semantics-analyzer/references/video-analysis-lenses.md`：视频分析共享 lens 库，吸收 Fabric、BiliNote、tldw、短视频结构分析等参考，但不复制外部 prompt。
+- `skills/video-note-summarizer/SKILL.md`：面向 transcript-first 的快速笔记，复用共享 lenses，输出给人看的 Markdown。
+- `skills/video-semantics-analyzer/SKILL.md`：面向长期聚合的单条视频语义，严格区分 verbal evidence、visual evidence、timeline evidence 和 inference。
+- `skills/creator-profile-aggregator/SKILL.md`：面向跨视频聚合，强结论需要重复证据；单视频信号必须标记 provisional。
 
 ## 产物边界
 

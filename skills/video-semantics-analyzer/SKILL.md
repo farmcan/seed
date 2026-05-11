@@ -9,12 +9,15 @@ description: Fuse video transcript and visual notes into a reusable semantic art
 
 Convert one video into a stable semantic artifact. Treat spoken language and visual language as separate evidence streams, then fuse them into reusable knowledge for later creator/UP aggregation.
 
+Before analysis, use `references/video-analysis-lenses.md` as the shared lens library. Do not invent a new structure when the lens file already covers the evidence type or video structure question.
+
 ## Attribution
 
 This skill is inspired by:
 
-- Fabric prompt patterns, especially extraction-oriented patterns such as `extract_wisdom` and concise summary patterns.
-- Multimodal video-analysis skills that synchronize transcript evidence with visual frame evidence.
+- Fabric prompt patterns, especially transcript-first summary and extraction-oriented patterns.
+- BiliNote-style timestamped Markdown notes with screenshots/keyframes.
+- tldw / NotebookLM-style source-grounded media analysis.
 - Short-form video structure frameworks such as Hook -> Value -> Retention -> CTA and Hook -> Context -> Problem -> Reveal -> CTA.
 
 Do not copy those patterns mechanically. Use them as analysis lenses only when supported by the provided transcript and visual notes.
@@ -28,11 +31,13 @@ Do not copy those patterns mechanically. Use them as analysis lenses only when s
 ## Evidence Rules
 
 - Separate verbal evidence, visual evidence, and inference.
+- Prefer timestamp, chunk, keyframe, screenshot, or source path references when available.
 - If visual notes are absent, say visual evidence is unavailable.
 - If visual notes are sampled sparsely, avoid overclaiming editing rhythm or exact shot timing.
 - Do not invent metrics, screen text, creator intent, or audience outcome.
 - Use short quotes only when exact wording appears in the transcript.
 - Prefer reusable semantics over generic summary.
+- Strong creator-signal claims require repeated evidence across videos; single-video creator claims must be labeled provisional.
 
 ## Output Format
 

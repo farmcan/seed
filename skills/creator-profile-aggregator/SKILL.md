@@ -22,6 +22,8 @@ Synthesize multiple video semantics artifacts from the same creator/UP into a st
 - Do not infer personality traits beyond observable content, style, and methods.
 - If there is only one video, clearly mark the profile as provisional.
 - Keep skills and checks concrete enough for an agent to use before, during, or after a task.
+- Use `../video-semantics-analyzer/references/video-analysis-lenses.md` for shared evidence, method, structure, and reliability-gap vocabulary.
+- Each strong creator-level conclusion should cite at least two video semantics artifacts or be marked as provisional.
 
 ## Output Format
 

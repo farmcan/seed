@@ -27,8 +27,8 @@
 - [ ] 做 pipeline 级 cost ledger。
   - 单条视频成本不只记录 Qwen-VL，还要预留并逐步接入 ASR、Codex、搜索/核验等步骤。
   - DAG 成本节点展示分项和总计。
-- [ ] 让 DAG 静态 HTML 离线可用。
-  - 当前 `elkjs` 通过 CDN 加载；需要把稳定版本 vendor 到 `tools/vendor/`，静态导出默认使用本地脚本。
+- [x] 让 DAG 静态 HTML 离线可用。
+  - `elkjs` 已 vendor 到 `tools/vendor/`，静态导出默认使用本地脚本。
 
 ## P2：创作者级知识
 
@@ -93,3 +93,5 @@
 - [x] 创作者 pipeline 第一版：`seed run-creator-pipeline` 可以获取视频列表、批量入库并逐条运行视频 pipeline。
 - [x] Creator DAG 第一版：`seed build-creator-dag` 生成 UP/作者级 DAG JSON 和静态 HTML。
 - [x] 书籍/笔记入口：`seed import-book-note`、`seed analyze-book-note`、`seed aggregate-topic` 支持非视频来源的基础语义产物。
+- [x] Canvas 布局离线化：`tools/vendor/elk.bundled.js` 固定 `elkjs`，导出 HTML 不再依赖 CDN。
+- [x] 视频分析 lenses：`skills/video-semantics-analyzer/references/video-analysis-lenses.md` 收敛 Fabric、BiliNote、tldw、短视频结构等参考框架。

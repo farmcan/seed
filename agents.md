@@ -55,9 +55,11 @@ run-creator-pipeline
 - DAG 本地服务：`src/seed/dag_server.py`
 - DAG 静态导出：`src/seed/dag_export.py`
 - 画布 UI：`tools/video-dag-canvas.html`
+- 画布布局库：`tools/vendor/elk.bundled.js`
 - Skills：
   - `skills/video-note-summarizer/SKILL.md`
   - `skills/video-semantics-analyzer/SKILL.md`
+  - `skills/video-semantics-analyzer/references/video-analysis-lenses.md`
   - `skills/creator-profile-aggregator/SKILL.md`
 
 ## 架构规则
@@ -83,8 +85,9 @@ run-creator-pipeline
 - `aggregate-owner` 默认至少 3 条 video semantics；如果用 `--min-videos 1` 或 `2`，输出只能视为 provisional。
 - Video DAG 构建支持按标题自动发现本地产物；显式传入的路径优先，resolver 逻辑在 `seed.graphs.video_dag.resolve_video_dag_artifacts`。
 - DAG 画布调试优先用 `seed serve-video-dag <graph.json>` 打开；需要给用户直接查看时，用 `seed export-video-dag-html <graph.json>` 生成静态 HTML。
-- HTML 画布使用 `elkjs` layered layout 做自动分层布局；手写布局只能作为 CDN 加载失败的 fallback。画布内置搜索过滤、边标签、简版/全展开、节点展开和节点卡片内媒体预览，不要再新增独立可视化入口。
+- HTML 画布使用 vendored `elkjs` layered layout 做自动分层布局；手写布局只能作为本地脚本加载失败的 fallback。画布内置搜索过滤、边标签、简版/全展开、节点展开和节点卡片内媒体预览，不要再新增独立可视化入口。
 - 给用户看的 DAG 默认优先生成静态 HTML；本地 server 只用于调试。
+- 视频分析 skills 必须复用 `video-analysis-lenses.md`，不要在 summarizer、semantics analyzer 和 creator aggregator 里各写一套互相冲突的分析框架。
 - 内容分析模块不要直接调用 `codex exec`，统一用 `seed.agents.codex.run_codex_prompt`。
 - 不要在多个地方手写 Markdown frontmatter 解析，统一用 `seed.markdown`。
 - 本地私有产物都放在 `library/`，默认不要提交。
@@ -99,7 +102,9 @@ run-creator-pipeline
 - Cost lint：新增外部模型/API/provider 调用必须记录或预留成本字段。
 - DAG lint：新增关键 artifact 必须考虑是否需要 DAG 节点；如果不接入 DAG，要在实现说明中解释原因。
 - Verification lint：涉及事实、价格、平台规则、模型价格、库选型等易变信息时，必须查官方或 primary source，并把来源写入调研或 artifact。
-- Canvas lint：不要再手写主布局算法；主路径使用成熟布局库，手写逻辑只允许作为 fallback 或小交互 glue。
+- Canvas lint：不要再手写主布局算法；主路径使用 vendored 成熟布局库，手写逻辑只允许作为 fallback 或小交互 glue。
+- Skill lint：新增视频分析 prompt/skill 之前，先检查 `video-analysis-lenses.md` 是否能扩展；优先更新共享 lens，避免重复造轮子。
+- Vendor lint：新增 vendored 前端库必须固定版本，并提交对应 LICENSE 或来源说明。
 - Privacy lint：不要提交 `library/` 的私有内容，除 `.gitkeep` 外都应被 ignore。
 - Review lint：从 LLM 生成的 creator skill/check 默认是 draft，不能自动视为可安装或可信资产。
 

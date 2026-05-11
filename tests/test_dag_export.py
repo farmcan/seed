@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 from seed.dag_export import export_video_dag_html, relative_asset_base, video_dag_html_output_path
 
@@ -22,7 +23,10 @@ def test_export_video_dag_html_embeds_graph_and_asset_base(tmp_path):
     graph_path = tmp_path / "demo.video-dag.json"
     graph_path.write_text(json.dumps({"nodes": [], "edges": []}), encoding="utf-8")
     template = tmp_path / "template.html"
-    template.write_text("<html><body>\n  <script>\nconsole.log('canvas');\n  </script>\n</body></html>", encoding="utf-8")
+    template.write_text(
+        '<html><body>\n  <script src="vendor/elk.bundled.js"></script>\n  <script>\nconsole.log("canvas");\n  </script>\n</body></html>',
+        encoding="utf-8",
+    )
 
     output = export_video_dag_html(
         graph_path=graph_path,
@@ -36,3 +40,10 @@ def test_export_video_dag_html_embeds_graph_and_asset_base(tmp_path):
     assert '"nodes": []' in html
     assert 'window.SEED_ASSET_BASE = "../..";' in html
     assert "window.SEED_DEFAULT_COMPACT = false;" in html
+    assert 'src="../../tools/vendor/elk.bundled.js"' in html
+
+
+def test_vendored_elkjs_exists():
+    assert Path("tools/vendor/elk.bundled.js").exists()
+    assert Path("tools/vendor/elkjs-LICENSE.md").exists()
+    assert "elkjs@0.11.0" in Path("tools/vendor/README.md").read_text(encoding="utf-8")

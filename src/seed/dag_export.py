@@ -39,7 +39,9 @@ def export_video_dag_html(
             "</script>",
         ]
     )
-    html = template.replace("  <script>\n", f"  {payload}\n  <script>\n", 1)
+    local_elk_src = f"{asset_base.rstrip('/')}/tools/vendor/elk.bundled.js"
+    html = template.replace('src="vendor/elk.bundled.js"', f'src="{local_elk_src}"', 1)
+    html = html.replace("  <script>\n", f"  {payload}\n  <script>\n", 1)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(html, encoding="utf-8")
     return output_path
