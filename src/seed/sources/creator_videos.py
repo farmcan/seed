@@ -102,12 +102,14 @@ def fetch_creator_video_list(
     platform: Platform,
     owner_name: str,
     limit: int = 20,
+    owner_id: str | None = None,
     cookies_from_browser: str | None = None,
 ) -> CreatorVideoList:
     if platform == Platform.bilibili:
         return fetch_bilibili_creator_video_list(
             owner_name=owner_name,
             limit=limit,
+            owner_id=owner_id,
             cookies_from_browser=cookies_from_browser,
         )
     if platform == Platform.xiaohongshu:
@@ -119,30 +121,38 @@ def fetch_bilibili_creator_video_list(
     *,
     owner_name: str,
     limit: int = 20,
+    owner_id: str | None = None,
     cookies_from_browser: str | None = None,
 ) -> CreatorVideoList:
-    try:
-        candidate = _find_bilibili_user(owner_name)
-    except Exception as error:
-        return CreatorVideoList(
-            platform=Platform.bilibili,
-            owner_query=owner_name,
-            owner=owner_name,
-            provider="bilibili-user-search-blocked",
-            notes=[
-                f"Bilibili user search failed: {error}",
-                "Try --cookies-from-browser or BILIBILI_COOKIES_FILE if the request is blocked.",
-            ],
-        )
-    owner = candidate.get("uname") or owner_name
-    owner_id = str(candidate["mid"])
-    owner_url = f"https://space.bilibili.com/{owner_id}/video"
     notes: list[str] = []
+    if owner_id:
+        owner = owner_name
+        resolved_owner_id = str(owner_id)
+    else:
+        try:
+            candidate = _find_bilibili_user(owner_name)
+        except Exception as error:
+            return CreatorVideoList(
+                platform=Platform.bilibili,
+                owner_query=owner_name,
+                owner=owner_name,
+                provider="bilibili-user-search-blocked",
+                notes=[
+                    f"Bilibili user search failed: {error}",
+                    "Retry with --owner-id when you know the Bilibili mid from an existing video.",
+                    "Try --cookies-from-browser or BILIBILI_COOKIES_FILE if the request is blocked.",
+                ],
+            )
+        owner = candidate.get("uname") or owner_name
+        resolved_owner_id = str(candidate["mid"])
+    if owner_id:
+        notes.append("Bilibili owner id was provided; skipped user-name search.")
+    owner_url = f"https://space.bilibili.com/{resolved_owner_id}/video"
 
     try:
         videos = _fetch_bilibili_space_videos_with_ytdlp(
             owner=owner,
-            owner_id=owner_id,
+            owner_id=resolved_owner_id,
             owner_url=owner_url,
             limit=limit,
             cookies_from_browser=cookies_from_browser,
@@ -153,7 +163,7 @@ def fetch_bilibili_creator_video_list(
         try:
             videos = _fetch_bilibili_space_videos_with_api(
                 owner=owner,
-                owner_id=owner_id,
+                owner_id=resolved_owner_id,
                 limit=limit,
             )
             provider = "bilibili-wbi-api"
@@ -167,7 +177,7 @@ def fetch_bilibili_creator_video_list(
         platform=Platform.bilibili,
         owner_query=owner_name,
         owner=owner,
-        owner_id=owner_id,
+        owner_id=resolved_owner_id,
         owner_url=owner_url,
         provider=provider,
         videos=videos[:limit],

@@ -80,6 +80,30 @@ def audio_exceeds_upload_size(path: Path, *, max_upload_mb: int) -> bool:
     return path.stat().st_size > max_bytes
 
 
+def media_duration_seconds(path: Path) -> float | None:
+    result = subprocess.run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            str(path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return None
+    try:
+        return float(result.stdout.strip())
+    except ValueError:
+        return None
+
+
 def ensure_upload_size(path: Path, *, max_upload_mb: int) -> None:
     max_bytes = max_upload_mb * 1024 * 1024
     size = path.stat().st_size

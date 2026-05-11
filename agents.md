@@ -75,9 +75,9 @@ run-creator-pipeline
 - 长任务必须记录 run manifest，至少包含 step、status、input、output、provider/model、started_at、finished_at、error。
 - 平台下载逻辑只放在 `src/seed/sources/`。
 - 下载相关 source record 必须保留 `download_provider`、`fallback_used` 和 `download_notes`，方便定位 cookies、风控和 fallback 问题。
-- 创作者视频列表发现也属于 `sources/`，输出 `library/notes/*.creator-videos.yaml`，不要直接混入 ASR、视觉分析或总结逻辑。
-- 创作者批量入库从 `*.creator-videos.yaml` 读取 URL，复用 `download_url` 和 `save_source_record`，不要复制单链接下载逻辑。
-- ASR 长音频分段在 `seed.asr.chunked`，不要在 CLI 或 provider 里重复实现切片与合并。
+- 创作者视频列表发现也属于 `sources/`，输出 `library/notes/*.creator-videos.yaml`，不要直接混入 ASR、视觉分析或总结逻辑；Bilibili 用户名搜索被风控时优先尝试 `--owner-id <mid>`。
+- 创作者批量入库从 `*.creator-videos.yaml` 读取 URL，复用 `download_url` 和 `save_source_record`，不要复制单链接下载逻辑；已有 source record 但没有本地 `raw_path` 时不能跳过下载。
+- ASR 长音频分段在 `seed.asr.chunked`，不要在 CLI 或 provider 里重复实现切片与合并；线上 ASR provider 可能同时限制文件大小和音频时长，默认长于 300 秒要切片。
 - Qwen-VL 成本记录在 `seed.costs`，`analyze-frames` 必须按单条视频写入 `library/costs/*.cost.json`；`run-video-pipeline` 和 `build-cost-ledger` 必须写入 `library/costs/*.ledger.json`；费用是基于 token usage 和配置单价的估算，实际账单以服务商后台为准。
 - 创作者批量任务支持 `--max-estimated-cost` 预算门槛；达到预算后停止后续视频，并在 run manifest 写入 `budget_exceeded`。
 - 任何外部模型/API 调用都要考虑成本记录；如果 provider 暂时拿不到 token，就写 `reserved` 或 `unknown`，不要伪造 token 或金额。
@@ -100,6 +100,7 @@ run-creator-pipeline
 - 内容分析模块不要直接调用 `codex exec`，统一用 `seed.agents.codex.run_codex_prompt`。
 - 不要在多个地方手写 Markdown frontmatter 解析，统一用 `seed.markdown`。
 - 本地私有产物都放在 `library/`，默认不要提交。
+- 真实样本状态：2026-05-11 已用 `影视飓风` 3 条 Bilibili 视频跑通 creator profile、validation、agent asset draft 和 creator DAG；该样本使用 `--no-vision`，视觉结论只能当作口播描述的二手证据。
 
 ## Lint 规则
 
@@ -108,6 +109,7 @@ run-creator-pipeline
 - 功能 lint：新增功能必须更新 `docs/todos.md` 的状态，长期存在的功能必须更新 `docs/architecture.md`。
 - Artifact lint：新增 `library/<dir>` 必须更新 `.gitignore`、`.gitkeep`、`src/seed/library.py`、`docs/architecture.md` 和本文件。
 - Pipeline lint：新增视频处理能力必须说明它在 pipeline 中的位置，不能只提供单步 demo。
+- Source lint：平台发现失败要保留 provider、错误码和 cookies/owner-id 建议；不要吞掉 352/412 这类风控诊断。
 - Cost lint：新增外部模型/API/provider 调用必须记录或预留成本字段，并接入 cost ledger；批量 pipeline 必须考虑预算门槛。
 - DAG lint：新增关键 artifact 必须考虑是否需要 DAG 节点；如果节点能回到视频/音频证据，必须写入 `media_anchor` 或说明缺少时间点的原因。
 - Verification lint：涉及事实、价格、平台规则、模型价格、库选型等易变信息时，必须查官方或 primary source，并把来源写入调研或 artifact。
@@ -179,6 +181,8 @@ git status -sb
 ```bash
 .venv/bin/seed --help
 .venv/bin/seed run-video-pipeline --help
+.venv/bin/seed fetch-creator-videos --help
+.venv/bin/seed ingest-creator-videos --help
 .venv/bin/seed run-creator-pipeline --help
 .venv/bin/seed build-cost-ledger --help
 .venv/bin/seed build-video-dag --help
@@ -201,3 +205,4 @@ git status -sb
 
 - Creator profile 证据校验目前是 warning report，还没有阻断生成或自动修复。
 - HTML 画布是单文件原型，不是完整前端应用；复杂交互继续先保持单文件，但主布局必须继续依赖成熟布局库。
+- Bilibili UP 空间列表仍可能触发 352/412 风控；`--owner-id` 只能绕过用户名搜索，不能替代 cookies 或登录态。

@@ -96,6 +96,19 @@
   - 保留当前 canvas 视觉，不切到低信息密度图谱库。
   - 已做默认简版、节点媒体默认显示、媒体一键开关、卡片正文手动展开、视口裁剪和右侧详情可收起。
 
+## P6：真实样本验证
+
+- [x] 跑通真实 UP 三条视频样本。
+  - 2026-05-11 用 `影视飓风` 跑通 3 条 Bilibili 视频：下载、ASR 分段、video semantics、timeline、claims、cost ledger、video DAG、creator profile、creator validation、agent assets 和 creator DAG。
+  - 本轮为了控制成本使用 `--no-vision`，因此 creator profile 的视觉语言仍是 transcript-described evidence，不是独立 visual evidence。
+- [x] 增加 Bilibili `owner_id` 入口。
+  - `fetch-creator-videos` 和 `run-creator-pipeline` 支持 `--owner-id`，可在平台用户名搜索被风控时直接用 Bilibili mid 拉取 UP 空间。
+  - 实测 `影视飓风` mid `946974` 可获取列表；`燕三嘤嘤嘤` mid `430426421` 在当前网络下仍遇到 Bilibili 352/412 风控，后续需要 cookies 或手动列表兜底。
+- [x] 修复 source-only 记录阻止后续下载的问题。
+  - `ingest-creator-videos --skip-existing` 只有在已有 source record 同时存在本地 `raw_path` 时才跳过；如果之前只是记录 URL，会继续下载并补齐 source record。
+- [x] 修复长音频 ASR 只按文件大小判断的问题。
+  - DashScope 可能因音频时长拒绝请求；当前 ASR chunking 同时按文件大小和 `ffprobe` duration 判断，默认超过 300 秒会切片。
+
 ## 已完成基础
 
 - [x] GitHub / 本地仓库初始化。
@@ -108,7 +121,7 @@
 - [x] Video DAG graph artifact。
 - [x] 单文件 HTML 无限画布，支持导入 DAG JSON、预览视频/音频/截图，支持简版、按节点展开和基于 `elkjs` 的自动分层布局。
 - [x] 创作者视频列表批量入库：`seed ingest-creator-videos` 支持选择前 N 条、跳过已入库 URL，并复用现有下载适配器。
-- [x] 长视频 ASR 分段：`seed transcribe-media` 默认在音频超过 provider 上传限制时自动切片、逐片转写、合并 transcript，并记录 `asr_chunks` 元数据。
+- [x] 长视频 ASR 分段：`seed transcribe-media` 默认在音频超过 provider 上传限制或默认时长阈值时自动切片、逐片转写、合并 transcript，并记录 `asr_chunks` 元数据。
 - [x] Timeline artifact：`seed build-timeline` 生成 `library/timelines/*.timeline.json`，包含 transcript chunk、关键帧、内容结构、广告候选和不确定性。
 - [x] 下载可靠性记录：source record 会保存 `download_provider`、`fallback_used` 和 `download_notes`；下载失败时提示平台 cookies 配置。
 - [x] DAG 自动发现：`seed build-video-dag --title "..."` 会自动找齐本地 raw、audio、transcript、frames、visual notes、semantics 和 timeline。
@@ -127,6 +140,7 @@
 - [x] 单条视频 pipeline：`seed run-video-pipeline` 串起现有分析步骤并写入 `library/runs/*.video-pipeline.yaml`。
 - [x] 创作者 pipeline 第一版：`seed run-creator-pipeline` 可以获取视频列表、批量入库并逐条运行视频 pipeline。
 - [x] Creator DAG 第一版：`seed build-creator-dag` 生成 UP/作者级 DAG JSON 和静态 HTML。
+- [x] 真实创作者样本：`影视飓风` 已生成 3 条 video semantics、creator profile、validation、agent asset draft 和 creator DAG。
 - [x] 书籍/笔记入口：`seed import-book-note`、`seed analyze-book-note`、`seed aggregate-topic` 支持非视频来源的基础语义产物。
 - [x] Canvas 布局离线化：`tools/vendor/elk.bundled.js` 固定 `elkjs`，导出 HTML 不再依赖 CDN。
 - [x] 视频分析 lenses：`skills/video-semantics-analyzer/references/video-analysis-lenses.md` 收敛 Fabric、BiliNote、tldw、短视频结构等参考框架。

@@ -27,8 +27,8 @@ def ingest_creator_videos(
         raise ValueError("start_index must be greater than or equal to 1")
 
     video_list = load_creator_video_list(list_path)
-    existing_urls = {
-        _normalize_url(str(record.url))
+    existing_by_url = {
+        _normalize_url(str(record.url)): record
         for record in load_source_records(library_root)
         if record.platform == video_list.platform and record.url is not None
     }
@@ -37,7 +37,12 @@ def ingest_creator_videos(
 
     for video in selected:
         normalized_url = _normalize_url(video.url)
-        if skip_existing and normalized_url in existing_urls:
+        existing_record = existing_by_url.get(normalized_url)
+        if skip_existing and existing_record and _should_skip_existing(
+            existing_record,
+            download=download,
+            library_root=library_root,
+        ):
             result.skipped += 1
             result.items.append(
                 CreatorVideoIngestItem(url=video.url, title=video.title, status="skipped")
@@ -71,7 +76,7 @@ def ingest_creator_videos(
                 download_notes=download_result.notes if download_result else [],
             )
             source_record_path = save_source_record(library_root, record)
-            existing_urls.add(normalized_url)
+            existing_by_url[normalized_url] = record
             result.recorded += 1
             if download_result and download_result.raw_path:
                 result.downloaded += 1
@@ -116,3 +121,12 @@ def _select_videos(
 
 def _normalize_url(url: str) -> str:
     return url.rstrip("/")
+
+
+def _should_skip_existing(record: SourceRecord, *, download: bool, library_root: Path) -> bool:
+    if not download:
+        return True
+    if record.raw_path is None:
+        return False
+    raw_path = record.raw_path if record.raw_path.is_absolute() else library_root / record.raw_path
+    return raw_path.exists()

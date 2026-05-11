@@ -70,11 +70,11 @@ seed run-creator-pipeline --platform <platform> <owner>
 ## 模块边界
 
 - `sources/`：平台采集适配器。只关心 URL、授权、下载、metadata，不做内容理解；下载结果需要记录 provider、fallback 和 cookies 相关诊断。
-- `sources/creator_videos.py`：按平台和创作者名称发现视频列表。Bilibili 优先复用 `yt-dlp` 的 UP 空间 extractor，并保留 WBI API fallback；小红书先输出搜索候选，后续再替换成稳定登录态 provider。
-- `creator_ingest.py`：读取 `*.creator-videos.yaml`，按起始位置和数量选择视频，跳过已入库 URL，并复用现有下载适配器与 source record 写入。
+- `sources/creator_videos.py`：按平台和创作者名称发现视频列表。Bilibili 支持 `--owner-id` 直接传 mid；未传时先做用户名搜索，再复用 `yt-dlp` 的 UP 空间 extractor，并保留 WBI API fallback。小红书先输出搜索候选，后续再替换成稳定登录态 provider。
+- `creator_ingest.py`：读取 `*.creator-videos.yaml`，按起始位置和数量选择视频，跳过已完整入库 URL，并复用现有下载适配器与 source record 写入。已有 source record 但没有本地 `raw_path` 时，不视为下载完成，会继续补齐原始素材。
 - `pipeline.py`：负责把现有单步命令背后的业务函数串成单条视频 pipeline，写入 run manifest，并支持断点续跑。
 - `creator_pipeline.py`：负责创作者级批量任务、失败继续、成本预算门槛和 creator DAG 入口；`--max-estimated-cost` 到达后停止后续视频，并在 manifest 写入 `budget_exceeded`。
-- `asr/` 和 `media.py`：音频抽取、超限音频分片和线上 ASR provider。只产出 transcript；长音频 transcript 会在 frontmatter 记录 `asr_chunks`。
+- `asr/` 和 `media.py`：音频抽取、超限音频分片和线上 ASR provider。只产出 transcript；长音频会同时按文件大小和 `ffprobe` 时长判断是否切片，默认超过 300 秒会分段，transcript 会在 frontmatter 记录 `asr_chunks`。
 - `vision/`：抽帧、Qwen-VL 调用和 visual notes。只描述画面证据，不负责最终方法论；Qwen-VL provider 需要返回 token usage，供成本模块记录。
 - `costs.py`：统一写入单条视频成本报告和 pipeline cost ledger。默认记录 Qwen-VL token 用量、单价来源、估算金额，并为 ASR、Codex、搜索/核验保留成本项；实际价格可通过环境变量覆盖。
 - `skill_refs.py`：读取共享 video analysis lenses。prompt 构建器只引用这个入口，避免各模块复制 lens 文本。
@@ -138,3 +138,9 @@ prompt 构建时会自动注入：
 - `library/checks/*.agent-assets.review.json`：Agent 资产 review manifest，记录每个 skill/check 的 `draft/reviewed/installed/deprecated` 状态。
 - `library/reflections/*.reflection.jsonl`：Agent 使用方法论后的复盘记录，用于后续修订 creator profile、skills 和 checks。
 - `library/reflections/*.revision-suggestions.md`：基于 reflection log 的修订建议草稿，不自动覆盖原资产。
+
+## 当前真实样本
+
+2026-05-11 已用 `影视飓风` 跑通 3 条 Bilibili 视频样本，生成单条视频 DAG、成本账本、creator profile、creator validation、agent asset draft 和 creator DAG。该样本使用 `--no-vision` 控制成本，所以创作者级视觉结论只能视为 transcript-described evidence；后续要补强视觉语言时，应对同一批视频重跑 Qwen-VL visual notes。
+
+同日验证了 Bilibili `owner_id` 入口：`影视飓风` mid `946974` 可用；`燕三嘤嘤嘤` mid `430426421` 在当前网络下仍触发 Bilibili 352/412 风控。平台发现失败时应优先尝试 cookies 或手动 `*.creator-videos.yaml`，不要把失败归因到 ASR、DAG 或聚合层。

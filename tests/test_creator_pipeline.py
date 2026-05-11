@@ -28,7 +28,10 @@ def test_run_creator_pipeline_records_video_runs(tmp_path, monkeypatch):
         ],
     )
 
+    fetch_calls = []
+
     def fake_fetch_creator_video_list(**kwargs):
+        fetch_calls.append(kwargs)
         return video_list
 
     def fake_ingest_creator_videos(*args, **kwargs):
@@ -74,12 +77,15 @@ def test_run_creator_pipeline_records_video_runs(tmp_path, monkeypatch):
             owner_name="demo",
             platform=Platform.bilibili,
             library_root=tmp_path / "library",
+            owner_id="123",
             authorized=True,
             vision=False,
         )
     )
 
     assert manifest_path.exists()
+    assert video_list.owner_query == "demo"
+    assert fetch_calls[0]["owner_id"] == "123"
     assert manifest["video_runs"][0]["status"] == "completed"
     assert manifest["video_runs"][0]["html_path"].endswith("demo.video-dag.html")
     assert manifest["cost_ledger_path"].endswith("demo-creator.ledger.json")

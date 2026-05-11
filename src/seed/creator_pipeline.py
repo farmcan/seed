@@ -26,6 +26,7 @@ class CreatorPipelineOptions:
     owner_name: str
     platform: Platform
     library_root: Path = Path("library")
+    owner_id: str | None = None
     limit: int = 5
     start_index: int = 1
     authorized: bool = False
@@ -52,6 +53,7 @@ def run_creator_pipeline(options: CreatorPipelineOptions) -> tuple[dict[str, Any
         platform=options.platform,
         owner_name=options.owner_name,
         limit=options.limit,
+        owner_id=options.owner_id,
         cookies_from_browser=options.cookies_from_browser,
     )
     list_path = save_creator_video_list(options.library_root, video_list)

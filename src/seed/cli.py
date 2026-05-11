@@ -192,6 +192,10 @@ def fetch_creator_videos(
     owner_name: Annotated[str, typer.Argument(help="Creator, UP, or author name to search.")],
     platform: Annotated[Platform, typer.Option("--platform")],
     limit: Annotated[int, typer.Option("--limit", min=1, max=50)] = 20,
+    owner_id: Annotated[
+        str | None,
+        typer.Option("--owner-id", help="Known platform owner id, e.g. Bilibili mid."),
+    ] = None,
     cookies_from_browser: Annotated[
         str | None,
         typer.Option(
@@ -205,6 +209,7 @@ def fetch_creator_videos(
         platform=platform,
         owner_name=owner_name,
         limit=limit,
+        owner_id=owner_id,
         cookies_from_browser=cookies_from_browser,
     )
     path = save_creator_video_list(root, video_list)
@@ -279,6 +284,10 @@ def run_creator_pipeline_cmd(
     owner_name: Annotated[str, typer.Argument(help="Creator, UP, or author name to search.")],
     platform: Annotated[Platform, typer.Option("--platform")],
     limit: Annotated[int, typer.Option("--limit", min=1, max=50)] = 5,
+    owner_id: Annotated[
+        str | None,
+        typer.Option("--owner-id", help="Known platform owner id, e.g. Bilibili mid."),
+    ] = None,
     start_index: Annotated[int, typer.Option("--start-index", min=1)] = 1,
     authorized: Annotated[bool, typer.Option("--authorized")] = False,
     download: Annotated[bool, typer.Option("--download/--no-download")] = True,
@@ -301,6 +310,7 @@ def run_creator_pipeline_cmd(
             owner_name=owner_name,
             platform=platform,
             library_root=root,
+            owner_id=owner_id,
             limit=limit,
             start_index=start_index,
             authorized=authorized,

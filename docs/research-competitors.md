@@ -50,7 +50,7 @@
 1. 单条视频总结已经是红海。差异化要放在“长期知识资产”和“Agent 可执行方法论”。
 2. 下载适配器是易碎层。它应该是插件，不应该污染核心数据模型。
 3. 小红书生态的非官方工具多，但稳定性和合规风险高。MVP 应先支持手动导入、URL 记录、截图/文案复制，再做下载适配器。
-4. Bilibili 可先用 yt-dlp 跑通，但要支持 cookies、字幕、弹幕、分 P、合集和 UP 空间批处理。
+4. Bilibili 可先用 yt-dlp 跑通，但要支持 owner mid、cookies、字幕、弹幕、分 P、合集和 UP 空间批处理。实测 `--owner-id` 能绕过用户名搜索失败，但不能绕过所有 UP 空间 352/412 风控。
 5. 真正有价值的总结不是“这条视频说了什么”，而是“这个创作者反复依赖什么判断模型、内容结构、表达套路、决策规则和禁忌”。
 6. 视频分析画布是共性问题，短期最稳是继续保留单文件 HTML：简版/展开、媒体预览和 DAG JSON 仍在本地完成，但布局不要手写，应使用 `elkjs` layered layout，并 vendor 固定版本以保证静态 HTML 离线可打开。中期如果交互复杂度继续上升，应迁移到 React Flow + ELK；如果更像白板和自由资料编排，再考虑 tldraw。
 7. Qwen-VL 计费需要作为 artifact，而不是只在日志里打印。按单条视频记录 token usage、单价、pricing source、估算金额，并允许环境变量覆盖单价，避免价格变化导致历史结果不可解释。
@@ -63,6 +63,7 @@
 14. Orchestration 暂不引入 Prefect/Dagster/Temporal。Prefect 最接近 Seed 的 Python step runner，但当前痛点不是缺框架，而是 cost ledger、budget gate、resume semantics 和 evidence validation 还没做完整。
 15. 阿里云百炼价格在 2026-04-01 官方页显示不同部署区价格差异明显：International 下 `qwen-vl-max` 为 $0.8/$3.2 per 1M input/output tokens，Global 下 `qwen-vl-max` 为 $0.23/$0.574 per 1M input/output tokens。Seed 成本 artifact 必须记录 deployment/region 或 pricing source snapshot，不能只记 model 名。
 16. DAG 卡顿时不能牺牲视觉表达直接降级成低信息密度图谱。后续仍应保留卡片式画布视觉，通过默认简版、视口裁剪、按需媒体加载和更成熟的 canvas SDK 解决性能。
+17. 真实 UP 样本比单条 demo 更容易暴露架构问题。本轮 `影视飓风` 三条样本暴露了两个必须保留的工程规则：source-only 记录不能阻止后续下载；线上 ASR 不能只按文件大小判断是否分段，还要按音频时长分段。
 
 ## Sources
 
