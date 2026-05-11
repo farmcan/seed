@@ -107,6 +107,7 @@ run-creator-pipeline
 - Vendor lint：新增 vendored 前端库必须固定版本，并提交对应 LICENSE 或来源说明。
 - Privacy lint：不要提交 `library/` 的私有内容，除 `.gitkeep` 外都应被 ignore。
 - Review lint：从 LLM 生成的 creator skill/check 默认是 draft，不能自动视为可安装或可信资产。
+- Test lint：测试优先覆盖 pipeline、DAG/export、artifact schema、docs/skill lint 等主链路；避免为简单 path helper、薄 wrapper、常量映射和第三方库直通逻辑堆大量低价值单元测试。
 
 ## 文档规则
 
@@ -160,6 +161,8 @@ library/reflections/  Agent 使用方法论后的复盘记录
 .venv/bin/pytest
 git status -sb
 ```
+
+当前测试集刻意保持偏 smoke/integration，不追求每个 helper 都有单测。新增测试时优先问：它能防止主 pipeline、artifact、DAG 或文档约束退化吗？
 
 常用 CLI 检查：
 
