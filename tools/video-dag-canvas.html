@@ -26,7 +26,7 @@
       --violet-soft: #ede9fe;
       --rose: #be123c;
       --rose-soft: #ffe4e6;
-      --shadow: 0 12px 30px rgb(15 23 42 / 10%);
+      --shadow: 0 1px 2px rgb(15 23 42 / 12%);
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
 
@@ -52,10 +52,14 @@
 
     .app {
       display: grid;
-      grid-template-columns: 1fr 340px;
+      grid-template-columns: 1fr;
       grid-template-rows: 56px 1fr;
       height: 100vh;
       min-width: 960px;
+    }
+
+    .app.inspector-open {
+      grid-template-columns: 1fr 340px;
     }
 
     .toolbar {
@@ -307,37 +311,16 @@
       pointer-events: auto;
     }
 
-    .node-card-preview video,
-    .node-card-preview img {
-      display: block;
-      width: 100%;
-      height: 116px;
-      object-fit: cover;
+    .node-card-placeholder {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 38px;
+      padding: 9px 10px;
+      color: #f8fafc;
+      font-size: 12px;
+      line-height: 1.25;
       background: #0f172a;
-    }
-
-    .node-card-preview audio {
-      display: block;
-      width: 100%;
-      height: 42px;
-      background: #f8fafc;
-    }
-
-    .node-card-preview.audio {
-      background: #f8fafc;
-    }
-
-    .node-card-gallery {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 4px;
-      padding: 4px;
-      background: #0f172a;
-    }
-
-    .node-card-gallery img {
-      height: 70px;
-      border-radius: 4px;
     }
 
     .node-metrics {
@@ -369,9 +352,13 @@
     .inspector {
       border-left: 1px solid var(--line);
       background: var(--panel);
-      display: flex;
+      display: none;
       flex-direction: column;
       min-width: 0;
+    }
+
+    .app.inspector-open .inspector {
+      display: flex;
     }
 
     .inspector-header {
@@ -589,6 +576,7 @@
       <div class="toolbar-spacer"></div>
       <div class="tool-group" aria-label="View modes">
         <button class="text-button" id="focusSemantics" title="聚焦语义层">◎ <span>语义</span></button>
+        <button class="text-button" id="toggleInspector" title="显示或隐藏右侧详情">☰ <span>详情</span></button>
         <button class="text-button" id="resetGraph" title="重置样例">↺ <span>重置</span></button>
       </div>
     </header>
@@ -770,9 +758,13 @@
       compactMode: defaultCompactMode,
       panning: null,
       draggingNode: null,
-      minimapFrame: 0
+      minimapFrame: 0,
+      transformFrame: 0,
+      edgeFrame: 0,
+      inspectorOpen: false
     };
 
+    const appEl = document.querySelector(".app");
     const canvas = document.getElementById("canvas");
     const world = document.getElementById("world");
     const nodesEl = document.getElementById("nodes");
@@ -791,6 +783,7 @@
     const graphSearch = document.getElementById("graphSearch");
     const compactGraph = document.getElementById("compactGraph");
     const expandGraph = document.getElementById("expandGraph");
+    const toggleInspector = document.getElementById("toggleInspector");
     const preview = document.getElementById("preview");
 
     function selectedNode() {
@@ -870,6 +863,35 @@
       zoomReadout.textContent = `${Math.round(state.zoom * 100)}%`;
     }
 
+    function scheduleTransform() {
+      if (state.transformFrame) return;
+      state.transformFrame = requestAnimationFrame(() => {
+        state.transformFrame = 0;
+        setTransform();
+      });
+    }
+
+    function scheduleEdgeRender() {
+      if (state.edgeFrame) return;
+      state.edgeFrame = requestAnimationFrame(() => {
+        state.edgeFrame = 0;
+        renderEdges();
+      });
+    }
+
+    function setInspectorOpen(open) {
+      state.inspectorOpen = open;
+      appEl.classList.toggle("inspector-open", open);
+      toggleInspector.classList.toggle("active", open);
+      if (open) {
+        renderInspector();
+      } else {
+        preview.innerHTML = "";
+        preview.className = "preview";
+        requestAnimationFrame(() => fitView());
+      }
+    }
+
     function render() {
       renderNodes();
       renderEdges();
@@ -885,8 +907,15 @@
       }
       state.graph = graph;
       resetExpansionState();
-      state.selectedId = graph.nodes[0]?.id || null;
+      state.selectedId = defaultSelectedNodeId(graph);
       layoutGraph();
+    }
+
+    function defaultSelectedNodeId(graph) {
+      return graph.nodes.find((node) => node.id === "semantics")?.id
+        || graph.nodes.find((node) => node.type === "semantics")?.id
+        || graph.nodes[0]?.id
+        || null;
     }
 
     async function loadGraphFromUrl() {
@@ -1006,17 +1035,17 @@
       const previewData = previewDataForNode(node);
       if (!previewData) return "";
       if (previewData.type === "video") {
-        return `<div class="node-card-preview interactive"><video muted controls preload="none" src="${escapeAttr(resolveAssetUrl(previewData.src))}"></video></div>`;
+        return `<div class="node-card-preview"><div class="node-card-placeholder">Video preview opens in details</div></div>`;
       }
       if (previewData.type === "audio") {
-        return `<div class="node-card-preview interactive audio"><audio controls preload="none" src="${escapeAttr(resolveAssetUrl(previewData.src))}"></audio></div>`;
+        return `<div class="node-card-preview"><div class="node-card-placeholder">Audio preview opens in details</div></div>`;
       }
       if (previewData.type === "image") {
-        return `<div class="node-card-preview"><img loading="lazy" decoding="async" src="${escapeAttr(resolveAssetUrl(previewData.src))}" alt=""></div>`;
+        return `<div class="node-card-preview"><div class="node-card-placeholder">Image preview opens in details</div></div>`;
       }
       if (previewData.type === "gallery") {
-        const items = (previewData.items || []).slice(0, 4);
-        return `<div class="node-card-preview"><div class="node-card-gallery">${items.map((item) => `<img loading="lazy" decoding="async" src="${escapeAttr(resolveAssetUrl(item))}" alt="">`).join("")}</div></div>`;
+        const count = (previewData.items || []).length;
+        return `<div class="node-card-preview"><div class="node-card-placeholder">${count} keyframes open in details</div></div>`;
       }
       return "";
     }
@@ -1031,6 +1060,7 @@
     }
 
     function renderInspector() {
+      if (!state.inspectorOpen) return;
       const node = selectedNode();
       if (!node) return;
       inspectorType.textContent = node.type;
@@ -1049,9 +1079,9 @@
       if (!previewData && !node.path) return;
 
       if (previewData?.type === "video") {
-        preview.innerHTML = `<video controls src="${escapeAttr(resolveAssetUrl(previewData.src))}"></video>`;
+        preview.innerHTML = `<video controls preload="none" src="${escapeAttr(resolveAssetUrl(previewData.src))}"></video>`;
       } else if (previewData?.type === "audio") {
-        preview.innerHTML = `<audio controls src="${escapeAttr(resolveAssetUrl(previewData.src))}"></audio>`;
+        preview.innerHTML = `<audio controls preload="none" src="${escapeAttr(resolveAssetUrl(previewData.src))}"></audio>`;
       } else if (previewData?.type === "image") {
         preview.innerHTML = `<img loading="lazy" decoding="async" src="${escapeAttr(resolveAssetUrl(previewData.src))}" alt="">`;
       } else if (previewData?.type === "gallery") {
@@ -1145,7 +1175,7 @@
       event.currentTarget.setPointerCapture(event.pointerId);
       event.currentTarget.classList.add("dragging");
       updateSelectedNode(id);
-      renderEdges();
+      scheduleEdgeRender();
       renderInspector();
       event.stopPropagation();
     }
@@ -1172,14 +1202,14 @@
         node.x = state.draggingNode.nodeX + (event.clientX - state.draggingNode.startX) / state.zoom;
         node.y = state.draggingNode.nodeY + (event.clientY - state.draggingNode.startY) / state.zoom;
         updateNodeElementPosition(node.id);
-        renderEdges();
+        scheduleEdgeRender();
         scheduleMinimapRender();
         return;
       }
       if (state.panning) {
         state.panX = state.panning.panX + event.clientX - state.panning.startX;
         state.panY = state.panning.panY + event.clientY - state.panning.startY;
-        setTransform();
+        scheduleTransform();
       }
     });
 
@@ -1213,7 +1243,7 @@
       state.zoom = nextZoom;
       state.panX = event.clientX - rect.left - before.x * nextZoom;
       state.panY = event.clientY - rect.top - before.y * nextZoom;
-      setTransform();
+      scheduleTransform();
     }, { passive: false });
 
     function screenToWorld(x, y) {
@@ -1504,6 +1534,7 @@
     document.getElementById("importGraph").addEventListener("click", importGraph);
     document.getElementById("exportGraph").addEventListener("click", exportGraph);
     document.getElementById("focusSemantics").addEventListener("click", () => fitView("semantics"));
+    toggleInspector.addEventListener("click", () => setInspectorOpen(!state.inspectorOpen));
     document.getElementById("resetGraph").addEventListener("click", resetGraph);
     graphSearch.addEventListener("input", () => {
       state.filter = graphSearch.value;
