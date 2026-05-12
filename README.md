@@ -34,23 +34,16 @@ library/              本地私有知识库，默认不提交内容
 
 ## 快速开始
 
+推荐优先使用两个主入口：`run-video-pipeline` 处理单条视频，`run-creator-pipeline` 处理一个 UP/作者的批量样本。其他命令主要用于调试、补跑或查看中间 artifact。
+
 ```bash
 cd seed
 python -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
 seed init-library
-seed ingest-url "https://www.bilibili.com/video/..." --platform bilibili --owner "some-up" --authorized --no-download
-seed ingest-url "https://www.bilibili.com/video/..." --platform bilibili --authorized --download --max-height 360 --max-filesize-mb 100
-seed ingest-url "https://www.xiaohongshu.com/explore/..." --platform xiaohongshu --authorized --download --cookies-from-browser chrome
-seed transcribe-media library/raw/example.mp4 --title "example" --provider dashscope
-seed extract-frames library/raw/example.mp4 --every-seconds 5 --max-frames 12
-seed analyze-frames library/frames/example --title "example" --model qwen-vl-max
-seed summarize-transcript library/transcripts/example.transcript.md --title "example" --platform bilibili
-seed summarize-transcript library/transcripts/example.transcript.md --title "example" --platform bilibili --visual-notes library/notes/example.visual.md
-seed analyze-video-semantics library/transcripts/example.transcript.md --title "example" --owner "some-up" --platform bilibili --visual-notes library/notes/example.visual.md
-seed build-video-dag --title "example" --owner "some-up" --platform bilibili --source-path library/raw/example.mp4 --transcript library/transcripts/example.transcript.md --frames library/frames/example --visual-notes library/notes/example.visual.md --semantics library/semantics/example.video-semantics.md
-seed aggregate-owner --owner "some-up" --platform bilibili
+seed run-video-pipeline "https://www.bilibili.com/video/..." --platform bilibili --owner "some-up" --authorized
+seed run-creator-pipeline "some-up" --platform bilibili --owner-id "<bilibili-mid>" --limit 3 --authorized
 seed distill-note library/transcripts/example.md --owner "some-up" --topic "增长方法论"
 ```
 
@@ -60,7 +53,7 @@ ASR 默认使用 DashScope/Qwen，模型为 `qwen3-asr-flash`，需要先配置 
 
 视频语义阶段通过 `analyze-video-semantics` 融合口播语言和视觉语言，读取 transcript、visual notes 和 `skills/video-semantics-analyzer/SKILL.md`，输出 Markdown 到 `library/semantics/`。这个文件是后续按 UP 主聚合、抽取爆款结构、沉淀 Agent skills 和 pre-check 的稳定中间层。
 
-UP 主聚合阶段通过 `aggregate-owner` 读取同一 owner 的多个 `library/semantics/*.video-semantics.md`，结合 `skills/creator-profile-aggregator/SKILL.md`，输出创作者画像和可复用方法论到 `library/distilled/`。
+UP 主聚合阶段默认由 `run-creator-pipeline` 串起：获取视频列表、入库、逐条运行视频 pipeline、汇总 creator cost ledger、聚合 creator profile、生成 agent assets，并导出 creator DAG HTML。`aggregate-owner`、`generate-agent-assets` 和 `build-creator-dag` 仍可单独用于补跑或调试。默认至少需要 3 条同 owner 的 video semantics 才会聚合 creator profile；少量样本可用 `--min-profile-videos` 明确降级。
 
 本地可视化原型在 `tools/video-dag-canvas.html`，可直接用浏览器打开。它提供无限画布、DAG 节点拖拽、缩放、平移、节点编辑和 JSON 导出，用于展示视频分析链路中的 source、video/audio media、frames、visual notes、timeline、semantics 子节点、creator signals、creator profile 和 agent assets。选择视频、音频或截图节点时，右侧 inspector 会直接预览本地素材。
 `build-video-dag` 会生成 `library/graphs/*.video-dag.json`，可在画布中用“导入”按钮直接加载；支持的浏览器环境也可以用 `tools/video-dag-canvas.html?graph=../library/graphs/example.video-dag.json` 自动加载。
@@ -68,7 +61,7 @@ UP 主聚合阶段通过 `aggregate-owner` 读取同一 owner 的多个 `library
 ## 未来路线
 
 - 平台适配器：Bilibili、小红书、YouTube、手动导入。
-- 转写：Whisper、本地 ASR 或第三方字幕。
-- 总结：按 UP/作者、主题、场景、策略进行多层蒸馏。
-- Skill 化：输出 Agent 可直接加载的 `SKILL.md`、检查清单和提示模板。
+- 成本计量：继续补齐 ASR、Codex、搜索和核验的真实 usage。
+- 证据质量：增加 scene-change、字幕和 OCR 驱动的自适应抽帧。
+- 核验：接入真实搜索 provider、来源质量策略和人工复核状态。
 - 反思闭环：记录 Agent 使用某个方法论后的效果，反向修订 skill。

@@ -303,6 +303,24 @@ def run_creator_pipeline_cmd(
         typer.Option("--max-estimated-cost", help="Stop before the next video once this budget is reached."),
     ] = None,
     cost_currency: Annotated[str, typer.Option("--cost-currency")] = "USD",
+    aggregate_profile: Annotated[
+        bool,
+        typer.Option("--aggregate-profile/--no-aggregate-profile"),
+    ] = True,
+    min_profile_videos: Annotated[int, typer.Option("--min-profile-videos", min=1)] = 3,
+    generate_assets: Annotated[
+        bool,
+        typer.Option("--generate-assets/--no-generate-assets"),
+    ] = True,
+    build_creator_dag: Annotated[
+        bool,
+        typer.Option("--build-creator-dag/--no-build-creator-dag"),
+    ] = True,
+    export_creator_dag_html: Annotated[
+        bool,
+        typer.Option("--export-creator-dag-html/--no-export-creator-dag-html"),
+    ] = True,
+    codex_model: Annotated[str | None, typer.Option("--codex-model")] = None,
     root: Annotated[Path, typer.Option("--root")] = Path("library"),
 ) -> None:
     manifest, manifest_path = run_creator_pipeline(
@@ -324,10 +342,23 @@ def run_creator_pipeline_cmd(
             force=force,
             max_estimated_cost=max_estimated_cost,
             cost_currency=cost_currency,
+            aggregate_profile=aggregate_profile,
+            min_profile_videos=min_profile_videos,
+            generate_assets=generate_assets,
+            build_creator_dag=build_creator_dag,
+            export_creator_dag_html=export_creator_dag_html,
+            codex_model=codex_model,
         )
     )
     console.print(f"created creator pipeline manifest at {manifest_path}")
     console.print(f"video runs: {len(manifest['video_runs'])}")
+    for step in manifest.get("creator_steps", []):
+        console.print(f"{step['name']}: {step['status']}")
+        if step.get("reason"):
+            console.print(f"  reason: {step['reason']}")
+        for key in ("profile_path", "validation_path", "review_path", "graph_path", "html_path"):
+            if step.get(key):
+                console.print(f"  {key}: {step[key]}")
     if manifest.get("cost_ledger_path"):
         console.print(f"created creator cost ledger at {manifest['cost_ledger_path']}")
 

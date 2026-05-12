@@ -69,6 +69,7 @@ run-creator-pipeline
 
 - `cli.py` 只做参数接线、轻量校验和用户输出。
 - 新增主要功能必须能归入 `run-video-pipeline`、`run-creator-pipeline` 或明确的 artifact 消费链路；不要新增只能手动调用、无法被 pipeline 编排的孤立命令。
+- `run-creator-pipeline` 是创作者级默认入口，必须把 video pipeline、creator cost ledger、creator profile、agent assets 和 creator DAG 串到同一个 manifest；后处理状态写入 `creator_steps`。
 - 新增主要功能必须写稳定 artifact 到 `library/`，不要只打印到 stdout。
 - 新增 artifact 必须说明谁生产、谁消费、是否进入 DAG、是否需要计费；这些信息要同步更新 `docs/architecture.md` 和 `docs/todos.md`。
 - pipeline step 必须幂等：目标产物已存在时要能跳过或覆盖明确可控，失败后要能从中间步骤续跑。

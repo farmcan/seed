@@ -155,3 +155,126 @@ def test_run_creator_pipeline_stops_when_budget_is_reached(tmp_path, monkeypatch
     assert calls == ["One"]
     assert [run["status"] for run in manifest["video_runs"]] == ["completed", "skipped"]
     assert manifest["video_runs"][1]["reason"] == "budget_exceeded"
+
+
+def test_run_creator_pipeline_builds_creator_outputs(tmp_path, monkeypatch):
+    videos = [
+        CreatorVideo(platform=Platform.bilibili, owner="demo", title=f"Video {index}", url=f"https://bili/{index}")
+        for index in range(1, 4)
+    ]
+    video_list = CreatorVideoList(
+        platform=Platform.bilibili,
+        owner_query="demo",
+        owner="demo",
+        provider="test",
+        videos=videos,
+    )
+
+    def fake_fetch_creator_video_list(**kwargs):
+        return video_list
+
+    def fake_ingest_creator_videos(*args, **kwargs):
+        raw_dir = tmp_path / "library" / "raw"
+        raw_dir.mkdir(parents=True, exist_ok=True)
+        items = []
+        for index in range(1, 4):
+            raw_path = raw_dir / f"video-{index}.mp4"
+            raw_path.write_bytes(b"video")
+            items.append(
+                CreatorVideoIngestItem(
+                    url=f"https://bili/{index}",
+                    title=f"Video {index}",
+                    status="downloaded",
+                    raw_path=raw_path,
+                )
+            )
+        return CreatorVideoIngestResult(selected=3, downloaded=3, recorded=3, items=items)
+
+    def fake_run_video_pipeline(options):
+        library = tmp_path / "library"
+        semantics_path = library / "semantics" / f"{options.title}.video-semantics.md"
+        manifest_path = library / "runs" / f"{options.title}.video-pipeline.yaml"
+        html_path = library / "graphs" / f"{options.title}.video-dag.html"
+        cost_path = library / "costs" / f"{options.title}.ledger.json"
+        semantics_path.parent.mkdir(parents=True, exist_ok=True)
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        html_path.parent.mkdir(parents=True, exist_ok=True)
+        cost_path.parent.mkdir(parents=True, exist_ok=True)
+        semantics_path.write_text(
+            f"""## Metadata
+
+- Title: {options.title}
+- Platform: bilibili
+- Owner: demo
+
+## Semantic Summary
+
+{options.title} summary.
+""",
+            encoding="utf-8",
+        )
+        manifest_path.write_text("steps: []", encoding="utf-8")
+        html_path.write_text("<html></html>", encoding="utf-8")
+        cost_path.write_text(
+            '{"kind":"cost_ledger","items":[{"kind":"qwen_vl","estimated_cost":{"amount":0.1,"currency":"USD"}}],"totals":{"USD":0.1}}',
+            encoding="utf-8",
+        )
+        return type("Context", (), {"html_path": html_path, "cost_ledger_path": cost_path})(), manifest_path
+
+    def fake_run_creator_profile_aggregation(**kwargs):
+        output_path = kwargs["output_path"]
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(
+            """## Metadata
+
+- Owner: demo
+- Platform: bilibili
+- Videos analyzed: 3
+- Confidence: test
+
+## Creator Summary
+
+Demo creator profile.
+
+## Agent Skills
+
+- Skill name: demo-skill
+- Trigger: demo trigger
+- Procedure: demo procedure
+- Inputs: demo inputs
+- Outputs: demo outputs
+
+## Pre-Checks
+
+- Demo pre-check.
+
+## Post-Task Reflection
+
+- Demo reflection.
+""",
+            encoding="utf-8",
+        )
+        return output_path
+
+    monkeypatch.setattr("seed.creator_pipeline.fetch_creator_video_list", fake_fetch_creator_video_list)
+    monkeypatch.setattr("seed.creator_pipeline.ingest_creator_videos", fake_ingest_creator_videos)
+    monkeypatch.setattr("seed.creator_pipeline.run_video_pipeline", fake_run_video_pipeline)
+    monkeypatch.setattr(
+        "seed.creator_pipeline.run_creator_profile_aggregation",
+        fake_run_creator_profile_aggregation,
+    )
+
+    manifest, _ = run_creator_pipeline(
+        CreatorPipelineOptions(
+            owner_name="demo",
+            platform=Platform.bilibili,
+            library_root=tmp_path / "library",
+            authorized=True,
+            vision=False,
+        )
+    )
+
+    assert [step["status"] for step in manifest["creator_steps"]] == ["completed", "completed", "completed"]
+    assert (tmp_path / "library" / "distilled" / "demo.creator-profile.md").exists()
+    assert (tmp_path / "library" / "checks" / "demo.agent-assets.review.json").exists()
+    assert (tmp_path / "library" / "graphs" / "demo.creator-dag.html").exists()

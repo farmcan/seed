@@ -39,7 +39,7 @@
 
 - [x] 增加 `seed run-creator-pipeline` 第一版。
   - 输入平台 + UP/作者名称，自动获取视频列表、批量入库、批量跑视频 pipeline。
-  - 已支持 limit、start-index、失败继续、跳过已完成和成本预算上限。
+  - 已支持 limit、start-index、失败继续、跳过已完成、成本预算上限、creator profile 聚合、agent assets 生成和 creator DAG HTML 导出。
 - [x] 为 `seed run-creator-pipeline` 增加成本预算上限。
   - 建议先做本地 budget gate：开始处理下一条视频前读取已有 cost ledger，超过预算则停止并写入 run manifest。
 - [x] 增加 `seed build-creator-dag`。
@@ -141,7 +141,7 @@
 - [x] Creator profile 最小样本约束：`seed aggregate-owner` 默认要求同一 owner 至少 3 条 video semantics；少量样本必须显式 `--min-videos` 降级。
 - [x] Reflection 修订建议：`seed suggest-revisions` 基于 reflection log 生成 revision suggestions 草稿，不自动覆盖原资产。
 - [x] 单条视频 pipeline：`seed run-video-pipeline` 串起现有分析步骤并写入 `library/runs/*.video-pipeline.yaml`。
-- [x] 创作者 pipeline 第一版：`seed run-creator-pipeline` 可以获取视频列表、批量入库并逐条运行视频 pipeline。
+- [x] 创作者 pipeline 收敛：`seed run-creator-pipeline` 可以获取视频列表、批量入库、逐条运行视频 pipeline，并自动串起 creator profile、agent assets 和 creator DAG。
 - [x] Creator DAG 第一版：`seed build-creator-dag` 生成 UP/作者级 DAG JSON 和静态 HTML，并可从每条视频展开本地视频、音频、截图和单条 video DAG。
 - [x] 真实创作者样本：`影视飓风` 已生成 3 条 video semantics、creator profile、validation、agent asset draft 和 creator DAG。
 - [x] 书籍/笔记入口：`seed import-book-note`、`seed analyze-book-note`、`seed aggregate-topic` 支持非视频来源的基础语义产物。

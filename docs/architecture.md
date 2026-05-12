@@ -73,7 +73,7 @@ seed run-creator-pipeline --platform <platform> <owner>
 - `sources/creator_videos.py`：按平台和创作者名称发现视频列表。Bilibili 支持 `--owner-id` 直接传 mid；未传时先做用户名搜索，再复用 `yt-dlp` 的 UP 空间 extractor，并保留 WBI API fallback。小红书先输出搜索候选，后续再替换成稳定登录态 provider。
 - `creator_ingest.py`：读取 `*.creator-videos.yaml`，按起始位置和数量选择视频，跳过已完整入库 URL，并复用现有下载适配器与 source record 写入。已有 source record 但没有本地 `raw_path` 时，不视为下载完成，会继续补齐原始素材。
 - `pipeline.py`：负责把现有单步命令背后的业务函数串成单条视频 pipeline，写入 run manifest，并支持断点续跑。
-- `creator_pipeline.py`：负责创作者级批量任务、失败继续、成本预算门槛和 creator DAG 入口；`--max-estimated-cost` 到达后停止后续视频，并在 manifest 写入 `budget_exceeded`。
+- `creator_pipeline.py`：负责创作者级批量任务、失败继续、成本预算门槛、creator profile 聚合、agent assets 生成和 creator DAG 导出；`--max-estimated-cost` 到达后停止后续视频，并在 manifest 写入 `budget_exceeded`，后处理步骤写入 `creator_steps`。
 - `asr/` 和 `media.py`：音频抽取、超限音频分片和线上 ASR provider。只产出 transcript；长音频会同时按文件大小和 `ffprobe` 时长判断是否切片，默认超过 300 秒会分段，transcript 会在 frontmatter 记录 `asr_chunks`。
 - `vision/`：抽帧、Qwen-VL 调用和 visual notes。只描述画面证据，不负责最终方法论；Qwen-VL provider 需要返回 token usage，供成本模块记录。
 - `costs.py`：统一写入单条视频成本报告和 pipeline cost ledger。默认记录 Qwen-VL token 用量、单价来源、估算金额，并为 ASR、Codex、搜索/核验保留成本项；实际价格可通过环境变量覆盖。
