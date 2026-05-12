@@ -1,6 +1,6 @@
 # 竞品与类似项目调研
 
-调研日期：2026-05-07；画布与计费补充：2026-05-10；架构复核补充：2026-05-11；视觉笔记、核验、编排补充：2026-05-11。
+调研日期：2026-05-07；画布与计费补充：2026-05-10；架构复核补充：2026-05-11；视觉笔记、核验、编排补充：2026-05-11；短视频 shot 级分析补充：2026-05-12。
 
 ## 结论
 
@@ -38,6 +38,10 @@
 | `xyflow/react` / React Flow | Node-based UI 生态成熟，官方 auto layout 示例支持在 dagre、d3-hierarchy 和 elk 之间切换；expand/collapse 生态也成熟。 | 如果后续要做“可折叠分析 DAG + 自动布局 + 节点编辑器”，React Flow 是迁移首选；当前单文件 HTML 只保留为本地快照和原型。 |
 | `kieler/elkjs` | ELK 的 JavaScript 布局引擎，选项丰富，适合有方向的 node-link diagram、layered layout、边标签和复杂间距控制。 | 当前继续作为 DAG 自动布局主算法；不要回到手写布局。 |
 | `jagenjo/litegraph.js` | 老牌 HTML5 Canvas2D graph node editor，偏蓝图/工作流。 | 可参考紧凑节点和 JSON graph 思路；富媒体 DOM 节点不如 React Flow/tldraw 直接。 |
+| `Breakthrough/PySceneDetect` | GitHub 上约 4.8k stars，BSD-3-Clause；Python/OpenCV shot/scene cut detection 库，支持内容阈值、fade 等检测方式。 | 60s 内短视频先用它做本地、低依赖 shot boundary baseline，输出 shot artifact；适合快速落地和可解释调参。 |
+| `soCzech/TransNetV2` | GitHub 上约 0.9k stars，MIT；深度学习 shot boundary detection，README 给出多数据集 F1 对比。 | 作为可选高质量 shot detector provider；比纯阈值法更适合快速剪辑和复杂转场，但模型依赖更重。 |
+| `wentaozhu/AutoShot` | GitHub 上约 0.2k stars，MIT；CVPRW 2023 短视频 shot boundary dataset/方法，论文指出短视频有更密集、垂直化和复杂转场特征。 | 证明短视频不能完全复用长视频抽帧策略；后续可参考其短视频 dataset 视角设计评测指标。 |
+| VCapsBench / ShotBench 等视频理解 benchmark | 近年 benchmark 开始把 camera movement、shot type、cinematic language、fine-grained caption quality 作为评估维度。 | Seed 的短视频 visual notes 应从“描述画面”升级为“shot 类型、镜头运动、主体、字幕、构图、剪辑目的、叙事功能”。 |
 | Prefect | Python-native workflow orchestration；官方 docs 强调 task state lifecycle、client-side orchestration、`.submit()` 并发和 `.delay()` worker 分发。 | 后续 pipeline 复杂到需要调度、重试 UI 和 worker 时再考虑；当前先把本地 run manifest 做扎实。 |
 | Dagster | 面向 data assets 的 orchestrator，强调 integrated lineage、observability、declarative model 和 testability。 | 如果 `library/` 产物变成大量数据资产和跨主题依赖，可以参考 asset model；当前项目还不到引入 Dagster 的复杂度。 |
 | Temporal Python SDK | durable workflow 平台，有 Python SDK，适合长时间运行、可靠重试和分布式任务。 | 如果后续视频批处理需要强一致重试、队列和 worker，再评估；本地 MVP 暂不需要。 |
@@ -64,6 +68,9 @@
 15. 阿里云百炼价格在 2026-04-01 官方页显示不同部署区价格差异明显：International 下 `qwen-vl-max` 为 $0.8/$3.2 per 1M input/output tokens，Global 下 `qwen-vl-max` 为 $0.23/$0.574 per 1M input/output tokens。Seed 成本 artifact 必须记录 deployment/region 或 pricing source snapshot，不能只记 model 名。
 16. DAG 卡顿时不能牺牲视觉表达直接降级成低信息密度图谱。后续仍应保留卡片式画布视觉，通过默认简版、视口裁剪、按需媒体加载和更成熟的 canvas SDK 解决性能。
 17. 真实 UP 样本比单条 demo 更容易暴露架构问题。本轮 `影视飓风` 三条样本暴露了两个必须保留的工程规则：source-only 记录不能阻止后续下载；线上 ASR 不能只按文件大小判断是否分段，还要按音频时长分段。
+18. 60s 以内短视频应该走独立强分析链路，不应只是长视频 pipeline 的 `--max-frames` 调大。关键区别是：逐秒/逐帧成本可控、shot 密度高、前三秒 hook 决定理解入口、字幕/OCR 常常比口播更短促，且剪辑技巧本身就是语义。
+19. 短视频强分析的推荐 artifact 顺序：`short-video-profile.json` 判断时长/竖屏/帧率 -> `shots/*.shots.json` 记录 shot boundary、shot duration、transition type -> `frames/*.frame-notes.jsonl` 逐帧或抽样逐帧 VL/OCR -> `short-video-semantics.md` 聚合 hook、beat、shot function、视觉语言、剪辑技巧和可复用模板 -> DAG 展示 shot strip 和 frame evidence。
+20. 短视频方法论可先采用“Hook -> Setup/Context -> Proof/Development -> Turn/Reframe -> Payoff/Loop/CTA”的 beat lens，但必须用 transcript、OCR、shot timing、frame evidence 支撑；不要把营销文章里的爆款公式当成无证据结论。
 
 ## Sources
 
@@ -103,3 +110,10 @@
 - Evidence-backed fact checking with RAG: https://arxiv.org/abs/2408.12060
 - Fabric youtube_summary pattern: https://fabric.gavinslater.co.uk/view/youtube_summary
 - HoverNotes: https://hovernotes.io/
+- PySceneDetect: https://www.scenedetect.com/
+- PySceneDetect GitHub: https://github.com/Breakthrough/PySceneDetect
+- TransNetV2: https://github.com/soCzech/TransNetV2
+- AutoShot: https://arxiv.org/abs/2304.06116
+- AutoShot GitHub: https://github.com/wentaozhu/AutoShot
+- VCapsBench: https://arxiv.org/abs/2505.23484
+- ShotBench: https://arxiv.org/abs/2506.21356

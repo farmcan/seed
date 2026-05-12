@@ -112,6 +112,31 @@
 - [x] 修复长音频 ASR 只按文件大小判断的问题。
   - DashScope 可能因音频时长拒绝请求；当前 ASR chunking 同时按文件大小和 `ffprobe` duration 判断，默认超过 300 秒会切片。
 
+## P7：60s 短视频强分析
+
+- [ ] 增加短视频 profile 判断。
+  - 输入本地视频或 URL 后先用 `ffprobe` 记录 duration、fps、分辨率、宽高比、音轨信息和平台来源。
+  - 默认规则：`duration <= 60s` 进入短视频强分析；允许 CLI 显式 `--short-form/--long-form` 覆盖。
+  - artifact 建议：`library/shorts/*.short-video-profile.json`，后续由 shot、frame、semantics 和 DAG 消费。
+- [ ] 增加 shot boundary artifact。
+  - P0 先接 PySceneDetect 做本地 baseline；输出 shot start/end、duration、代表帧、transition confidence、detector/provider。
+  - P1 再把 TransNetV2 做成可选 provider；不要把深度模型依赖放进默认安装路径。
+  - artifact 建议：`library/shots/*.shots.json`；DAG 中展示 shot strip，并允许点击 shot 跳转视频时间段。
+- [ ] 增加短视频逐帧/密集帧视觉分析。
+  - 60s 内可以支持 `--frame-mode every-frame|fps|shot-keyframes`；默认先用 `shot-keyframes` 控成本，用户要求强分析时再启用逐帧或 1 fps。
+  - 每帧记录 timestamp、frame path、VL caption、OCR/text overlay、主体/物体、场景、构图、动作、可能的剪辑意图和 token cost。
+  - artifact 建议：`library/frames/*.frame-notes.jsonl`；成本必须进入 `library/costs/*.ledger.json`。
+- [ ] 增加短视频语义 skill/lens。
+  - 扩展共享 `video-analysis-lenses.md`，不要另起一套重复 prompt。
+  - 输出结构聚焦：前三秒 hook、beat map、shot function、视觉语言、字幕/OCR、剪辑技巧、节奏密度、payoff/loop/CTA、可复用脚本模板。
+  - 强结论必须引用 transcript、OCR、shot、frame evidence；营销式“爆款公式”只能作为 lens，不能当证据。
+- [ ] 把短视频强分析接入 DAG。
+  - Video DAG 增加 short profile、shot strip、frame evidence gallery、OCR/text overlay、editing technique 节点。
+  - 默认不要铺满所有 frame；先显示 shot 级摘要和代表帧，点击 shot 再展开逐帧证据。
+- [ ] 跑真实短视频样本验证。
+  - 选 3 条 60s 内 Bilibili/小红书/手动本地视频，至少覆盖口播型、图文字幕型、强剪辑型。
+  - 验证项：shot boundary 是否合理、逐帧成本是否可控、DAG 是否可读、短视频 semantics 是否比长视频模板更有信息密度。
+
 ## 已完成基础
 
 - [x] GitHub / 本地仓库初始化。
