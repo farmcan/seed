@@ -82,6 +82,7 @@ run-creator-pipeline
 - 短视频结构分析在 `seed.shorts`，不要把 shot detection 写进 timeline 或 visual notes；`run-video-pipeline` 会生成 short profile，并仅在 `is_short_form` 为 true 时生成 shots artifact。
 - shot detection 当前默认是 `ffmpeg-scene` baseline；后续接 PySceneDetect、TransNetV2 时必须做成 provider，不要把重依赖放进默认路径。
 - 短视频 frame evidence 必须结构化记录字幕、OCR、蒙版、画中画、贴纸、滤镜、变速、镜头运动、人物运动关系、转场和剪辑目的；默认可以是 pending 字段，但不要退化成一段不可追溯的自然语言。
+- 短视频 motion relations 输出在 `library/shots/*.motion-relations.json`，默认 `schema-baseline` 只能生成可追溯候选并标记 `needs_pose_or_vl`；没有 pose/tracking/optical-flow/VL 证据时，不要写成“已识别人物关系”。
 - OCR、人姿态、运动估计和视觉效果检测都应是可选 provider：优先参考 PaddleOCR/RapidVideOCR、MediaPipe/OpenPose/YOLO pose、OpenCV optical flow；默认安装路径不要强制引入这些重依赖。
 - Qwen-VL 成本记录在 `seed.costs`，`analyze-frames` 必须按单条视频写入 `library/costs/*.cost.json`；`run-video-pipeline` 和 `build-cost-ledger` 必须写入 `library/costs/*.ledger.json`；费用是基于 token usage 和配置单价的估算，实际账单以服务商后台为准。
 - 创作者批量任务支持 `--max-estimated-cost` 预算门槛；达到预算后停止后续视频，并在 run manifest 写入 `budget_exceeded`。
@@ -92,7 +93,7 @@ run-creator-pipeline
 - 从 creator profile 生成的 `library/skills/` 和 `library/checks/` 都是 draft，必须通过 `review-agent-assets` 更新 review manifest 后再安装或长期使用。
 - Reflection log 只追加记录；`suggest-revisions` 只生成修订建议草稿，不直接覆盖 creator profile、skills 或 checks。
 - `aggregate-owner` 默认至少 3 条 video semantics；如果用 `--min-videos 1` 或 `2`，输出只能视为 provisional。
-- Video DAG 构建支持按标题自动发现本地产物；显式传入的路径优先，resolver 逻辑在 `seed.graphs.video_dag.resolve_video_dag_artifacts`。短视频的 short profile 和 shots artifact 也应进入 resolver 和 DAG。
+- Video DAG 构建支持按标题自动发现本地产物；显式传入的路径优先，resolver 逻辑在 `seed.graphs.video_dag.resolve_video_dag_artifacts`。短视频的 short profile、shots、frame notes 和 motion relations artifact 也应进入 resolver 和 DAG。
 - DAG 画布调试优先用 `seed serve-video-dag <graph.json>` 打开；需要给用户直接查看时，用 `seed export-video-dag-html <graph.json>` 生成静态 HTML。
 - DAG timeline event 如果有 `start_seconds`，应通过 `media_anchor` 连接本地视频/音频；不要只把时间点写成普通文本。
 - DOM/ELK 画布使用 vendored `elkjs` layered layout 做自动分层布局；手写布局只能作为本地脚本加载失败的 fallback。画布必须保留卡片式信息密度和媒体详情能力，不能降级成低信息密度图谱。
@@ -157,6 +158,7 @@ library/raw/          原始视频、音频、metadata
 library/raw/*.chunks/ ASR 分片音频
 library/shorts/       短视频 profile JSON
 library/shots/        shot boundary JSON
+library/shots/*.motion-relations.json  短视频运动关系候选 JSON
 library/transcripts/  ASR 或人工 transcript
 library/frames/       抽帧截图和 shot 代表帧
 library/notes/        source record、creator video list、visual notes、quick summary

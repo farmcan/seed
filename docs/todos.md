@@ -133,12 +133,16 @@
 - [x] 把短视频强分析接入 DAG。
   - Video DAG 增加 short profile、shot strip、frame evidence gallery、OCR/text overlay、editing technique 节点。
   - 当前已接入 short profile、shot strip、shot 代表帧节点和 frame evidence notes；蒙版、画中画、贴纸、字幕、人的运动关系、OCR/text overlay、editing technique 字段已预留，后续由 VL/OCR provider 补齐。
+- [x] 增加人物/物体运动关系 baseline artifact。
+  - 输出 `library/shots/*.motion-relations.json`，由 `build-motion-relations` 和 `run-video-pipeline` 生成。
+  - 默认 `schema-baseline` 只根据相邻 frame notes 生成可追溯候选，状态为 `needs_pose_or_vl`，不把未识别的动作关系写成结论。
+  - Video DAG 已接入 `motion-relations` 节点和可点击的 relation 子节点，带时间点时写入 `media_anchor`。
 - [ ] 跑真实短视频样本验证。
   - 选 3 条 60s 内 Bilibili/小红书/手动本地视频，至少覆盖口播型、图文字幕型、强剪辑型。
   - 验证项：shot boundary 是否合理、逐帧成本是否可控、DAG 是否可读、短视频 semantics 是否比长视频模板更有信息密度。
 - [ ] 接入可选视觉 provider。
   - OCR provider：优先调研 PaddleOCR / RapidVideOCR；输出字幕区域、字幕文字、位置、样式和时间段。
-  - Human-motion provider：优先调研 MediaPipe / OpenPose / YOLO pose；输出人物框、pose/hand/face landmarks、人物间距离变化、人物与物体/镜头运动关系。
+  - Human-motion provider：优先调研 MediaPipe / OpenPose / YOLO pose；输出人物框、pose/hand/face landmarks、人物间距离变化、人物与物体/镜头运动关系，并补强 `*.motion-relations.json`。
   - Motion/editing provider：优先用 OpenCV optical flow 做镜头运动、运动强度和速度变化 baseline；复杂剪辑效果交给 VL/LLM 基于 frame evidence 判断。
   - 所有 provider 都必须可选，默认链路只保留 deterministic baseline 和 schema，不引入重依赖。
 
@@ -178,3 +182,4 @@
 - [x] Canvas 布局离线化：`tools/vendor/elk.bundled.js` 固定 `elkjs`，导出 HTML 不再依赖 CDN。
 - [x] 视频分析 lenses：`skills/video-semantics-analyzer/references/video-analysis-lenses.md` 收敛 Fabric、BiliNote、tldw、短视频结构等参考框架。
 - [x] 视频分析证据锚点：prompt 构建统一注入共享 lenses 和 `[T*]`、`[V*]`、`[F*]` 证据引用要求，避免纯主观总结。
+- [x] 短视频运动关系候选：`seed build-motion-relations` 和 `run-video-pipeline` 会输出 `library/shots/*.motion-relations.json`，并在 Video DAG 展示 relation candidates。

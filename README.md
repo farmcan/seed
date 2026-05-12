@@ -24,7 +24,7 @@ tests/                基础测试
 library/              本地私有知识库，默认不提交内容
   raw/                原始下载或导入素材
   shorts/             短视频 profile
-  shots/              shot boundary artifact
+  shots/              shot boundary 和 motion relations artifact
   transcripts/        转写文本
   notes/              人工或模型整理笔记
   semantics/          融合口播和视觉语言的视频语义
@@ -56,7 +56,7 @@ ASR 默认使用 DashScope/Qwen，模型为 `qwen3-asr-flash`，需要先配置 
 
 视频语义阶段通过 `analyze-video-semantics` 融合口播语言和视觉语言，读取 transcript、visual notes 和 `skills/video-semantics-analyzer/SKILL.md`，输出 Markdown 到 `library/semantics/`。这个文件是后续按 UP 主聚合、抽取爆款结构、沉淀 Agent skills 和 pre-check 的稳定中间层。
 
-60s 以内短视频会额外生成 `library/shorts/*.short-video-profile.json` 和 `library/shots/*.shots.json`。当前 baseline 使用 `ffprobe` 判断 duration/fps/宽高比，用 `ffmpeg` scene threshold 切 shot，并把 shot 代表帧接入 video DAG；后续再补逐帧 VL/OCR 和更强的 PySceneDetect/TransNetV2 provider。
+60s 以内短视频会额外生成 `library/shorts/*.short-video-profile.json`、`library/shots/*.shots.json`、`library/frames/*.frame-notes.jsonl` 和 `library/shots/*.motion-relations.json`。当前 baseline 使用 `ffprobe` 判断 duration/fps/宽高比，用 `ffmpeg` scene threshold 切 shot，按 shot 代表帧生成 frame evidence，再生成 `needs_pose_or_vl` 的运动关系候选，并把这些产物接入 video DAG；后续再补逐帧 VL/OCR、PySceneDetect/TransNetV2、MediaPipe/OpenPose/YOLO pose 和 OpenCV optical flow provider。
 
 UP 主聚合阶段默认由 `run-creator-pipeline` 串起：获取视频列表、入库、逐条运行视频 pipeline、汇总 creator cost ledger、聚合 creator profile、生成 agent assets，并导出 creator DAG HTML。`aggregate-owner`、`generate-agent-assets` 和 `build-creator-dag` 仍可单独用于补跑或调试。默认至少需要 3 条同 owner 的 video semantics 才会聚合 creator profile；少量样本可用 `--min-profile-videos` 明确降级。
 

@@ -40,6 +40,11 @@ def frame_notes_output_path(*, library_root: Path, title: str) -> Path:
     return library_root / "frames" / f"{slugify(title)}.frame-notes.jsonl"
 
 
+def motion_relations_output_path(*, library_root: Path, title: str) -> Path:
+    init_library(library_root)
+    return library_root / "shots" / f"{slugify(title)}.motion-relations.json"
+
+
 def build_short_video_profile(
     *,
     media_path: Path,
@@ -223,6 +228,99 @@ def load_frame_notes(path: Path | None) -> list[dict[str, Any]]:
         for line in path.read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
+
+
+def build_motion_relations_artifact(
+    *,
+    title: str,
+    profile: dict[str, Any],
+    shots_artifact: dict[str, Any] | None,
+    frame_notes: list[dict[str, Any]],
+    provider: str = "schema-baseline",
+) -> dict[str, Any]:
+    relations = []
+    sorted_notes = sorted(
+        frame_notes,
+        key=lambda note: as_float(note.get("timestamp_seconds")) or 0,
+    )
+    for previous, current in zip(sorted_notes, sorted_notes[1:], strict=False):
+        relations.append(build_temporal_relation(previous=previous, current=current))
+    if not relations and sorted_notes:
+        relations.append(build_single_frame_relation(sorted_notes[0]))
+    return {
+        "kind": "short_motion_relations",
+        "version": 1,
+        "title": title,
+        "generated_at": datetime.now(UTC).isoformat(),
+        "provider": provider,
+        "profile_path": profile.get("media_path"),
+        "shots_count": len((shots_artifact or {}).get("shots") or []),
+        "frame_notes_count": len(frame_notes),
+        "capabilities": {
+            "person_bbox": False,
+            "pose_keypoints": False,
+            "object_tracking": False,
+            "ocr": False,
+            "optical_flow": False,
+        },
+        "provider_notes": [
+            "Baseline only creates traceable relation candidates from frame timing and schema fields.",
+            "Install optional pose/OCR/motion providers to fill person-object and person-person relations.",
+        ],
+        "relations": relations,
+    }
+
+
+def write_motion_relations_artifact(path: Path, artifact: dict[str, Any]) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(artifact, ensure_ascii=False, indent=2), encoding="utf-8")
+    return path
+
+
+def build_temporal_relation(*, previous: dict[str, Any], current: dict[str, Any]) -> dict[str, Any]:
+    previous_time = as_float(previous.get("timestamp_seconds"))
+    current_time = as_float(current.get("timestamp_seconds"))
+    return {
+        "id": f"relation-{previous.get('index', 0)}-{current.get('index', 0)}",
+        "kind": "temporal_frame_relation",
+        "status": "needs_pose_or_vl",
+        "label": "frame-to-frame motion candidate",
+        "start_seconds": previous_time,
+        "end_seconds": current_time,
+        "source_frame_indices": [previous.get("index"), current.get("index")],
+        "source_frame_paths": [previous.get("frame_path"), current.get("frame_path")],
+        "shot_ids": [previous.get("shot_id"), current.get("shot_id")],
+        "observed": {
+            "subtitle": [previous.get("subtitle"), current.get("subtitle")],
+            "visual_effects": [previous.get("visual_effects"), current.get("visual_effects")],
+            "editing": [previous.get("editing"), current.get("editing")],
+        },
+        "needs_provider": ["pose", "object_tracking", "optical_flow", "vl"],
+        "summary": (
+            "Frame sequence is available, but person/object motion cannot be asserted until a "
+            "pose, tracking, optical-flow, or VL provider enriches the frame notes."
+        ),
+    }
+
+
+def build_single_frame_relation(note: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": f"relation-{note.get('index', 1)}",
+        "kind": "single_frame_relation_candidate",
+        "status": "needs_pose_or_vl",
+        "label": "single-frame motion candidate",
+        "start_seconds": as_float(note.get("timestamp_seconds")),
+        "source_frame_indices": [note.get("index")],
+        "source_frame_paths": [note.get("frame_path")],
+        "shot_ids": [note.get("shot_id")],
+        "observed": {
+            "subtitle": note.get("subtitle"),
+            "visual_effects": note.get("visual_effects"),
+            "editing": note.get("editing"),
+        },
+        "needs_provider": ["pose", "object_tracking", "vl"],
+        "summary": "Only one frame is available, so motion relation requires pose/tracking/VL enrichment.",
+    }
 
 
 def normalize_frame_mode(frame_mode: str) -> str:

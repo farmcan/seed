@@ -40,12 +40,16 @@ from seed.shorts import (
     DEFAULT_SCENE_THRESHOLD,
     DEFAULT_SHORT_MAX_SECONDS,
     build_frame_notes,
+    build_motion_relations_artifact,
     build_short_video_profile,
     build_shots_artifact,
     frame_notes_output_path,
+    load_frame_notes,
+    motion_relations_output_path,
     short_profile_output_path,
     shots_output_path,
     write_frame_notes,
+    write_motion_relations_artifact,
     write_short_video_profile,
     write_shots_artifact,
 )
@@ -91,6 +95,7 @@ class VideoPipelineOptions:
     frame_notes: bool = True
     frame_mode: str = "shot-keyframes"
     frame_notes_fps: float = 1.0
+    motion_relations: bool = True
     semantics_skill_path: Path = DEFAULT_VIDEO_SEMANTICS_SKILL_PATH
     codex_model: str | None = None
     force: bool = False
@@ -110,6 +115,7 @@ class VideoPipelineContext:
     short_profile_path: Path | None = None
     shots_path: Path | None = None
     frame_notes_path: Path | None = None
+    motion_relations_path: Path | None = None
     visual_notes_path: Path | None = None
     cost_path: Path | None = None
     cost_ledger_path: Path | None = None
@@ -217,6 +223,15 @@ def run_video_pipeline(options: VideoPipelineOptions) -> tuple[VideoPipelineCont
             "media_path": context.media_path,
             "short_profile_path": context.short_profile_path,
             "shots_path": context.shots_path,
+        },
+    )
+    run_step(
+        "build_motion_relations",
+        lambda: _motion_relations_step(options, context),
+        inputs={
+            "short_profile_path": context.short_profile_path,
+            "shots_path": context.shots_path,
+            "frame_notes_path": context.frame_notes_path,
         },
     )
     if options.vision:
@@ -459,6 +474,38 @@ def _frame_notes_step(options: VideoPipelineOptions, context: VideoPipelineConte
     return {"frame_notes_path": output_path, "frames": len(notes), "frame_mode": options.frame_mode}
 
 
+def _motion_relations_step(options: VideoPipelineOptions, context: VideoPipelineContext) -> dict[str, Any]:
+    if not options.motion_relations:
+        return {"status": "skipped", "reason": "motion relations disabled"}
+    profile_path = _require_path(context.short_profile_path, "short_profile_path")
+    profile = yaml.safe_load(profile_path.read_text(encoding="utf-8")) or {}
+    if not profile.get("is_short_form"):
+        return {"status": "skipped", "reason": "not short form", "short_profile_path": profile_path}
+
+    output_path = motion_relations_output_path(library_root=options.library_root, title=context.title)
+    if output_path.exists() and not options.force:
+        context.motion_relations_path = output_path
+        return {"status": "skipped", "motion_relations_path": output_path}
+
+    shots_artifact = {}
+    if context.shots_path and context.shots_path.exists():
+        shots_artifact = yaml.safe_load(context.shots_path.read_text(encoding="utf-8")) or {}
+    notes = load_frame_notes(context.frame_notes_path)
+    artifact = build_motion_relations_artifact(
+        title=context.title,
+        profile=profile,
+        shots_artifact=shots_artifact,
+        frame_notes=notes,
+    )
+    write_motion_relations_artifact(output_path, artifact)
+    context.motion_relations_path = output_path
+    return {
+        "motion_relations_path": output_path,
+        "relations": len(artifact["relations"]),
+        "provider": artifact["provider"],
+    }
+
+
 def _visual_step(options: VideoPipelineOptions, context: VideoPipelineContext) -> dict[str, Any]:
     frame_dir = _require_path(context.frame_dir, "frame_dir")
     frame_paths = load_frame_paths(frame_dir)
@@ -608,6 +655,7 @@ def _dag_step(options: VideoPipelineOptions, context: VideoPipelineContext) -> d
         short_profile_path=context.short_profile_path,
         shots_path=context.shots_path,
         frame_notes_path=context.frame_notes_path,
+        motion_relations_path=context.motion_relations_path,
     )
     graph = build_video_dag_graph(
         title=context.title,
@@ -626,6 +674,7 @@ def _dag_step(options: VideoPipelineOptions, context: VideoPipelineContext) -> d
         short_profile_path=artifacts["short_profile_path"],
         shots_path=artifacts["shots_path"],
         frame_notes_path=artifacts["frame_notes_path"],
+        motion_relations_path=artifacts["motion_relations_path"],
     )
     output_path = video_dag_output_path(library_root=options.library_root, title=context.title)
     write_video_dag_graph(output_path, graph)

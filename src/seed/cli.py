@@ -102,12 +102,16 @@ from seed.shorts import (
     DEFAULT_SCENE_THRESHOLD,
     DEFAULT_SHORT_MAX_SECONDS,
     build_frame_notes,
+    build_motion_relations_artifact,
     build_short_video_profile,
     build_shots_artifact,
     frame_notes_output_path,
+    load_frame_notes,
+    motion_relations_output_path,
     short_profile_output_path,
     shots_output_path,
     write_frame_notes,
+    write_motion_relations_artifact,
     write_short_video_profile,
     write_shots_artifact,
 )
@@ -409,6 +413,7 @@ def run_video_pipeline_cmd(
     frame_notes: Annotated[bool, typer.Option("--frame-notes/--no-frame-notes")] = True,
     frame_mode: Annotated[str, typer.Option("--frame-mode", help="shot-keyframes, fps, or every-frame.")] = "shot-keyframes",
     frame_notes_fps: Annotated[float, typer.Option("--frame-notes-fps", min=0.1)] = 1.0,
+    motion_relations: Annotated[bool, typer.Option("--motion-relations/--no-motion-relations")] = True,
     codex_model: Annotated[str | None, typer.Option("--codex-model")] = None,
     root: Annotated[Path, typer.Option("--root")] = Path("library"),
 ) -> None:
@@ -441,6 +446,7 @@ def run_video_pipeline_cmd(
             frame_notes=frame_notes,
             frame_mode=frame_mode,
             frame_notes_fps=frame_notes_fps,
+            motion_relations=motion_relations,
             codex_model=codex_model,
             force=force,
         )
@@ -460,6 +466,8 @@ def run_video_pipeline_cmd(
         console.print(f"created shots artifact at {context.shots_path}")
     if context.frame_notes_path:
         console.print(f"created frame notes at {context.frame_notes_path}")
+    if context.motion_relations_path:
+        console.print(f"created motion relations at {context.motion_relations_path}")
 
 
 @app.command("distill-note")
@@ -689,6 +697,34 @@ def build_frame_notes_cmd(
     write_frame_notes(output_path, notes)
     console.print(f"created frame notes at {output_path}")
     console.print(f"frames: {len(notes)}")
+
+
+@app.command("build-motion-relations")
+def build_motion_relations_cmd(
+    title: Annotated[str, typer.Option("--title", help="Video title for the motion relation artifact.")],
+    profile_path: Annotated[Path, typer.Option("--profile")],
+    frame_notes_path: Annotated[Path, typer.Option("--frame-notes")],
+    shots_path_arg: Annotated[Path | None, typer.Option("--shots")] = None,
+    root: Annotated[Path, typer.Option("--root")] = Path("library"),
+) -> None:
+    profile = json.loads(profile_path.read_text(encoding="utf-8"))
+    frame_notes = load_frame_notes(frame_notes_path)
+    shots_artifact = (
+        json.loads(shots_path_arg.read_text(encoding="utf-8"))
+        if shots_path_arg and shots_path_arg.exists()
+        else None
+    )
+    artifact = build_motion_relations_artifact(
+        title=title,
+        profile=profile,
+        shots_artifact=shots_artifact,
+        frame_notes=frame_notes,
+    )
+    output_path = motion_relations_output_path(library_root=root, title=title)
+    write_motion_relations_artifact(output_path, artifact)
+    console.print(f"created motion relations at {output_path}")
+    console.print(f"relations: {len(artifact['relations'])}")
+    console.print(f"provider: {artifact['provider']}")
 
 
 @app.command("analyze-frames")
@@ -1140,6 +1176,7 @@ def build_video_dag(
     short_profile: Annotated[Path | None, typer.Option("--short-profile")] = None,
     shots_path: Annotated[Path | None, typer.Option("--shots")] = None,
     frame_notes_path: Annotated[Path | None, typer.Option("--frame-notes")] = None,
+    motion_relations_path: Annotated[Path | None, typer.Option("--motion-relations")] = None,
     root: Annotated[Path, typer.Option("--root")] = Path("library"),
 ) -> None:
     artifacts = resolve_video_dag_artifacts(
@@ -1158,6 +1195,7 @@ def build_video_dag(
         short_profile_path=short_profile,
         shots_path=shots_path,
         frame_notes_path=frame_notes_path,
+        motion_relations_path=motion_relations_path,
     )
     graph = build_video_dag_graph(
         title=title,
@@ -1176,6 +1214,7 @@ def build_video_dag(
         short_profile_path=artifacts["short_profile_path"],
         shots_path=artifacts["shots_path"],
         frame_notes_path=artifacts["frame_notes_path"],
+        motion_relations_path=artifacts["motion_relations_path"],
     )
     output_path = video_dag_output_path(library_root=root, title=title)
     write_video_dag_graph(output_path, graph)

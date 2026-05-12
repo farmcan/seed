@@ -26,6 +26,7 @@ def test_build_video_dag_graph_uses_artifact_paths_and_metadata(tmp_path):
     short_profile = tmp_path / "demo.short-video-profile.json"
     shots = tmp_path / "demo.shots.json"
     frame_notes = tmp_path / "demo.frame-notes.jsonl"
+    motion_relations = tmp_path / "demo.motion-relations.json"
     video.write_bytes(b"video")
     audio.write_bytes(b"audio")
     transcript.write_text("# Transcript\n\n## Chunk 01\n\nhello\n\n## Chunk 02\n\nworld", encoding="utf-8")
@@ -140,6 +141,36 @@ def test_build_video_dag_graph_uses_artifact_paths_and_metadata(tmp_path):
         + "\n",
         encoding="utf-8",
     )
+    motion_relations.write_text(
+        json.dumps(
+            {
+                "provider": "schema-baseline",
+                "capabilities": {
+                    "person_bbox": False,
+                    "pose_keypoints": False,
+                    "object_tracking": False,
+                    "ocr": False,
+                    "optical_flow": False,
+                },
+                "relations": [
+                    {
+                        "id": "relation-1",
+                        "kind": "temporal_frame_relation",
+                        "status": "needs_pose_or_vl",
+                        "label": "frame-to-frame motion candidate",
+                        "start_seconds": 1.5,
+                        "end_seconds": 2.5,
+                        "source_frame_indices": [1, 2],
+                        "source_frame_paths": [str(frames / "frame_0001.jpg")],
+                        "shot_ids": ["shot-001"],
+                        "needs_provider": ["pose", "object_tracking", "vl"],
+                        "summary": "Need pose or tracking enrichment.",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
 
     graph = build_video_dag_graph(
         title="demo",
@@ -153,6 +184,7 @@ def test_build_video_dag_graph_uses_artifact_paths_and_metadata(tmp_path):
         short_profile_path=short_profile,
         shots_path=shots,
         frame_notes_path=frame_notes,
+        motion_relations_path=motion_relations,
     )
 
     assert graph["owner"] == "demo-up"
@@ -172,6 +204,8 @@ def test_build_video_dag_graph_uses_artifact_paths_and_metadata(tmp_path):
     shot_node = next(node for node in graph["nodes"] if node["id"] == "shot-1")
     frame_notes_node = next(node for node in graph["nodes"] if node["id"] == "frame-notes")
     frame_note_node = next(node for node in graph["nodes"] if node["id"] == "frame-note-1")
+    motion_relations_node = next(node for node in graph["nodes"] if node["id"] == "motion-relations")
+    motion_relation_node = next(node for node in graph["nodes"] if node["id"] == "motion-relation-1")
     assert "2 chunks" in transcript_node["metrics"]
     assert "1 frames" in frame_node["metrics"]
     assert "2 events" in timeline_node["metrics"]
@@ -194,11 +228,17 @@ def test_build_video_dag_graph_uses_artifact_paths_and_metadata(tmp_path):
     assert "1 frames" in frame_notes_node["metrics"]
     assert frame_notes_node["preview"]["type"] == "gallery"
     assert frame_note_node["media_anchor"]["start_seconds"] == 1
+    assert "1 relations" in motion_relations_node["metrics"]
+    assert "schema-baseline" in motion_relations_node["metrics"]
+    assert motion_relation_node["media_anchor"]["start_seconds"] == 1
     assert ["visual", "costs"] in graph["edges"]
     assert ["short-profile", "shots"] in graph["edges"]
     assert ["shots", "frame-notes"] in graph["edges"]
+    assert ["frame-notes", "motion-relations"] in graph["edges"]
+    assert ["motion-relations", "semantics"] in graph["edges"]
     assert ["shots", "shot-1"] in graph["edges"]
     assert ["frame-notes", "frame-note-1"] in graph["edges"]
+    assert ["motion-relations", "motion-relation-1"] in graph["edges"]
     assert ["costs", "skills"] in graph["edges"]
     assert video_node["preview"]["type"] == "video"
     assert audio_node["preview"]["type"] == "audio"
@@ -223,7 +263,8 @@ def test_resolve_video_dag_artifacts_by_title(tmp_path):
     timelines = tmp_path / "timelines"
     claims = tmp_path / "claims"
     costs = tmp_path / "costs"
-    for directory in [raw, transcripts, frames, notes, semantics, timelines, claims, costs]:
+    shots = tmp_path / "shots"
+    for directory in [raw, transcripts, frames, notes, semantics, timelines, claims, costs, shots]:
         directory.mkdir()
     video = raw / "bilibili-bv-demo-法德欧洲大哥之争.mp4"
     audio = raw / "bilibili-bv-demo-法德欧洲大哥之争.asr.mp3"
@@ -235,7 +276,8 @@ def test_resolve_video_dag_artifacts_by_title(tmp_path):
     claim = claims / "法德欧洲大哥之争.claims.json"
     verified_claim = claims / "法德欧洲大哥之争.verified.json"
     cost = costs / "法德欧洲大哥之争.cost.json"
-    for path in [video, audio, transcript, visual, semantic, timeline, claim, verified_claim, cost]:
+    motion_relations = shots / "法德欧洲大哥之争.motion-relations.json"
+    for path in [video, audio, transcript, visual, semantic, timeline, claim, verified_claim, cost, motion_relations]:
         path.write_text("x", encoding="utf-8")
     frame_dir.mkdir()
 
@@ -258,4 +300,5 @@ def test_resolve_video_dag_artifacts_by_title(tmp_path):
         "short_profile_path": None,
         "shots_path": None,
         "frame_notes_path": None,
+        "motion_relations_path": motion_relations,
     }

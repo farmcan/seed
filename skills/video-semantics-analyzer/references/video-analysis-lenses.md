@@ -39,6 +39,7 @@
 - Visual effects：识别蒙版、画中画、贴纸、滤镜/LUT、变速、文字覆盖、绿幕/抠像、分屏和素材叠加；这些是短视频叙事证据，不只是装饰。
 - Subtitle map：记录字幕是否存在、文案、样式、位置、节奏和是否承担主要信息传递。
 - Human motion relation：记录人物之间、人物与镜头、人物与物体的运动关系，例如靠近/远离、追随、对视、手部演示、遮挡、转场动作。
+- Motion relation artifact：`*.motion-relations.json` 中 `needs_pose_or_vl` 只是候选，不是识别结论；只有 pose、tracking、optical flow、OCR 或 VL 证据补强后，才能把人物/物体关系写成强结论。
 - Retention devices：悬念、进度条、倒计时、反转、连续动作、未完成任务、问题延迟回答、结尾回环。
 
 短视频结论必须引用 transcript、OCR、shot timing、frame evidence 或 timeline。营销式“爆款公式”只能作为观察 lens，不能当作无证据结论。

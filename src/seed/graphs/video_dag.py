@@ -35,6 +35,7 @@ def build_video_dag_graph(
     short_profile_path: Path | None = None,
     shots_path: Path | None = None,
     frame_notes_path: Path | None = None,
+    motion_relations_path: Path | None = None,
 ) -> dict[str, Any]:
     inferred_owner = owner or infer_owner(semantics_path) or "unknown"
     inferred_platform = platform or infer_platform(semantics_path) or "unknown"
@@ -51,6 +52,8 @@ def build_video_dag_graph(
     shots_artifact = load_json_artifact(shots_path)
     shots = shots_artifact.get("shots", []) if shots_artifact else []
     frame_notes = load_jsonl_artifact(frame_notes_path)
+    motion_relations = load_json_artifact(motion_relations_path)
+    relations = motion_relations.get("relations", []) if motion_relations else []
 
     nodes = [
         node(
@@ -172,6 +175,20 @@ def build_video_dag_graph(
             preview=frame_notes_preview(frame_notes),
         ),
         node(
+            "motion-relations",
+            "timeline",
+            "Motion Relations",
+            motion_relations_summary(motion_relations),
+            850,
+            760,
+            [
+                path_metric(motion_relations_path),
+                f"{len(relations)} relations" if relations else "no relations",
+                str(motion_relations.get("provider") or "provider pending"),
+            ],
+            motion_relations_path,
+        ),
+        node(
             "semantics",
             "semantics",
             "Video Semantics",
@@ -284,6 +301,12 @@ def build_video_dag_graph(
         source_path=source_path,
     )
     nodes.extend(frame_note_nodes)
+    motion_relation_nodes = build_motion_relation_nodes(
+        relations,
+        motion_relations_path,
+        source_path=source_path,
+    )
+    nodes.extend(motion_relation_nodes)
 
     edges = [
         ["source", "video-media"],
@@ -294,12 +317,14 @@ def build_video_dag_graph(
         ["video-media", "short-profile"],
         ["short-profile", "shots"],
         ["shots", "frame-notes"],
+        ["frame-notes", "motion-relations"],
         ["shots", "visual"],
         ["transcript", "timeline"],
         ["frames", "timeline"],
         ["transcript", "semantics"],
         ["visual", "semantics"],
         ["timeline", "semantics"],
+        ["motion-relations", "semantics"],
         ["semantics", "claims"],
         ["semantics", "structure"],
         ["semantics", "methods"],
@@ -317,6 +342,7 @@ def build_video_dag_graph(
     edges.extend(["factcheck", claim_node["id"]] for claim_node in claim_nodes)
     edges.extend(["shots", shot_node["id"]] for shot_node in shot_nodes)
     edges.extend(["frame-notes", frame_node["id"]] for frame_node in frame_note_nodes)
+    edges.extend(["motion-relations", relation_node["id"]] for relation_node in motion_relation_nodes)
 
     return {
         "version": 1,
@@ -345,6 +371,7 @@ def resolve_video_dag_artifacts(
     short_profile_path: Path | None = None,
     shots_path: Path | None = None,
     frame_notes_path: Path | None = None,
+    motion_relations_path: Path | None = None,
 ) -> dict[str, Path | None]:
     title_slug = slugify(title)
     resolved_source = source_path or find_matching_file(
@@ -380,11 +407,31 @@ def resolve_video_dag_artifacts(
         ),
         "creator_profile_path": creator_profile_path,
         "short_profile_path": short_profile_path
-        or find_matching_file(library_root / "shorts", title_slug=title_slug, suffixes={".json"}),
+        or find_matching_file(
+            library_root / "shorts",
+            title_slug=title_slug,
+            suffixes={".json"},
+            preferred_suffix=".short-video-profile",
+            require_preferred=True,
+        ),
         "shots_path": shots_path
-        or find_matching_file(library_root / "shots", title_slug=title_slug, suffixes={".json"}),
+        or find_matching_file(
+            library_root / "shots",
+            title_slug=title_slug,
+            suffixes={".json"},
+            preferred_suffix=".shots",
+            require_preferred=True,
+        ),
         "frame_notes_path": frame_notes_path
         or find_matching_file(library_root / "frames", title_slug=title_slug, suffixes={".jsonl"}),
+        "motion_relations_path": motion_relations_path
+        or find_matching_file(
+            library_root / "shots",
+            title_slug=title_slug,
+            suffixes={".json"},
+            preferred_suffix=".motion-relations",
+            require_preferred=True,
+        ),
     }
 
 
@@ -400,6 +447,7 @@ def find_matching_file(
     title_slug: str,
     suffixes: set[str],
     preferred_suffix: str | None = None,
+    require_preferred: bool = False,
 ) -> Path | None:
     if not directory.exists():
         return None
@@ -414,6 +462,8 @@ def find_matching_file(
         preferred = [path for path in candidates if path.stem.endswith(preferred_suffix)]
         if preferred:
             return max(preferred, key=lambda path: path.stat().st_mtime)
+        if require_preferred:
+            return None
     return max(candidates, key=lambda path: path.stat().st_mtime, default=None)
 
 
@@ -552,6 +602,21 @@ def frame_notes_summary(notes: list[dict[str, Any]]) -> str:
 def frame_notes_preview(notes: list[dict[str, Any]]) -> dict[str, Any] | None:
     items = [str(note["frame_path"]) for note in notes[:8] if note.get("frame_path")]
     return {"type": "gallery", "items": items} if items else None
+
+
+def motion_relations_summary(artifact: dict[str, Any]) -> str:
+    if not artifact:
+        return "人物/物体运动关系 artifact 尚未生成。这个节点用于承接 pose、tracking、optical flow 或 VL provider 输出，避免只靠文本猜测动作关系。"
+    relations = artifact.get("relations") or []
+    pending = sum(1 for relation in relations if relation.get("status") == "needs_pose_or_vl")
+    capabilities = artifact.get("capabilities") or {}
+    enabled = ", ".join(sorted(key for key, value in capabilities.items() if value))
+    return (
+        f"已生成 {len(relations)} 条运动关系候选。"
+        f"provider={artifact.get('provider')}；"
+        f"待 pose/tracking/VL 补强 {pending} 条；"
+        f"已启用能力：{enabled or 'baseline only'}。"
+    )
 
 
 def timeline_summary(events: list[dict[str, Any]]) -> str:
@@ -775,6 +840,54 @@ def build_frame_note_nodes(
                 preview={"type": "image", "src": str(frame_path)} if frame_path else None,
                 media_anchor=media_anchor_for_event(
                     {"start_seconds": note.get("timestamp_seconds")},
+                    source_path=source_path,
+                    audio_path=None,
+                ),
+            )
+        )
+    return nodes
+
+
+def build_motion_relation_nodes(
+    relations: list[dict[str, Any]],
+    relations_path: Path | None,
+    *,
+    source_path: Path | None = None,
+    max_relations: int = 10,
+) -> list[dict[str, Any]]:
+    nodes: list[dict[str, Any]] = []
+    for index, relation in enumerate(relations[:max_relations]):
+        start_seconds = optional_seconds(relation.get("start_seconds"))
+        status = str(relation.get("status") or "unknown")
+        label = str(relation.get("label") or relation.get("kind") or f"Relation {index + 1}")
+        providers = relation.get("needs_provider") or []
+        if isinstance(providers, list):
+            providers_text = ",".join(str(provider) for provider in providers)
+        else:
+            providers_text = str(providers)
+        frame_indices = relation.get("source_frame_indices") or []
+        body = (
+            f"{relation.get('summary') or 'Motion relation candidate.'} "
+            f"frames={frame_indices}；"
+            f"shot_ids={relation.get('shot_ids') or []}；"
+            f"needs={providers_text or 'none'}。"
+        )
+        nodes.append(
+            node(
+                f"motion-relation-{index + 1}",
+                "timeline",
+                f"Motion {index + 1}: {label}",
+                body,
+                1180,
+                760 + index * 110,
+                [
+                    status,
+                    str(relation.get("kind") or "relation"),
+                    format_event_timestamp(start_seconds),
+                ],
+                relations_path,
+                media_anchor=media_anchor_for_event(
+                    {"start_seconds": relation.get("start_seconds")},
                     source_path=source_path,
                     audio_path=None,
                 ),
