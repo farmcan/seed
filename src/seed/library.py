@@ -10,6 +10,8 @@ from seed.models import CreatorVideoList, Methodology, SourceRecord
 
 LIBRARY_DIRS = [
     "raw",
+    "shorts",
+    "shots",
     "transcripts",
     "notes",
     "runs",

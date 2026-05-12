@@ -79,6 +79,8 @@ run-creator-pipeline
 - 创作者视频列表发现也属于 `sources/`，输出 `library/notes/*.creator-videos.yaml`，不要直接混入 ASR、视觉分析或总结逻辑；Bilibili 用户名搜索被风控时优先尝试 `--owner-id <mid>`。
 - 创作者批量入库从 `*.creator-videos.yaml` 读取 URL，复用 `download_url` 和 `save_source_record`，不要复制单链接下载逻辑；已有 source record 但没有本地 `raw_path` 时不能跳过下载。
 - ASR 长音频分段在 `seed.asr.chunked`，不要在 CLI 或 provider 里重复实现切片与合并；线上 ASR provider 可能同时限制文件大小和音频时长，默认长于 300 秒要切片。
+- 短视频结构分析在 `seed.shorts`，不要把 shot detection 写进 timeline 或 visual notes；`run-video-pipeline` 会生成 short profile，并仅在 `is_short_form` 为 true 时生成 shots artifact。
+- shot detection 当前默认是 `ffmpeg-scene` baseline；后续接 PySceneDetect、TransNetV2 时必须做成 provider，不要把重依赖放进默认路径。
 - Qwen-VL 成本记录在 `seed.costs`，`analyze-frames` 必须按单条视频写入 `library/costs/*.cost.json`；`run-video-pipeline` 和 `build-cost-ledger` 必须写入 `library/costs/*.ledger.json`；费用是基于 token usage 和配置单价的估算，实际账单以服务商后台为准。
 - 创作者批量任务支持 `--max-estimated-cost` 预算门槛；达到预算后停止后续视频，并在 run manifest 写入 `budget_exceeded`。
 - 任何外部模型/API 调用都要考虑成本记录；如果 provider 暂时拿不到 token，就写 `reserved` 或 `unknown`，不要伪造 token 或金额。
@@ -88,7 +90,7 @@ run-creator-pipeline
 - 从 creator profile 生成的 `library/skills/` 和 `library/checks/` 都是 draft，必须通过 `review-agent-assets` 更新 review manifest 后再安装或长期使用。
 - Reflection log 只追加记录；`suggest-revisions` 只生成修订建议草稿，不直接覆盖 creator profile、skills 或 checks。
 - `aggregate-owner` 默认至少 3 条 video semantics；如果用 `--min-videos 1` 或 `2`，输出只能视为 provisional。
-- Video DAG 构建支持按标题自动发现本地产物；显式传入的路径优先，resolver 逻辑在 `seed.graphs.video_dag.resolve_video_dag_artifacts`。
+- Video DAG 构建支持按标题自动发现本地产物；显式传入的路径优先，resolver 逻辑在 `seed.graphs.video_dag.resolve_video_dag_artifacts`。短视频的 short profile 和 shots artifact 也应进入 resolver 和 DAG。
 - DAG 画布调试优先用 `seed serve-video-dag <graph.json>` 打开；需要给用户直接查看时，用 `seed export-video-dag-html <graph.json>` 生成静态 HTML。
 - DAG timeline event 如果有 `start_seconds`，应通过 `media_anchor` 连接本地视频/音频；不要只把时间点写成普通文本。
 - DOM/ELK 画布使用 vendored `elkjs` layered layout 做自动分层布局；手写布局只能作为本地脚本加载失败的 fallback。画布必须保留卡片式信息密度和媒体详情能力，不能降级成低信息密度图谱。
@@ -151,8 +153,10 @@ run-creator-pipeline
 ```text
 library/raw/          原始视频、音频、metadata
 library/raw/*.chunks/ ASR 分片音频
+library/shorts/       短视频 profile JSON
+library/shots/        shot boundary JSON
 library/transcripts/  ASR 或人工 transcript
-library/frames/       抽帧截图
+library/frames/       抽帧截图和 shot 代表帧
 library/notes/        source record、creator video list、visual notes、quick summary
 library/runs/         pipeline run manifest，待实现
 library/semantics/    单条视频语义
@@ -183,6 +187,8 @@ git status -sb
 ```bash
 .venv/bin/seed --help
 .venv/bin/seed run-video-pipeline --help
+.venv/bin/seed profile-short-video --help
+.venv/bin/seed detect-shots --help
 .venv/bin/seed fetch-creator-videos --help
 .venv/bin/seed ingest-creator-videos --help
 .venv/bin/seed run-creator-pipeline --help

@@ -94,8 +94,10 @@ def test_run_video_pipeline_for_local_media(tmp_path, monkeypatch):
     assert data["title"] == "Demo"
     assert [step["step"] for step in data["steps"]] == [
         "source",
+        "short_profile",
         "transcribe",
         "extract_frames",
+        "detect_shots",
         "analyze_video_semantics",
         "build_cost_ledger",
         "build_timeline",

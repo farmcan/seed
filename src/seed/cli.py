@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Annotated
 from urllib.parse import quote
@@ -97,6 +98,16 @@ from seed.semantics.validation import (
 )
 from seed.sources.creator_videos import fetch_creator_video_list
 from seed.sources.yt_dlp_adapter import download_url
+from seed.shorts import (
+    DEFAULT_SCENE_THRESHOLD,
+    DEFAULT_SHORT_MAX_SECONDS,
+    build_short_video_profile,
+    build_shots_artifact,
+    short_profile_output_path,
+    shots_output_path,
+    write_short_video_profile,
+    write_shots_artifact,
+)
 from seed.summarizers.codex_runner import (
     DEFAULT_SKILL_PATH,
     run_codex_summary,
@@ -297,7 +308,7 @@ def run_creator_pipeline_cmd(
     max_filesize_mb: Annotated[int | None, typer.Option("--max-filesize-mb")] = 100,
     cookies_from_browser: Annotated[str | None, typer.Option("--cookies-from-browser")] = None,
     vision: Annotated[bool, typer.Option("--vision/--no-vision")] = True,
-    force: Annotated[bool, typer.Option("--force/--skip-existing")] = False,
+    force: Annotated[bool, typer.Option("--force/--reuse-existing")] = False,
     max_estimated_cost: Annotated[
         float | None,
         typer.Option("--max-estimated-cost", help="Stop before the next video once this budget is reached."),
@@ -385,6 +396,13 @@ def run_video_pipeline_cmd(
     max_frames: Annotated[int, typer.Option("--max-frames", min=1)] = 12,
     vision: Annotated[bool, typer.Option("--vision/--no-vision")] = True,
     vision_model: Annotated[str, typer.Option("--vision-model")] = DEFAULT_QWEN_VL_MODEL,
+    short_form: Annotated[
+        bool | None,
+        typer.Option("--short-form/--long-form", help="Override automatic <=60s short-form detection."),
+    ] = None,
+    short_max_seconds: Annotated[float, typer.Option("--short-max-seconds", min=1)] = DEFAULT_SHORT_MAX_SECONDS,
+    shot_detection: Annotated[bool, typer.Option("--shot-detection/--no-shot-detection")] = True,
+    shot_threshold: Annotated[float, typer.Option("--shot-threshold", min=0.01, max=1.0)] = DEFAULT_SCENE_THRESHOLD,
     codex_model: Annotated[str | None, typer.Option("--codex-model")] = None,
     root: Annotated[Path, typer.Option("--root")] = Path("library"),
 ) -> None:
@@ -410,6 +428,10 @@ def run_video_pipeline_cmd(
             max_frames=max_frames,
             vision=vision,
             vision_model=vision_model,
+            short_form=short_form,
+            short_max_seconds=short_max_seconds,
+            shot_detection=shot_detection,
+            shot_threshold=shot_threshold,
             codex_model=codex_model,
             force=force,
         )
@@ -423,6 +445,10 @@ def run_video_pipeline_cmd(
         console.print(f"created cost report at {context.cost_path}")
     if context.cost_ledger_path:
         console.print(f"created cost ledger at {context.cost_ledger_path}")
+    if context.short_profile_path:
+        console.print(f"created short profile at {context.short_profile_path}")
+    if context.shots_path:
+        console.print(f"created shots artifact at {context.shots_path}")
 
 
 @app.command("distill-note")
@@ -563,6 +589,63 @@ def extract_frames_cmd(
     )
     console.print(f"created frames at {frame_dir}")
     console.print(f"saved manifest at {frame_dir / 'frames.json'}")
+
+
+@app.command("profile-short-video")
+def profile_short_video(
+    media_path: Annotated[Path, typer.Argument(help="Downloaded video file.")],
+    title: Annotated[str | None, typer.Option("--title")] = None,
+    platform: Annotated[str | None, typer.Option("--platform")] = None,
+    short_max_seconds: Annotated[float, typer.Option("--short-max-seconds", min=1)] = DEFAULT_SHORT_MAX_SECONDS,
+    root: Annotated[Path, typer.Option("--root")] = Path("library"),
+) -> None:
+    resolved_title = title or media_path.stem
+    profile = build_short_video_profile(
+        media_path=media_path,
+        title=resolved_title,
+        platform=platform,
+        short_max_seconds=short_max_seconds,
+    )
+    output_path = short_profile_output_path(library_root=root, title=resolved_title)
+    write_short_video_profile(output_path, profile)
+    console.print(f"created short profile at {output_path}")
+    console.print(
+        "short profile: "
+        f"duration={profile.get('duration_seconds')}s, "
+        f"fps={profile.get('fps')}, "
+        f"vertical={profile.get('is_vertical')}, "
+        f"is_short_form={profile.get('is_short_form')}"
+    )
+
+
+@app.command("detect-shots")
+def detect_shots(
+    media_path: Annotated[Path, typer.Argument(help="Downloaded video file.")],
+    title: Annotated[str | None, typer.Option("--title")] = None,
+    profile_path: Annotated[Path | None, typer.Option("--profile")] = None,
+    threshold: Annotated[float, typer.Option("--threshold", min=0.01, max=1.0)] = DEFAULT_SCENE_THRESHOLD,
+    root: Annotated[Path, typer.Option("--root")] = Path("library"),
+) -> None:
+    resolved_title = title or media_path.stem
+    if profile_path and profile_path.exists():
+        profile = json.loads(profile_path.read_text(encoding="utf-8"))
+    else:
+        profile = build_short_video_profile(
+            media_path=media_path,
+            title=resolved_title,
+            platform=None,
+        )
+    artifact = build_shots_artifact(
+        media_path=media_path,
+        title=resolved_title,
+        profile=profile,
+        library_root=root,
+        threshold=threshold,
+    )
+    output_path = shots_output_path(library_root=root, title=resolved_title)
+    write_shots_artifact(output_path, artifact)
+    console.print(f"created shots artifact at {output_path}")
+    console.print(f"shots: {len(artifact['shots'])}")
 
 
 @app.command("analyze-frames")
@@ -1011,6 +1094,8 @@ def build_video_dag(
     claims_path: Annotated[Path | None, typer.Option("--claims")] = None,
     cost_path: Annotated[Path | None, typer.Option("--cost")] = None,
     creator_profile: Annotated[Path | None, typer.Option("--creator-profile")] = None,
+    short_profile: Annotated[Path | None, typer.Option("--short-profile")] = None,
+    shots_path: Annotated[Path | None, typer.Option("--shots")] = None,
     root: Annotated[Path, typer.Option("--root")] = Path("library"),
 ) -> None:
     artifacts = resolve_video_dag_artifacts(
@@ -1026,6 +1111,8 @@ def build_video_dag(
         claims_path=claims_path,
         cost_path=cost_path,
         creator_profile_path=creator_profile,
+        short_profile_path=short_profile,
+        shots_path=shots_path,
     )
     graph = build_video_dag_graph(
         title=title,
@@ -1041,6 +1128,8 @@ def build_video_dag(
         claims_path=artifacts["claims_path"],
         cost_path=artifacts["cost_path"],
         creator_profile_path=artifacts["creator_profile_path"],
+        short_profile_path=artifacts["short_profile_path"],
+        shots_path=artifacts["shots_path"],
     )
     output_path = video_dag_output_path(library_root=root, title=title)
     write_video_dag_graph(output_path, graph)

@@ -32,6 +32,8 @@ def build_video_dag_graph(
     claims_path: Path | None = None,
     cost_path: Path | None = None,
     creator_profile_path: Path | None = None,
+    short_profile_path: Path | None = None,
+    shots_path: Path | None = None,
 ) -> dict[str, Any]:
     inferred_owner = owner or infer_owner(semantics_path) or "unknown"
     inferred_platform = platform or infer_platform(semantics_path) or "unknown"
@@ -44,6 +46,9 @@ def build_video_dag_graph(
     timeline_events = timeline.get("events", []) if timeline else []
     claims = load_claims(claims_path)
     cost_report = load_cost_report(cost_path)
+    short_profile = load_json_artifact(short_profile_path)
+    shots_artifact = load_json_artifact(shots_path)
+    shots = shots_artifact.get("shots", []) if shots_artifact else []
 
     nodes = [
         node(
@@ -121,6 +126,34 @@ def build_video_dag_graph(
                 f"{len(timeline_events)} events" if timeline_events else "no events",
             ],
             timeline_path,
+        ),
+        node(
+            "short-profile",
+            "timeline",
+            "Short Video Profile",
+            short_profile_summary(short_profile),
+            170,
+            380,
+            [
+                path_metric(short_profile_path),
+                "short" if short_profile.get("is_short_form") else "long",
+                aspect_metric(short_profile),
+            ],
+            short_profile_path,
+        ),
+        node(
+            "shots",
+            "frame",
+            "Shot Strip",
+            shots_summary(shots_artifact),
+            500,
+            520,
+            [
+                path_metric(shots_path),
+                f"{len(shots)} shots" if shots else "no shots",
+            ],
+            shots_path,
+            preview=shot_strip_preview(shots),
         ),
         node(
             "semantics",
@@ -223,6 +256,12 @@ def build_video_dag_graph(
     nodes.extend(timeline_nodes)
     claim_nodes = build_claim_nodes(claims, claims_path)
     nodes.extend(claim_nodes)
+    shot_nodes = build_shot_nodes(
+        shots,
+        shots_path,
+        source_path=source_path,
+    )
+    nodes.extend(shot_nodes)
 
     edges = [
         ["source", "video-media"],
@@ -230,6 +269,9 @@ def build_video_dag_graph(
         ["video-media", "frames"],
         ["audio-media", "transcript"],
         ["frames", "visual"],
+        ["video-media", "short-profile"],
+        ["short-profile", "shots"],
+        ["shots", "visual"],
         ["transcript", "timeline"],
         ["frames", "timeline"],
         ["transcript", "semantics"],
@@ -250,6 +292,7 @@ def build_video_dag_graph(
     ]
     edges.extend(["timeline", event_node["id"]] for event_node in timeline_nodes)
     edges.extend(["factcheck", claim_node["id"]] for claim_node in claim_nodes)
+    edges.extend(["shots", shot_node["id"]] for shot_node in shot_nodes)
 
     return {
         "version": 1,
@@ -275,6 +318,8 @@ def resolve_video_dag_artifacts(
     claims_path: Path | None = None,
     cost_path: Path | None = None,
     creator_profile_path: Path | None = None,
+    short_profile_path: Path | None = None,
+    shots_path: Path | None = None,
 ) -> dict[str, Path | None]:
     title_slug = slugify(title)
     resolved_source = source_path or find_matching_file(
@@ -309,6 +354,10 @@ def resolve_video_dag_artifacts(
             preferred_suffix=".ledger",
         ),
         "creator_profile_path": creator_profile_path,
+        "short_profile_path": short_profile_path
+        or find_matching_file(library_root / "shorts", title_slug=title_slug, suffixes={".json"}),
+        "shots_path": shots_path
+        or find_matching_file(library_root / "shots", title_slug=title_slug, suffixes={".json"}),
     }
 
 
@@ -400,6 +449,59 @@ def load_cost_report(cost_path: Path | None) -> dict[str, Any]:
     if not cost_path or not cost_path.exists():
         return {}
     return json.loads(cost_path.read_text(encoding="utf-8"))
+
+
+def load_json_artifact(path: Path | None) -> dict[str, Any]:
+    if not path or not path.exists():
+        return {}
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def short_profile_summary(profile: dict[str, Any]) -> str:
+    if not profile:
+        return "判断视频是否进入 60s 短视频强分析链路：duration、fps、宽高比、竖屏和音轨。当前没有找到 short profile artifact。"
+    duration = profile.get("duration_seconds")
+    fps = profile.get("fps")
+    width = profile.get("width")
+    height = profile.get("height")
+    is_short = "短视频" if profile.get("is_short_form") else "长视频"
+    return (
+        f"已生成 short profile：{is_short}，"
+        f"duration={duration}s，fps={fps}，resolution={width}x{height}，"
+        f"vertical={profile.get('is_vertical')}。"
+    )
+
+
+def aspect_metric(profile: dict[str, Any]) -> str:
+    if not profile:
+        return "aspect unknown"
+    width = profile.get("width")
+    height = profile.get("height")
+    if not width or not height:
+        return "aspect unknown"
+    return f"{width}x{height}"
+
+
+def shots_summary(artifact: dict[str, Any]) -> str:
+    shots = artifact.get("shots") or []
+    if not shots:
+        return "shot boundary artifact 用来展示短视频镜头切分、代表帧、转场和节奏密度。当前没有找到 shots artifact。"
+    durations = [shot.get("duration_seconds") for shot in shots if shot.get("duration_seconds") is not None]
+    avg_duration = round(sum(durations) / len(durations), 2) if durations else None
+    return (
+        f"已生成 {len(shots)} 个 shot。"
+        f"平均 shot 时长 {avg_duration}s。"
+        f"provider={artifact.get('provider')}，threshold={artifact.get('threshold')}。"
+    )
+
+
+def shot_strip_preview(shots: list[dict[str, Any]]) -> dict[str, Any] | None:
+    items = [
+        str(shot["representative_frame_path"])
+        for shot in shots[:8]
+        if shot.get("representative_frame_path")
+    ]
+    return {"type": "gallery", "items": items} if items else None
 
 
 def timeline_summary(events: list[dict[str, Any]]) -> str:
@@ -538,6 +640,49 @@ def build_claim_nodes(
                 360 + index * 110,
                 [status, source_section],
                 Path(str(evidence_path)) if evidence_path else claims_path,
+            )
+        )
+    return nodes
+
+
+def build_shot_nodes(
+    shots: list[dict[str, Any]],
+    shots_path: Path | None,
+    *,
+    source_path: Path | None = None,
+    max_shots: int = 10,
+) -> list[dict[str, Any]]:
+    nodes: list[dict[str, Any]] = []
+    for index, shot in enumerate(shots[:max_shots]):
+        start_seconds = optional_seconds(shot.get("start_seconds"))
+        title = f"Shot {index + 1}: {format_event_timestamp(start_seconds)}"
+        frame_path = Path(str(shot["representative_frame_path"])) if shot.get("representative_frame_path") else None
+        body = (
+            f"{format_event_timestamp(shot.get('start_seconds'))} -> "
+            f"{format_event_timestamp(shot.get('end_seconds'))}；"
+            f"transition={shot.get('transition_type')}；"
+            f"代表帧用于检查主体、构图、字幕/OCR 和剪辑目的。"
+        )
+        nodes.append(
+            node(
+                f"shot-{index + 1}",
+                "frame",
+                title,
+                body,
+                850,
+                560 + index * 110,
+                [
+                    str(shot.get("transition_type") or "shot"),
+                    f"{shot.get('duration_seconds')}s" if shot.get("duration_seconds") is not None else "",
+                    str(shot.get("confidence") or ""),
+                ],
+                frame_path or shots_path,
+                preview={"type": "image", "src": str(frame_path)} if frame_path else None,
+                media_anchor=media_anchor_for_event(
+                    {"start_seconds": shot.get("start_seconds")},
+                    source_path=source_path,
+                    audio_path=None,
+                ),
             )
         )
     return nodes

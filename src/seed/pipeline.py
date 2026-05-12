@@ -36,6 +36,16 @@ from seed.semantics.analyzer import (
     run_video_semantics_analysis,
     video_semantics_output_path,
 )
+from seed.shorts import (
+    DEFAULT_SCENE_THRESHOLD,
+    DEFAULT_SHORT_MAX_SECONDS,
+    build_short_video_profile,
+    build_shots_artifact,
+    short_profile_output_path,
+    shots_output_path,
+    write_short_video_profile,
+    write_shots_artifact,
+)
 from seed.sources.yt_dlp_adapter import download_url
 from seed.timeline import build_timeline_artifact, timeline_output_path, write_timeline_artifact
 from seed.transcripts import transcript_output_path, write_transcript_markdown
@@ -71,6 +81,10 @@ class VideoPipelineOptions:
     vision: bool = True
     vision_model: str = DEFAULT_QWEN_VL_MODEL
     vision_prompt: str | None = None
+    short_form: bool | None = None
+    short_max_seconds: float = DEFAULT_SHORT_MAX_SECONDS
+    shot_detection: bool = True
+    shot_threshold: float = DEFAULT_SCENE_THRESHOLD
     semantics_skill_path: Path = DEFAULT_VIDEO_SEMANTICS_SKILL_PATH
     codex_model: str | None = None
     force: bool = False
@@ -87,6 +101,8 @@ class VideoPipelineContext:
     transcript_path: Path | None = None
     audio_path: Path | None = None
     frame_dir: Path | None = None
+    short_profile_path: Path | None = None
+    shots_path: Path | None = None
     visual_notes_path: Path | None = None
     cost_path: Path | None = None
     cost_ledger_path: Path | None = None
@@ -169,6 +185,7 @@ def run_video_pipeline(options: VideoPipelineOptions) -> tuple[VideoPipelineCont
         write_pipeline_manifest(manifest_path, options=options, context=context, steps=steps)
 
     run_step("source", lambda: _source_step(options, context), inputs={"source": options.source})
+    run_step("short_profile", lambda: _short_profile_step(options, context), inputs={"media_path": context.media_path})
     run_step(
         "transcribe",
         lambda: _transcribe_step(options, context),
@@ -177,6 +194,15 @@ def run_video_pipeline(options: VideoPipelineOptions) -> tuple[VideoPipelineCont
         model=options.asr_model or default_model_for_provider(options.asr_provider),
     )
     run_step("extract_frames", lambda: _frames_step(options, context), inputs={"media_path": context.media_path})
+    run_step(
+        "detect_shots",
+        lambda: _shots_step(options, context),
+        inputs={
+            "media_path": context.media_path,
+            "short_profile_path": context.short_profile_path,
+        },
+        provider="ffmpeg-scene",
+    )
     if options.vision:
         run_step(
             "analyze_frames",
@@ -335,6 +361,57 @@ def _frames_step(options: VideoPipelineOptions, context: VideoPipelineContext) -
     return {"frame_dir": context.frame_dir, "frames": len(load_frame_paths(context.frame_dir))}
 
 
+def _short_profile_step(options: VideoPipelineOptions, context: VideoPipelineContext) -> dict[str, Any]:
+    media_path = _require_path(context.media_path, "media_path")
+    output_path = short_profile_output_path(library_root=options.library_root, title=context.title)
+    if output_path.exists() and not options.force:
+        context.short_profile_path = output_path
+        return {"status": "skipped", "short_profile_path": output_path}
+
+    profile = build_short_video_profile(
+        media_path=media_path,
+        title=context.title,
+        platform=context.platform,
+        short_max_seconds=options.short_max_seconds,
+    )
+    if options.short_form is not None:
+        profile["is_short_form"] = options.short_form
+        profile["short_form_override"] = True
+    write_short_video_profile(output_path, profile)
+    context.short_profile_path = output_path
+    return {
+        "short_profile_path": output_path,
+        "duration_seconds": profile.get("duration_seconds"),
+        "is_short_form": profile.get("is_short_form"),
+    }
+
+
+def _shots_step(options: VideoPipelineOptions, context: VideoPipelineContext) -> dict[str, Any]:
+    if not options.shot_detection:
+        return {"status": "skipped", "reason": "shot detection disabled"}
+    media_path = _require_path(context.media_path, "media_path")
+    profile_path = _require_path(context.short_profile_path, "short_profile_path")
+    profile = yaml.safe_load(profile_path.read_text(encoding="utf-8")) or {}
+    if not profile.get("is_short_form"):
+        return {"status": "skipped", "reason": "not short form", "short_profile_path": profile_path}
+
+    output_path = shots_output_path(library_root=options.library_root, title=context.title)
+    if output_path.exists() and not options.force:
+        context.shots_path = output_path
+        return {"status": "skipped", "shots_path": output_path}
+
+    artifact = build_shots_artifact(
+        media_path=media_path,
+        title=context.title,
+        profile=profile,
+        library_root=options.library_root,
+        threshold=options.shot_threshold,
+    )
+    write_shots_artifact(output_path, artifact)
+    context.shots_path = output_path
+    return {"shots_path": output_path, "shots": len(artifact["shots"])}
+
+
 def _visual_step(options: VideoPipelineOptions, context: VideoPipelineContext) -> dict[str, Any]:
     frame_dir = _require_path(context.frame_dir, "frame_dir")
     frame_paths = load_frame_paths(frame_dir)
@@ -481,6 +558,8 @@ def _dag_step(options: VideoPipelineOptions, context: VideoPipelineContext) -> d
         timeline_path=context.timeline_path,
         claims_path=context.claims_path,
         cost_path=context.cost_ledger_path or context.cost_path,
+        short_profile_path=context.short_profile_path,
+        shots_path=context.shots_path,
     )
     graph = build_video_dag_graph(
         title=context.title,
@@ -496,6 +575,8 @@ def _dag_step(options: VideoPipelineOptions, context: VideoPipelineContext) -> d
         claims_path=artifacts["claims_path"],
         cost_path=artifacts["cost_path"],
         creator_profile_path=artifacts["creator_profile_path"],
+        short_profile_path=artifacts["short_profile_path"],
+        shots_path=artifacts["shots_path"],
     )
     output_path = video_dag_output_path(library_root=options.library_root, title=context.title)
     write_video_dag_graph(output_path, graph)

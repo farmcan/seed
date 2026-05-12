@@ -23,6 +23,8 @@ def test_build_video_dag_graph_uses_artifact_paths_and_metadata(tmp_path):
     timeline = tmp_path / "demo.timeline.json"
     claims = tmp_path / "demo.claims.json"
     cost = tmp_path / "demo.cost.json"
+    short_profile = tmp_path / "demo.short-video-profile.json"
+    shots = tmp_path / "demo.shots.json"
     video.write_bytes(b"video")
     audio.write_bytes(b"audio")
     transcript.write_text("# Transcript\n\n## Chunk 01\n\nhello\n\n## Chunk 02\n\nworld", encoding="utf-8")
@@ -90,6 +92,38 @@ def test_build_video_dag_graph_uses_artifact_paths_and_metadata(tmp_path):
         ),
         encoding="utf-8",
     )
+    short_profile.write_text(
+        json.dumps(
+            {
+                "is_short_form": True,
+                "duration_seconds": 12,
+                "fps": 30,
+                "width": 1080,
+                "height": 1920,
+                "is_vertical": True,
+            }
+        ),
+        encoding="utf-8",
+    )
+    shots.write_text(
+        json.dumps(
+            {
+                "provider": "ffmpeg-scene",
+                "threshold": 0.35,
+                "shots": [
+                    {
+                        "start_seconds": 0,
+                        "end_seconds": 3,
+                        "duration_seconds": 3,
+                        "transition_type": "start",
+                        "representative_frame_path": str(frames / "frame_0001.jpg"),
+                        "confidence": "medium",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
 
     graph = build_video_dag_graph(
         title="demo",
@@ -100,6 +134,8 @@ def test_build_video_dag_graph_uses_artifact_paths_and_metadata(tmp_path):
         timeline_path=timeline,
         claims_path=claims,
         cost_path=cost,
+        short_profile_path=short_profile,
+        shots_path=shots,
     )
 
     assert graph["owner"] == "demo-up"
@@ -114,6 +150,9 @@ def test_build_video_dag_graph_uses_artifact_paths_and_metadata(tmp_path):
     cta_event_node = next(node for node in graph["nodes"] if node["id"] == "timeline-event-2")
     factcheck_node = next(node for node in graph["nodes"] if node["id"] == "factcheck")
     cost_node = next(node for node in graph["nodes"] if node["id"] == "costs")
+    short_profile_node = next(node for node in graph["nodes"] if node["id"] == "short-profile")
+    shots_node = next(node for node in graph["nodes"] if node["id"] == "shots")
+    shot_node = next(node for node in graph["nodes"] if node["id"] == "shot-1")
     assert "2 chunks" in transcript_node["metrics"]
     assert "1 frames" in frame_node["metrics"]
     assert "2 events" in timeline_node["metrics"]
@@ -129,7 +168,13 @@ def test_build_video_dag_graph_uses_artifact_paths_and_metadata(tmp_path):
     assert any(node["id"] == "claim-1" for node in graph["nodes"])
     assert ["factcheck", "claim-1"] in graph["edges"]
     assert "input 1000 tokens" in cost_node["body"]
+    assert "短视频" in short_profile_node["body"]
+    assert "1 shots" in shots_node["metrics"]
+    assert shots_node["preview"]["type"] == "gallery"
+    assert shot_node["media_anchor"]["start_seconds"] == 0
     assert ["visual", "costs"] in graph["edges"]
+    assert ["short-profile", "shots"] in graph["edges"]
+    assert ["shots", "shot-1"] in graph["edges"]
     assert ["costs", "skills"] in graph["edges"]
     assert video_node["preview"]["type"] == "video"
     assert audio_node["preview"]["type"] == "audio"
@@ -186,4 +231,6 @@ def test_resolve_video_dag_artifacts_by_title(tmp_path):
         "claims_path": verified_claim,
         "cost_path": cost,
         "creator_profile_path": None,
+        "short_profile_path": None,
+        "shots_path": None,
     }
