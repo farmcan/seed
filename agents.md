@@ -101,7 +101,7 @@ run-creator-pipeline
 - 内容分析模块不要直接调用 `codex exec`，统一用 `seed.agents.codex.run_codex_prompt`。
 - 不要在多个地方手写 Markdown frontmatter 解析，统一用 `seed.markdown`。
 - 本地私有产物都放在 `library/`，默认不要提交。
-- 真实样本状态：2026-05-11 已用 `影视飓风` 3 条 Bilibili 视频跑通 creator profile、validation、agent asset draft 和 creator DAG；该样本使用 `--no-vision`，视觉结论只能当作口播描述的二手证据。
+- 真实样本状态：2026-05-11 已用 `影视飓风` 3 条 Bilibili 视频跑通 creator profile、validation、agent asset draft 和 creator DAG；2026-05-12 已补跑 Qwen-VL visual notes 并重建单条视频与创作者级产物。注意视觉证据是 12 帧抽样，不等于逐帧完整分析。
 
 ## Lint 规则
 

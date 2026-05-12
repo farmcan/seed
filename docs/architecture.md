@@ -141,6 +141,6 @@ prompt 构建时会自动注入：
 
 ## 当前真实样本
 
-2026-05-11 已用 `影视飓风` 跑通 3 条 Bilibili 视频样本，生成单条视频 DAG、成本账本、creator profile、creator validation、agent asset draft 和 creator DAG。该样本使用 `--no-vision` 控制成本，所以创作者级视觉结论只能视为 transcript-described evidence；后续要补强视觉语言时，应对同一批视频重跑 Qwen-VL visual notes。
+2026-05-11 已用 `影视飓风` 跑通 3 条 Bilibili 视频样本，生成单条视频 DAG、成本账本、creator profile、creator validation、agent asset draft 和 creator DAG。2026-05-12 已对同一批视频补跑 Qwen-VL visual notes，并重建 video semantics、timeline、claims、video DAG、creator profile 和 creator DAG。当前视觉结论来自 12 帧抽样关键帧，适合支撑场景、物体、屏幕文字和构图判断，不适合作为逐帧动作或精确时间点证据。
 
 同日验证了 Bilibili `owner_id` 入口：`影视飓风` mid `946974` 可用；`燕三嘤嘤嘤` mid `430426421` 在当前网络下仍触发 Bilibili 352/412 风控。平台发现失败时应优先尝试 cookies 或手动 `*.creator-videos.yaml`，不要把失败归因到 ASR、DAG 或聚合层。

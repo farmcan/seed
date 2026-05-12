@@ -103,7 +103,7 @@
 
 - [x] 跑通真实 UP 三条视频样本。
   - 2026-05-11 用 `影视飓风` 跑通 3 条 Bilibili 视频：下载、ASR 分段、video semantics、timeline、claims、cost ledger、video DAG、creator profile、creator validation、agent assets 和 creator DAG。
-  - 本轮为了控制成本使用 `--no-vision`，因此 creator profile 的视觉语言仍是 transcript-described evidence，不是独立 visual evidence。
+  - 2026-05-12 已对同一批 3 条视频补跑 Qwen-VL visual notes，并重建 video semantics、timeline、claims、video DAG、creator profile 和 creator DAG；当前视觉证据仍是 12 帧抽样，不等于逐帧完整分析。
 - [x] 增加 Bilibili `owner_id` 入口。
   - `fetch-creator-videos` 和 `run-creator-pipeline` 支持 `--owner-id`，可在平台用户名搜索被风控时直接用 Bilibili mid 拉取 UP 空间。
   - 实测 `影视飓风` mid `946974` 可获取列表；`燕三嘤嘤嘤` mid `430426421` 在当前网络下仍遇到 Bilibili 352/412 风控，后续需要 cookies 或手动列表兜底。
