@@ -12,6 +12,7 @@ from seed.library import init_library, slugify
 
 DEFAULT_SHORT_MAX_SECONDS = 60.0
 DEFAULT_SCENE_THRESHOLD = 0.35
+DEFAULT_FRAME_MODE = "shot-keyframes"
 
 
 def short_profile_output_path(*, library_root: Path, title: str) -> Path:
@@ -27,6 +28,16 @@ def shots_output_path(*, library_root: Path, title: str) -> Path:
 def shot_frame_output_dir(*, library_root: Path, title: str) -> Path:
     init_library(library_root)
     return library_root / "frames" / f"{slugify(title)}.shots"
+
+
+def dense_frame_output_dir(*, library_root: Path, title: str) -> Path:
+    init_library(library_root)
+    return library_root / "frames" / f"{slugify(title)}.dense"
+
+
+def frame_notes_output_path(*, library_root: Path, title: str) -> Path:
+    init_library(library_root)
+    return library_root / "frames" / f"{slugify(title)}.frame-notes.jsonl"
 
 
 def build_short_video_profile(
@@ -122,6 +133,191 @@ def write_shots_artifact(path: Path, artifact: dict[str, Any]) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(artifact, ensure_ascii=False, indent=2), encoding="utf-8")
     return path
+
+
+def build_frame_notes(
+    *,
+    media_path: Path,
+    title: str,
+    profile: dict[str, Any],
+    shots_artifact: dict[str, Any] | None,
+    library_root: Path,
+    frame_mode: str = DEFAULT_FRAME_MODE,
+    fps: float = 1.0,
+) -> list[dict[str, Any]]:
+    resolved_mode = normalize_frame_mode(frame_mode)
+    if resolved_mode == "shot-keyframes":
+        frames = frame_records_from_shots(shots_artifact or {})
+    else:
+        frames = extract_dense_frames(
+            media_path=media_path,
+            title=title,
+            library_root=library_root,
+            frame_mode=resolved_mode,
+            fps=fps,
+            profile=profile,
+        )
+    return [
+        {
+            "kind": "short_frame_note",
+            "version": 1,
+            "title": title,
+            "frame_mode": resolved_mode,
+            "index": index,
+            "timestamp_seconds": frame["timestamp_seconds"],
+            "frame_path": frame["frame_path"],
+            "shot_id": frame.get("shot_id"),
+            "shot_index": frame.get("shot_index"),
+            "image": probe_image(Path(frame["frame_path"])),
+            "visual_provider": "none",
+            "vl_caption": None,
+            "ocr_text": None,
+            "subjects": [],
+            "objects": [],
+            "scene": None,
+            "composition": None,
+            "motion_or_action": None,
+            "human_motion_relation": None,
+            "subtitle": {
+                "present": None,
+                "text": None,
+                "style": None,
+                "position": None,
+            },
+            "visual_effects": {
+                "mask": None,
+                "picture_in_picture": None,
+                "sticker": None,
+                "filter_or_lut": None,
+                "speed_ramp": None,
+                "text_overlay": None,
+            },
+            "editing": {
+                "transition": None,
+                "cut_type": None,
+                "camera_motion": None,
+                "pacing": None,
+                "sound_sync": None,
+            },
+            "editing_intent": None,
+            "status": "pending_vl",
+        }
+        for index, frame in enumerate(frames, start=1)
+    ]
+
+
+def write_frame_notes(path: Path, notes: list[dict[str, Any]]) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "\n".join(json.dumps(note, ensure_ascii=False) for note in notes) + ("\n" if notes else ""),
+        encoding="utf-8",
+    )
+    return path
+
+
+def load_frame_notes(path: Path | None) -> list[dict[str, Any]]:
+    if not path or not path.exists():
+        return []
+    return [
+        json.loads(line)
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+
+
+def normalize_frame_mode(frame_mode: str) -> str:
+    allowed = {"shot-keyframes", "fps", "every-frame"}
+    if frame_mode not in allowed:
+        allowed_text = ", ".join(sorted(allowed))
+        raise ValueError(f"Unsupported frame mode: {frame_mode}. Allowed: {allowed_text}")
+    return frame_mode
+
+
+def frame_records_from_shots(shots_artifact: dict[str, Any]) -> list[dict[str, Any]]:
+    records = []
+    for shot in shots_artifact.get("shots") or []:
+        frame_path = shot.get("representative_frame_path")
+        if not frame_path:
+            continue
+        records.append(
+            {
+                "timestamp_seconds": shot.get("representative_seconds"),
+                "frame_path": frame_path,
+                "shot_id": shot.get("id"),
+                "shot_index": shot.get("index"),
+            }
+        )
+    return records
+
+
+def extract_dense_frames(
+    *,
+    media_path: Path,
+    title: str,
+    library_root: Path,
+    frame_mode: str,
+    fps: float,
+    profile: dict[str, Any],
+) -> list[dict[str, Any]]:
+    output_dir = dense_frame_output_dir(library_root=library_root, title=title)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    for existing in output_dir.glob("dense_*.jpg"):
+        existing.unlink()
+    resolved_fps = profile.get("fps") if frame_mode == "every-frame" else fps
+    if not resolved_fps or float(resolved_fps) <= 0:
+        resolved_fps = fps
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-i",
+            str(media_path),
+            "-vf",
+            f"fps={float(resolved_fps):.6f}",
+            "-q:v",
+            "2",
+            str(output_dir / "dense_%05d.jpg"),
+        ],
+        check=True,
+    )
+    return [
+        {
+            "timestamp_seconds": round((index - 1) / float(resolved_fps), 3),
+            "frame_path": str(path),
+        }
+        for index, path in enumerate(sorted(output_dir.glob("dense_*.jpg")), start=1)
+    ]
+
+
+def probe_image(path: Path) -> dict[str, Any]:
+    result = subprocess.run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=width,height",
+            "-of",
+            "json",
+            str(path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return {}
+    data = json.loads(result.stdout or "{}")
+    stream = (data.get("streams") or [{}])[0]
+    return {
+        "width": as_int(stream.get("width")),
+        "height": as_int(stream.get("height")),
+    }
 
 
 def probe_video(media_path: Path) -> dict[str, Any]:

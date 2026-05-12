@@ -1,6 +1,8 @@
 from seed.shorts import (
+    build_frame_notes,
     build_short_video_profile,
     build_shots_artifact,
+    frame_notes_output_path,
     normalize_boundaries,
     parse_frame_rate,
     short_profile_output_path,
@@ -14,6 +16,9 @@ def test_short_artifact_paths(tmp_path):
     )
     assert shots_output_path(library_root=tmp_path, title="Demo 短视频") == (
         tmp_path / "shots" / "demo-短视频.shots.json"
+    )
+    assert frame_notes_output_path(library_root=tmp_path, title="Demo 短视频") == (
+        tmp_path / "frames" / "demo-短视频.frame-notes.jsonl"
     )
 
 
@@ -77,3 +82,35 @@ def test_build_short_video_profile_can_be_short(monkeypatch, tmp_path):
     assert profile["is_short_form"] is True
     assert profile["is_vertical"] is True
     assert profile["aspect_ratio"] == 0.5625
+
+
+def test_build_frame_notes_from_shot_keyframes(tmp_path, monkeypatch):
+    frame = tmp_path / "shot.jpg"
+    frame.write_bytes(b"jpg")
+    media = tmp_path / "demo.mp4"
+    media.write_bytes(b"video")
+
+    monkeypatch.setattr("seed.shorts.probe_image", lambda path: {"width": 100, "height": 200})
+
+    notes = build_frame_notes(
+        media_path=media,
+        title="Demo",
+        profile={"duration_seconds": 5.0},
+        shots_artifact={
+            "shots": [
+                {
+                    "id": "shot-001",
+                    "index": 1,
+                    "representative_seconds": 2.5,
+                    "representative_frame_path": str(frame),
+                }
+            ]
+        },
+        library_root=tmp_path / "library",
+    )
+
+    assert len(notes) == 1
+    assert notes[0]["timestamp_seconds"] == 2.5
+    assert notes[0]["shot_id"] == "shot-001"
+    assert notes[0]["image"] == {"width": 100, "height": 200}
+    assert notes[0]["status"] == "pending_vl"

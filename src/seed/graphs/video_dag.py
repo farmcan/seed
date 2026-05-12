@@ -34,6 +34,7 @@ def build_video_dag_graph(
     creator_profile_path: Path | None = None,
     short_profile_path: Path | None = None,
     shots_path: Path | None = None,
+    frame_notes_path: Path | None = None,
 ) -> dict[str, Any]:
     inferred_owner = owner or infer_owner(semantics_path) or "unknown"
     inferred_platform = platform or infer_platform(semantics_path) or "unknown"
@@ -49,6 +50,7 @@ def build_video_dag_graph(
     short_profile = load_json_artifact(short_profile_path)
     shots_artifact = load_json_artifact(shots_path)
     shots = shots_artifact.get("shots", []) if shots_artifact else []
+    frame_notes = load_jsonl_artifact(frame_notes_path)
 
     nodes = [
         node(
@@ -154,6 +156,20 @@ def build_video_dag_graph(
             ],
             shots_path,
             preview=shot_strip_preview(shots),
+        ),
+        node(
+            "frame-notes",
+            "frame",
+            "Frame Evidence Notes",
+            frame_notes_summary(frame_notes),
+            500,
+            760,
+            [
+                path_metric(frame_notes_path),
+                f"{len(frame_notes)} frames" if frame_notes else "no frame notes",
+            ],
+            frame_notes_path,
+            preview=frame_notes_preview(frame_notes),
         ),
         node(
             "semantics",
@@ -262,6 +278,12 @@ def build_video_dag_graph(
         source_path=source_path,
     )
     nodes.extend(shot_nodes)
+    frame_note_nodes = build_frame_note_nodes(
+        frame_notes,
+        frame_notes_path,
+        source_path=source_path,
+    )
+    nodes.extend(frame_note_nodes)
 
     edges = [
         ["source", "video-media"],
@@ -271,6 +293,7 @@ def build_video_dag_graph(
         ["frames", "visual"],
         ["video-media", "short-profile"],
         ["short-profile", "shots"],
+        ["shots", "frame-notes"],
         ["shots", "visual"],
         ["transcript", "timeline"],
         ["frames", "timeline"],
@@ -293,6 +316,7 @@ def build_video_dag_graph(
     edges.extend(["timeline", event_node["id"]] for event_node in timeline_nodes)
     edges.extend(["factcheck", claim_node["id"]] for claim_node in claim_nodes)
     edges.extend(["shots", shot_node["id"]] for shot_node in shot_nodes)
+    edges.extend(["frame-notes", frame_node["id"]] for frame_node in frame_note_nodes)
 
     return {
         "version": 1,
@@ -320,6 +344,7 @@ def resolve_video_dag_artifacts(
     creator_profile_path: Path | None = None,
     short_profile_path: Path | None = None,
     shots_path: Path | None = None,
+    frame_notes_path: Path | None = None,
 ) -> dict[str, Path | None]:
     title_slug = slugify(title)
     resolved_source = source_path or find_matching_file(
@@ -358,6 +383,8 @@ def resolve_video_dag_artifacts(
         or find_matching_file(library_root / "shorts", title_slug=title_slug, suffixes={".json"}),
         "shots_path": shots_path
         or find_matching_file(library_root / "shots", title_slug=title_slug, suffixes={".json"}),
+        "frame_notes_path": frame_notes_path
+        or find_matching_file(library_root / "frames", title_slug=title_slug, suffixes={".jsonl"}),
     }
 
 
@@ -457,6 +484,16 @@ def load_json_artifact(path: Path | None) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def load_jsonl_artifact(path: Path | None) -> list[dict[str, Any]]:
+    if not path or not path.exists():
+        return []
+    return [
+        json.loads(line)
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+
+
 def short_profile_summary(profile: dict[str, Any]) -> str:
     if not profile:
         return "判断视频是否进入 60s 短视频强分析链路：duration、fps、宽高比、竖屏和音轨。当前没有找到 short profile artifact。"
@@ -501,6 +538,19 @@ def shot_strip_preview(shots: list[dict[str, Any]]) -> dict[str, Any] | None:
         for shot in shots[:8]
         if shot.get("representative_frame_path")
     ]
+    return {"type": "gallery", "items": items} if items else None
+
+
+def frame_notes_summary(notes: list[dict[str, Any]]) -> str:
+    if not notes:
+        return "短视频逐帧/密集帧证据索引。默认先记录 timestamp、shot、frame path 和图像尺寸；VL/OCR 字段可后续补强。"
+    modes = ", ".join(sorted({str(note.get("frame_mode")) for note in notes if note.get("frame_mode")}))
+    pending = sum(1 for note in notes if note.get("status") == "pending_vl")
+    return f"已生成 {len(notes)} 条 frame evidence。frame mode: {modes or 'unknown'}；待 VL/OCR 补强 {pending} 条。"
+
+
+def frame_notes_preview(notes: list[dict[str, Any]]) -> dict[str, Any] | None:
+    items = [str(note["frame_path"]) for note in notes[:8] if note.get("frame_path")]
     return {"type": "gallery", "items": items} if items else None
 
 
@@ -688,6 +738,51 @@ def build_shot_nodes(
     return nodes
 
 
+def build_frame_note_nodes(
+    notes: list[dict[str, Any]],
+    frame_notes_path: Path | None,
+    *,
+    source_path: Path | None = None,
+    max_frames: int = 10,
+) -> list[dict[str, Any]]:
+    nodes: list[dict[str, Any]] = []
+    for index, note in enumerate(notes[:max_frames]):
+        frame_path = Path(str(note["frame_path"])) if note.get("frame_path") else None
+        start_seconds = optional_seconds(note.get("timestamp_seconds"))
+        image = note.get("image") or {}
+        body = (
+            f"timestamp={format_event_timestamp(note.get('timestamp_seconds'))}；"
+            f"shot={note.get('shot_id') or 'unknown'}；"
+            f"image={image.get('width')}x{image.get('height')}；"
+            f"subtitle={field_presence(note.get('subtitle'))}；"
+            f"effects={effects_presence(note.get('visual_effects'))}；"
+            f"editing={field_presence(note.get('editing'))}；"
+            f"status={note.get('status')}。"
+        )
+        nodes.append(
+            node(
+                f"frame-note-{index + 1}",
+                "frame",
+                f"Frame {index + 1}: {format_event_timestamp(start_seconds)}",
+                body,
+                1180,
+                560 + index * 110,
+                [
+                    str(note.get("frame_mode") or "frame"),
+                    str(note.get("status") or ""),
+                ],
+                frame_path or frame_notes_path,
+                preview={"type": "image", "src": str(frame_path)} if frame_path else None,
+                media_anchor=media_anchor_for_event(
+                    {"start_seconds": note.get("timestamp_seconds")},
+                    source_path=source_path,
+                    audio_path=None,
+                ),
+            )
+        )
+    return nodes
+
+
 def format_event_timestamp(value: Any) -> str:
     if value is None:
         return "time unknown"
@@ -696,6 +791,30 @@ def format_event_timestamp(value: Any) -> str:
     minutes = (seconds % 3600) // 60
     remaining_seconds = seconds % 60
     return f"{hours:02d}:{minutes:02d}:{remaining_seconds:02d}"
+
+
+def field_presence(value: Any) -> str:
+    if not isinstance(value, dict):
+        return "pending"
+    known = [key for key, item in value.items() if has_value(item)]
+    return ",".join(known) if known else "pending"
+
+
+def effects_presence(value: Any) -> str:
+    if not isinstance(value, dict):
+        return "pending"
+    enabled = [key for key, item in value.items() if has_value(item)]
+    return ",".join(enabled) if enabled else "pending"
+
+
+def has_value(value: Any) -> bool:
+    if value is None or value is False:
+        return False
+    if isinstance(value, str) and not value:
+        return False
+    if isinstance(value, (list, tuple, set, dict)) and not value:
+        return False
+    return True
 
 
 def path_metric(path: Path | None) -> str:

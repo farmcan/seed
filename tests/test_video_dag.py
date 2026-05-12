@@ -25,6 +25,7 @@ def test_build_video_dag_graph_uses_artifact_paths_and_metadata(tmp_path):
     cost = tmp_path / "demo.cost.json"
     short_profile = tmp_path / "demo.short-video-profile.json"
     shots = tmp_path / "demo.shots.json"
+    frame_notes = tmp_path / "demo.frame-notes.jsonl"
     video.write_bytes(b"video")
     audio.write_bytes(b"audio")
     transcript.write_text("# Transcript\n\n## Chunk 01\n\nhello\n\n## Chunk 02\n\nworld", encoding="utf-8")
@@ -124,6 +125,21 @@ def test_build_video_dag_graph_uses_artifact_paths_and_metadata(tmp_path):
         ),
         encoding="utf-8",
     )
+    frame_notes.write_text(
+        json.dumps(
+            {
+                "frame_mode": "shot-keyframes",
+                "index": 1,
+                "timestamp_seconds": 1.5,
+                "frame_path": str(frames / "frame_0001.jpg"),
+                "shot_id": "shot-001",
+                "image": {"width": 1080, "height": 1920},
+                "status": "pending_vl",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
 
     graph = build_video_dag_graph(
         title="demo",
@@ -136,6 +152,7 @@ def test_build_video_dag_graph_uses_artifact_paths_and_metadata(tmp_path):
         cost_path=cost,
         short_profile_path=short_profile,
         shots_path=shots,
+        frame_notes_path=frame_notes,
     )
 
     assert graph["owner"] == "demo-up"
@@ -153,6 +170,8 @@ def test_build_video_dag_graph_uses_artifact_paths_and_metadata(tmp_path):
     short_profile_node = next(node for node in graph["nodes"] if node["id"] == "short-profile")
     shots_node = next(node for node in graph["nodes"] if node["id"] == "shots")
     shot_node = next(node for node in graph["nodes"] if node["id"] == "shot-1")
+    frame_notes_node = next(node for node in graph["nodes"] if node["id"] == "frame-notes")
+    frame_note_node = next(node for node in graph["nodes"] if node["id"] == "frame-note-1")
     assert "2 chunks" in transcript_node["metrics"]
     assert "1 frames" in frame_node["metrics"]
     assert "2 events" in timeline_node["metrics"]
@@ -172,9 +191,14 @@ def test_build_video_dag_graph_uses_artifact_paths_and_metadata(tmp_path):
     assert "1 shots" in shots_node["metrics"]
     assert shots_node["preview"]["type"] == "gallery"
     assert shot_node["media_anchor"]["start_seconds"] == 0
+    assert "1 frames" in frame_notes_node["metrics"]
+    assert frame_notes_node["preview"]["type"] == "gallery"
+    assert frame_note_node["media_anchor"]["start_seconds"] == 1
     assert ["visual", "costs"] in graph["edges"]
     assert ["short-profile", "shots"] in graph["edges"]
+    assert ["shots", "frame-notes"] in graph["edges"]
     assert ["shots", "shot-1"] in graph["edges"]
+    assert ["frame-notes", "frame-note-1"] in graph["edges"]
     assert ["costs", "skills"] in graph["edges"]
     assert video_node["preview"]["type"] == "video"
     assert audio_node["preview"]["type"] == "audio"
@@ -233,4 +257,5 @@ def test_resolve_video_dag_artifacts_by_title(tmp_path):
         "creator_profile_path": None,
         "short_profile_path": None,
         "shots_path": None,
+        "frame_notes_path": None,
     }

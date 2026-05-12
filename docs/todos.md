@@ -122,20 +122,25 @@
   - P0 已先接 `ffmpeg` scene threshold 做本地 baseline；输出 shot start/end、duration、代表帧、transition confidence、detector/provider。
   - P1 再把 TransNetV2 做成可选 provider；不要把深度模型依赖放进默认安装路径。
   - artifact：`library/shots/*.shots.json`；DAG 中展示 shot strip，并允许点击 shot 跳转视频时间段。
-- [ ] 增加短视频逐帧/密集帧视觉分析。
-  - 60s 内可以支持 `--frame-mode every-frame|fps|shot-keyframes`；默认先用 `shot-keyframes` 控成本，用户要求强分析时再启用逐帧或 1 fps。
-  - 每帧记录 timestamp、frame path、VL caption、OCR/text overlay、主体/物体、场景、构图、动作、可能的剪辑意图和 token cost。
-  - artifact 建议：`library/frames/*.frame-notes.jsonl`；成本必须进入 `library/costs/*.ledger.json`。
-- [ ] 增加短视频语义 skill/lens。
+- [x] 增加短视频逐帧/密集帧证据索引。
+  - 已支持 `--frame-mode every-frame|fps|shot-keyframes`；默认先用 `shot-keyframes` 控成本，用户要求强分析时再启用逐帧或 1 fps。
+  - 每帧已记录 timestamp、frame path、shot id、图像尺寸，并预留 VL caption、OCR/text overlay、主体/物体、场景、构图、动作、人的运动关系、蒙版、画中画、贴纸、字幕、滤镜、变速、转场和剪辑意图字段。
+  - artifact：`library/frames/*.frame-notes.jsonl`，已接入 pipeline 和 DAG。
+- [x] 增加短视频语义 skill/lens。
   - 扩展共享 `video-analysis-lenses.md`，不要另起一套重复 prompt。
   - 输出结构聚焦：前三秒 hook、beat map、shot function、视觉语言、字幕/OCR、剪辑技巧、节奏密度、payoff/loop/CTA、可复用脚本模板。
   - 强结论必须引用 transcript、OCR、shot、frame evidence；营销式“爆款公式”只能作为 lens，不能当证据。
 - [x] 把短视频强分析接入 DAG。
   - Video DAG 增加 short profile、shot strip、frame evidence gallery、OCR/text overlay、editing technique 节点。
-  - 当前已接入 short profile、shot strip 和 shot 代表帧节点；OCR/text overlay、editing technique 节点等逐帧分析后续补齐。
+  - 当前已接入 short profile、shot strip、shot 代表帧节点和 frame evidence notes；蒙版、画中画、贴纸、字幕、人的运动关系、OCR/text overlay、editing technique 字段已预留，后续由 VL/OCR provider 补齐。
 - [ ] 跑真实短视频样本验证。
   - 选 3 条 60s 内 Bilibili/小红书/手动本地视频，至少覆盖口播型、图文字幕型、强剪辑型。
   - 验证项：shot boundary 是否合理、逐帧成本是否可控、DAG 是否可读、短视频 semantics 是否比长视频模板更有信息密度。
+- [ ] 接入可选视觉 provider。
+  - OCR provider：优先调研 PaddleOCR / RapidVideOCR；输出字幕区域、字幕文字、位置、样式和时间段。
+  - Human-motion provider：优先调研 MediaPipe / OpenPose / YOLO pose；输出人物框、pose/hand/face landmarks、人物间距离变化、人物与物体/镜头运动关系。
+  - Motion/editing provider：优先用 OpenCV optical flow 做镜头运动、运动强度和速度变化 baseline；复杂剪辑效果交给 VL/LLM 基于 frame evidence 判断。
+  - 所有 provider 都必须可选，默认链路只保留 deterministic baseline 和 schema，不引入重依赖。
 
 ## 已完成基础
 

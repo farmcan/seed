@@ -42,6 +42,11 @@
 | `soCzech/TransNetV2` | GitHub 上约 0.9k stars，MIT；深度学习 shot boundary detection，README 给出多数据集 F1 对比。 | 作为可选高质量 shot detector provider；比纯阈值法更适合快速剪辑和复杂转场，但模型依赖更重。 |
 | `wentaozhu/AutoShot` | GitHub 上约 0.2k stars，MIT；CVPRW 2023 短视频 shot boundary dataset/方法，论文指出短视频有更密集、垂直化和复杂转场特征。 | 证明短视频不能完全复用长视频抽帧策略；后续可参考其短视频 dataset 视角设计评测指标。 |
 | VCapsBench / ShotBench 等视频理解 benchmark | 近年 benchmark 开始把 camera movement、shot type、cinematic language、fine-grained caption quality 作为评估维度。 | Seed 的短视频 visual notes 应从“描述画面”升级为“shot 类型、镜头运动、主体、字幕、构图、剪辑目的、叙事功能”。 |
+| `PaddlePaddle/PaddleOCR` | GitHub 上约 77k stars，Apache-2.0；支持 100+ 语言 OCR 和文档/图像结构化。 | 短视频字幕/OCR provider 首选候选；先作为可选依赖接入，不放入默认安装，避免环境复杂度影响主链路。 |
+| `SWHL/RapidVideOCR` / `timminator/VideOCR` | 分别约 0.5k / 0.6k stars；都聚焦从视频硬字幕中提取文字，RapidVideOCR 偏 CLI，VideOCR 支持 GUI 和多语言。 | 证明“硬字幕抽取”应作为短视频一等证据，不应只依赖 ASR；可以参考其抽帧、OCR、合并相邻字幕为 SRT 的流程。 |
+| `google-ai-edge/mediapipe` | GitHub 上约 35k stars，Apache-2.0；面向 live/streaming media 的跨平台 ML pipeline，常用于 pose、hand、face 等实时视觉任务。 | 人物运动关系 provider 候选：人的位置、姿态、手势、遮挡、人物与镜头/物体关系可以先用 pose/hand/face landmarks 辅助，再交给 VL 总结。 |
+| `CMU-Perceptual-Computing-Lab/openpose` | GitHub 上约 34k stars；实时多人 body/face/hand/foot keypoint detection。 | 适合后续做多人关系和肢体动作的更强 provider，但 license 和安装复杂度需要单独隔离。 |
+| `opencv/opencv` | GitHub 上约 87k stars，Apache-2.0；提供 optical flow、tracking、image processing 等基础视觉算法。 | 当前短视频默认 provider 应优先用 OpenCV/ffmpeg 做低成本 baseline，例如镜头运动、画面变化、字幕区域、运动强度，不依赖大模型。 |
 | Prefect | Python-native workflow orchestration；官方 docs 强调 task state lifecycle、client-side orchestration、`.submit()` 并发和 `.delay()` worker 分发。 | 后续 pipeline 复杂到需要调度、重试 UI 和 worker 时再考虑；当前先把本地 run manifest 做扎实。 |
 | Dagster | 面向 data assets 的 orchestrator，强调 integrated lineage、observability、declarative model 和 testability。 | 如果 `library/` 产物变成大量数据资产和跨主题依赖，可以参考 asset model；当前项目还不到引入 Dagster 的复杂度。 |
 | Temporal Python SDK | durable workflow 平台，有 Python SDK，适合长时间运行、可靠重试和分布式任务。 | 如果后续视频批处理需要强一致重试、队列和 worker，再评估；本地 MVP 暂不需要。 |
@@ -71,6 +76,8 @@
 18. 60s 以内短视频应该走独立强分析链路，不应只是长视频 pipeline 的 `--max-frames` 调大。关键区别是：逐秒/逐帧成本可控、shot 密度高、前三秒 hook 决定理解入口、字幕/OCR 常常比口播更短促，且剪辑技巧本身就是语义。
 19. 短视频强分析的推荐 artifact 顺序：`short-video-profile.json` 判断时长/竖屏/帧率 -> `shots/*.shots.json` 记录 shot boundary、shot duration、transition type -> `frames/*.frame-notes.jsonl` 逐帧或抽样逐帧 VL/OCR -> `short-video-semantics.md` 聚合 hook、beat、shot function、视觉语言、剪辑技巧和可复用模板 -> DAG 展示 shot strip 和 frame evidence。
 20. 短视频方法论可先采用“Hook -> Setup/Context -> Proof/Development -> Turn/Reframe -> Payoff/Loop/CTA”的 beat lens，但必须用 transcript、OCR、shot timing、frame evidence 支撑；不要把营销文章里的爆款公式当成无证据结论。
+21. 视觉效果和剪辑手法需要被结构化，不应只写进自然语言总结。短视频 frame evidence 至少要预留：字幕、OCR、蒙版、画中画、贴纸、滤镜/LUT、变速、文字覆盖、镜头运动、人物运动关系、转场类型、声音卡点和剪辑目的。
+22. Provider 设计要分层：默认 deterministic baseline 只做 ffprobe/ffmpeg/OpenCV 级别信息；OCR provider 用 PaddleOCR/RapidVideOCR 类工具；human-motion provider 用 MediaPipe/OpenPose/YOLO pose；cinematic taxonomy 参考 ShotBench/CineTechBench，但最终结论仍由 VL/LLM 基于 evidence 汇总。
 
 ## Sources
 
@@ -117,3 +124,10 @@
 - AutoShot GitHub: https://github.com/wentaozhu/AutoShot
 - VCapsBench: https://arxiv.org/abs/2505.23484
 - ShotBench: https://arxiv.org/abs/2506.21356
+- CineTechBench: https://arxiv.org/abs/2505.15145
+- PaddleOCR: https://github.com/PaddlePaddle/PaddleOCR
+- RapidVideOCR: https://github.com/SWHL/RapidVideOCR
+- VideOCR: https://github.com/timminator/VideOCR
+- MediaPipe: https://github.com/google-ai-edge/mediapipe
+- OpenPose: https://github.com/CMU-Perceptual-Computing-Lab/openpose
+- OpenCV: https://github.com/opencv/opencv

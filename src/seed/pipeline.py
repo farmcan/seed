@@ -39,10 +39,13 @@ from seed.semantics.analyzer import (
 from seed.shorts import (
     DEFAULT_SCENE_THRESHOLD,
     DEFAULT_SHORT_MAX_SECONDS,
+    build_frame_notes,
     build_short_video_profile,
     build_shots_artifact,
+    frame_notes_output_path,
     short_profile_output_path,
     shots_output_path,
+    write_frame_notes,
     write_short_video_profile,
     write_shots_artifact,
 )
@@ -85,6 +88,9 @@ class VideoPipelineOptions:
     short_max_seconds: float = DEFAULT_SHORT_MAX_SECONDS
     shot_detection: bool = True
     shot_threshold: float = DEFAULT_SCENE_THRESHOLD
+    frame_notes: bool = True
+    frame_mode: str = "shot-keyframes"
+    frame_notes_fps: float = 1.0
     semantics_skill_path: Path = DEFAULT_VIDEO_SEMANTICS_SKILL_PATH
     codex_model: str | None = None
     force: bool = False
@@ -103,6 +109,7 @@ class VideoPipelineContext:
     frame_dir: Path | None = None
     short_profile_path: Path | None = None
     shots_path: Path | None = None
+    frame_notes_path: Path | None = None
     visual_notes_path: Path | None = None
     cost_path: Path | None = None
     cost_ledger_path: Path | None = None
@@ -202,6 +209,15 @@ def run_video_pipeline(options: VideoPipelineOptions) -> tuple[VideoPipelineCont
             "short_profile_path": context.short_profile_path,
         },
         provider="ffmpeg-scene",
+    )
+    run_step(
+        "build_frame_notes",
+        lambda: _frame_notes_step(options, context),
+        inputs={
+            "media_path": context.media_path,
+            "short_profile_path": context.short_profile_path,
+            "shots_path": context.shots_path,
+        },
     )
     if options.vision:
         run_step(
@@ -412,6 +428,37 @@ def _shots_step(options: VideoPipelineOptions, context: VideoPipelineContext) ->
     return {"shots_path": output_path, "shots": len(artifact["shots"])}
 
 
+def _frame_notes_step(options: VideoPipelineOptions, context: VideoPipelineContext) -> dict[str, Any]:
+    if not options.frame_notes:
+        return {"status": "skipped", "reason": "frame notes disabled"}
+    media_path = _require_path(context.media_path, "media_path")
+    profile_path = _require_path(context.short_profile_path, "short_profile_path")
+    profile = yaml.safe_load(profile_path.read_text(encoding="utf-8")) or {}
+    if not profile.get("is_short_form"):
+        return {"status": "skipped", "reason": "not short form", "short_profile_path": profile_path}
+
+    output_path = frame_notes_output_path(library_root=options.library_root, title=context.title)
+    if output_path.exists() and not options.force:
+        context.frame_notes_path = output_path
+        return {"status": "skipped", "frame_notes_path": output_path}
+
+    shots_artifact = {}
+    if context.shots_path and context.shots_path.exists():
+        shots_artifact = yaml.safe_load(context.shots_path.read_text(encoding="utf-8")) or {}
+    notes = build_frame_notes(
+        media_path=media_path,
+        title=context.title,
+        profile=profile,
+        shots_artifact=shots_artifact,
+        library_root=options.library_root,
+        frame_mode=options.frame_mode,
+        fps=options.frame_notes_fps,
+    )
+    write_frame_notes(output_path, notes)
+    context.frame_notes_path = output_path
+    return {"frame_notes_path": output_path, "frames": len(notes), "frame_mode": options.frame_mode}
+
+
 def _visual_step(options: VideoPipelineOptions, context: VideoPipelineContext) -> dict[str, Any]:
     frame_dir = _require_path(context.frame_dir, "frame_dir")
     frame_paths = load_frame_paths(frame_dir)
@@ -560,6 +607,7 @@ def _dag_step(options: VideoPipelineOptions, context: VideoPipelineContext) -> d
         cost_path=context.cost_ledger_path or context.cost_path,
         short_profile_path=context.short_profile_path,
         shots_path=context.shots_path,
+        frame_notes_path=context.frame_notes_path,
     )
     graph = build_video_dag_graph(
         title=context.title,
@@ -577,6 +625,7 @@ def _dag_step(options: VideoPipelineOptions, context: VideoPipelineContext) -> d
         creator_profile_path=artifacts["creator_profile_path"],
         short_profile_path=artifacts["short_profile_path"],
         shots_path=artifacts["shots_path"],
+        frame_notes_path=artifacts["frame_notes_path"],
     )
     output_path = video_dag_output_path(library_root=options.library_root, title=context.title)
     write_video_dag_graph(output_path, graph)

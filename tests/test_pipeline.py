@@ -98,6 +98,7 @@ def test_run_video_pipeline_for_local_media(tmp_path, monkeypatch):
         "transcribe",
         "extract_frames",
         "detect_shots",
+        "build_frame_notes",
         "analyze_video_semantics",
         "build_cost_ledger",
         "build_timeline",

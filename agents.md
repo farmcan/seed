@@ -81,6 +81,8 @@ run-creator-pipeline
 - ASR 长音频分段在 `seed.asr.chunked`，不要在 CLI 或 provider 里重复实现切片与合并；线上 ASR provider 可能同时限制文件大小和音频时长，默认长于 300 秒要切片。
 - 短视频结构分析在 `seed.shorts`，不要把 shot detection 写进 timeline 或 visual notes；`run-video-pipeline` 会生成 short profile，并仅在 `is_short_form` 为 true 时生成 shots artifact。
 - shot detection 当前默认是 `ffmpeg-scene` baseline；后续接 PySceneDetect、TransNetV2 时必须做成 provider，不要把重依赖放进默认路径。
+- 短视频 frame evidence 必须结构化记录字幕、OCR、蒙版、画中画、贴纸、滤镜、变速、镜头运动、人物运动关系、转场和剪辑目的；默认可以是 pending 字段，但不要退化成一段不可追溯的自然语言。
+- OCR、人姿态、运动估计和视觉效果检测都应是可选 provider：优先参考 PaddleOCR/RapidVideOCR、MediaPipe/OpenPose/YOLO pose、OpenCV optical flow；默认安装路径不要强制引入这些重依赖。
 - Qwen-VL 成本记录在 `seed.costs`，`analyze-frames` 必须按单条视频写入 `library/costs/*.cost.json`；`run-video-pipeline` 和 `build-cost-ledger` 必须写入 `library/costs/*.ledger.json`；费用是基于 token usage 和配置单价的估算，实际账单以服务商后台为准。
 - 创作者批量任务支持 `--max-estimated-cost` 预算门槛；达到预算后停止后续视频，并在 run manifest 写入 `budget_exceeded`。
 - 任何外部模型/API 调用都要考虑成本记录；如果 provider 暂时拿不到 token，就写 `reserved` 或 `unknown`，不要伪造 token 或金额。

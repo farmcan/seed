@@ -101,10 +101,13 @@ from seed.sources.yt_dlp_adapter import download_url
 from seed.shorts import (
     DEFAULT_SCENE_THRESHOLD,
     DEFAULT_SHORT_MAX_SECONDS,
+    build_frame_notes,
     build_short_video_profile,
     build_shots_artifact,
+    frame_notes_output_path,
     short_profile_output_path,
     shots_output_path,
+    write_frame_notes,
     write_short_video_profile,
     write_shots_artifact,
 )
@@ -403,6 +406,9 @@ def run_video_pipeline_cmd(
     short_max_seconds: Annotated[float, typer.Option("--short-max-seconds", min=1)] = DEFAULT_SHORT_MAX_SECONDS,
     shot_detection: Annotated[bool, typer.Option("--shot-detection/--no-shot-detection")] = True,
     shot_threshold: Annotated[float, typer.Option("--shot-threshold", min=0.01, max=1.0)] = DEFAULT_SCENE_THRESHOLD,
+    frame_notes: Annotated[bool, typer.Option("--frame-notes/--no-frame-notes")] = True,
+    frame_mode: Annotated[str, typer.Option("--frame-mode", help="shot-keyframes, fps, or every-frame.")] = "shot-keyframes",
+    frame_notes_fps: Annotated[float, typer.Option("--frame-notes-fps", min=0.1)] = 1.0,
     codex_model: Annotated[str | None, typer.Option("--codex-model")] = None,
     root: Annotated[Path, typer.Option("--root")] = Path("library"),
 ) -> None:
@@ -432,6 +438,9 @@ def run_video_pipeline_cmd(
             short_max_seconds=short_max_seconds,
             shot_detection=shot_detection,
             shot_threshold=shot_threshold,
+            frame_notes=frame_notes,
+            frame_mode=frame_mode,
+            frame_notes_fps=frame_notes_fps,
             codex_model=codex_model,
             force=force,
         )
@@ -449,6 +458,8 @@ def run_video_pipeline_cmd(
         console.print(f"created short profile at {context.short_profile_path}")
     if context.shots_path:
         console.print(f"created shots artifact at {context.shots_path}")
+    if context.frame_notes_path:
+        console.print(f"created frame notes at {context.frame_notes_path}")
 
 
 @app.command("distill-note")
@@ -646,6 +657,38 @@ def detect_shots(
     write_shots_artifact(output_path, artifact)
     console.print(f"created shots artifact at {output_path}")
     console.print(f"shots: {len(artifact['shots'])}")
+
+
+@app.command("build-frame-notes")
+def build_frame_notes_cmd(
+    media_path: Annotated[Path, typer.Argument(help="Downloaded video file.")],
+    profile_path: Annotated[Path, typer.Option("--profile")],
+    title: Annotated[str | None, typer.Option("--title")] = None,
+    shots_path_arg: Annotated[Path | None, typer.Option("--shots")] = None,
+    frame_mode: Annotated[str, typer.Option("--frame-mode", help="shot-keyframes, fps, or every-frame.")] = "shot-keyframes",
+    fps: Annotated[float, typer.Option("--fps", min=0.1)] = 1.0,
+    root: Annotated[Path, typer.Option("--root")] = Path("library"),
+) -> None:
+    resolved_title = title or media_path.stem
+    profile = json.loads(profile_path.read_text(encoding="utf-8"))
+    shots_artifact = (
+        json.loads(shots_path_arg.read_text(encoding="utf-8"))
+        if shots_path_arg and shots_path_arg.exists()
+        else None
+    )
+    notes = build_frame_notes(
+        media_path=media_path,
+        title=resolved_title,
+        profile=profile,
+        shots_artifact=shots_artifact,
+        library_root=root,
+        frame_mode=frame_mode,
+        fps=fps,
+    )
+    output_path = frame_notes_output_path(library_root=root, title=resolved_title)
+    write_frame_notes(output_path, notes)
+    console.print(f"created frame notes at {output_path}")
+    console.print(f"frames: {len(notes)}")
 
 
 @app.command("analyze-frames")
@@ -1096,6 +1139,7 @@ def build_video_dag(
     creator_profile: Annotated[Path | None, typer.Option("--creator-profile")] = None,
     short_profile: Annotated[Path | None, typer.Option("--short-profile")] = None,
     shots_path: Annotated[Path | None, typer.Option("--shots")] = None,
+    frame_notes_path: Annotated[Path | None, typer.Option("--frame-notes")] = None,
     root: Annotated[Path, typer.Option("--root")] = Path("library"),
 ) -> None:
     artifacts = resolve_video_dag_artifacts(
@@ -1113,6 +1157,7 @@ def build_video_dag(
         creator_profile_path=creator_profile,
         short_profile_path=short_profile,
         shots_path=shots_path,
+        frame_notes_path=frame_notes_path,
     )
     graph = build_video_dag_graph(
         title=title,
@@ -1130,6 +1175,7 @@ def build_video_dag(
         creator_profile_path=artifacts["creator_profile_path"],
         short_profile_path=artifacts["short_profile_path"],
         shots_path=artifacts["shots_path"],
+        frame_notes_path=artifacts["frame_notes_path"],
     )
     output_path = video_dag_output_path(library_root=root, title=title)
     write_video_dag_graph(output_path, graph)

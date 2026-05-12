@@ -55,7 +55,7 @@ seed run-creator-pipeline --platform <platform> <owner>
 | 创作者 pipeline | `seed run-creator-pipeline` | `src/seed/creator_pipeline.py` | 多视频 manifest、creator profile、creator DAG、creator cost ledger |
 | ASR 转写 | `seed transcribe-media` | `src/seed/media.py`, `src/seed/asr/`, `src/seed/transcripts.py` | `library/raw/*.asr.mp3`, `library/raw/*.asr.chunks/*`, `library/transcripts/*.transcript.md` |
 | 视觉语言 | `seed extract-frames`, `seed analyze-frames` | `src/seed/vision/` | `library/frames/*`, `library/notes/*.visual.md` |
-| 短视频结构 | `seed profile-short-video`, `seed detect-shots`, `seed run-video-pipeline` | `src/seed/shorts.py`, `src/seed/pipeline.py` | `library/shorts/*.short-video-profile.json`, `library/shots/*.shots.json`, `library/frames/*.shots/*` |
+| 短视频结构 | `seed profile-short-video`, `seed detect-shots`, `seed build-frame-notes`, `seed run-video-pipeline` | `src/seed/shorts.py`, `src/seed/pipeline.py` | `library/shorts/*.short-video-profile.json`, `library/shots/*.shots.json`, `library/frames/*.frame-notes.jsonl`, `library/frames/*.shots/*` |
 | 成本计量 | `seed analyze-frames`, `seed build-cost-ledger`, `seed build-video-dag` | `src/seed/costs.py`, `src/seed/graphs/video_dag.py` | `library/costs/*.cost.json`, `library/costs/*.ledger.json`, DAG cost 节点 |
 | 书籍/笔记 | `seed import-book-note`, `seed analyze-book-note`, `seed aggregate-topic` | `src/seed/books.py` | `library/notes/*.book-note.md`, `library/semantics/*.book-semantics.md`, `library/distilled/*.topic-profile.md` |
 | 快速总结 | `seed summarize-transcript` | `src/seed/summarizers/`, `src/seed/skill_refs.py`, `src/seed/semantics/evidence.py` | `library/notes/*.summary.md` |
@@ -68,7 +68,7 @@ seed run-creator-pipeline --platform <platform> <owner>
 | 创作者聚合 | `seed aggregate-owner`, `seed validate-creator-profile` | `src/seed/semantics/aggregator.py`, `src/seed/semantics/validation.py` | `library/distilled/*.creator-profile.md`, `*.creator-profile.validation.json` |
 | Agent 资产生成 | `seed generate-agent-assets`, `seed review-agent-assets`, `seed record-reflection`, `seed suggest-revisions` | `src/seed/agent_assets.py`, `src/seed/reflections.py` | `library/skills/*/SKILL.md`, `library/checks/*.md`, `library/checks/*.agent-assets.review.json`, `library/reflections/*` |
 
-当前视频 DAG 会展示本地视频、音频、关键帧截图、short profile、shot strip、transcript、visual notes、cost ledger、timeline event、semantic 子节点、creator signals、fact-check queue 和 agent assets。Creator DAG 以 UP/作者级 profile、方法论和 Agent 资产为主，同时每条视频节点都可展开本地视频、音频、截图 gallery 和单条 video DAG HTML 入口。带 `start_seconds` 的 timeline event 和 shot 节点会写入 `media_anchor`，画布详情区可以把视频/音频定位到对应时间点。DOM/ELK 画布保留卡片式视觉，默认简版显示，节点媒体默认渲染，顶部 `媒体` 按钮可一键隐藏或恢复，卡片正文默认折叠，右侧详情默认关闭。
+当前视频 DAG 会展示本地视频、音频、关键帧截图、short profile、shot strip、frame evidence notes、transcript、visual notes、cost ledger、timeline event、semantic 子节点、creator signals、fact-check queue 和 agent assets。Creator DAG 以 UP/作者级 profile、方法论和 Agent 资产为主，同时每条视频节点都可展开本地视频、音频、截图 gallery 和单条 video DAG HTML 入口。带 `start_seconds` 的 timeline event、shot 节点和 frame note 节点会写入 `media_anchor`，画布详情区可以把视频/音频定位到对应时间点。DOM/ELK 画布保留卡片式视觉，默认简版显示，节点媒体默认渲染，顶部 `媒体` 按钮可一键隐藏或恢复，卡片正文默认折叠，右侧详情默认关闭。
 
 ## 模块边界
 
@@ -79,7 +79,7 @@ seed run-creator-pipeline --platform <platform> <owner>
 - `creator_pipeline.py`：负责创作者级批量任务、失败继续、成本预算门槛、creator profile 聚合、agent assets 生成和 creator DAG 导出；`--max-estimated-cost` 到达后停止后续视频，并在 manifest 写入 `budget_exceeded`，后处理步骤写入 `creator_steps`。
 - `asr/` 和 `media.py`：音频抽取、超限音频分片和线上 ASR provider。只产出 transcript；长音频会同时按文件大小和 `ffprobe` 时长判断是否切片，默认超过 300 秒会分段，transcript 会在 frontmatter 记录 `asr_chunks`。
 - `vision/`：抽帧、Qwen-VL 调用和 visual notes。只描述画面证据，不负责最终方法论；Qwen-VL provider 需要返回 token usage，供成本模块记录。
-- `shorts.py`：短视频 profile、shot boundary baseline 和 shot 代表帧。默认用 `ffprobe` 判断 `duration <= 60s` 是否进入短视频强分析，用 `ffmpeg` scene threshold 生成本地 shot artifact；后续可把 PySceneDetect/TransNetV2 接成 provider。
+- `shorts.py`：短视频 profile、shot boundary baseline、shot 代表帧和 frame evidence notes。默认用 `ffprobe` 判断 `duration <= 60s` 是否进入短视频强分析，用 `ffmpeg` scene threshold 生成本地 shot artifact；`frame_notes` 默认按 shot 代表帧生成低成本 JSONL，并预留蒙版、画中画、贴纸、字幕、人的运动关系、滤镜、变速、转场和剪辑意图字段，后续可把 PySceneDetect/TransNetV2 和逐帧 Qwen-VL/OCR 接成 provider。
 - `costs.py`：统一写入单条视频成本报告和 pipeline cost ledger。默认记录 Qwen-VL token 用量、单价来源、估算金额，并为 ASR、Codex、搜索/核验保留成本项；实际价格可通过环境变量覆盖。
 - `skill_refs.py`：读取共享 video analysis lenses。prompt 构建器只引用这个入口，避免各模块复制 lens 文本。
 - `semantics/evidence.py`：从 transcript chunk、visual notes 和 keyframe metadata 生成 `T*`、`V*`、`F*` 证据锚点，供总结、视频语义和创作者聚合引用。
@@ -93,7 +93,7 @@ seed run-creator-pipeline --platform <platform> <owner>
 - `agent_assets.py`：从 creator profile 生成待人工 review 的候选 `SKILL.md`、pre-check、post-task reflection checklist 和 review manifest；状态流为 `draft/reviewed/installed/deprecated`。
 - `reflections.py`：记录 Agent 使用某个 creator 方法后的结果、有效点、失败点和需要修订的地方。
 - `semantics/aggregator.py`：默认要求同一 owner 至少 3 条 video semantics 才生成 creator profile；单条或少量视频需要显式 `--min-videos` 降级为 provisional。
-- `graphs/video_dag.py`：把本地分析产物组装成画布可读 DAG JSON，输出 `library/graphs/*.video-dag.json`；支持按标题自动发现 raw、audio、transcript、frames、short profile、shots、visual notes、cost ledger、semantics 和 timeline；timeline event 和 shot 有时间点时会生成视频/音频 `media_anchor`。
+- `graphs/video_dag.py`：把本地分析产物组装成画布可读 DAG JSON，输出 `library/graphs/*.video-dag.json`；支持按标题自动发现 raw、audio、transcript、frames、short profile、shots、frame notes、visual notes、cost ledger、semantics 和 timeline；timeline event、shot 和 frame note 有时间点时会生成视频/音频 `media_anchor`。
 - `graphs/creator_dag.py`：把同一 UP/作者的多条 video semantics、creator profile、profile validation、cost ledger 和 agent assets 组装成 creator DAG；每条视频节点会按标题解析本地 raw/audio/frames/video DAG HTML，并作为可折叠媒体证据子节点接入。
 - `dag_server.py`：用本地 HTTP server 打开 DAG HTML 和 graph JSON，避免 `file://` 下浏览器策略影响素材加载。
 - `dag_export.py`：把 graph JSON 嵌入独立 HTML，适合直接打开和分享本地快照，不要求 server 一直运行；默认使用 DOM/ELK 卡片式画布模板。
@@ -119,6 +119,7 @@ prompt 构建时会自动注入：
 - `library/raw/*.asr.chunks/`：长音频 ASR 分片，供 provider 逐片转写。
 - `library/shorts/*.short-video-profile.json`：短视频 profile，记录 duration、fps、分辨率、宽高比、竖屏、音轨和是否进入短视频强分析。
 - `library/shots/*.shots.json`：shot boundary artifact，记录 shot start/end、duration、代表帧、transition type、detector/provider 和 threshold。
+- `library/frames/*.frame-notes.jsonl`：短视频逐帧/密集帧证据索引，记录 timestamp、frame path、shot id、图像尺寸，并预留字幕、蒙版、画中画、贴纸、人的运动关系、镜头运动、转场、滤镜和待 VL/OCR 补强字段。
 - `library/transcripts/`：文字语言，来自 ASR 或人工整理。
 - `library/frames/`：抽样关键帧；`*.shots/` 子目录保存 shot 代表帧。
 - `library/notes/*.visual.md`：视觉语言，来自 VL 模型。
