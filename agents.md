@@ -73,7 +73,7 @@ run-creator-pipeline
 - 新增主要功能必须写稳定 artifact 到 `library/`，不要只打印到 stdout。
 - 新增 artifact 必须说明谁生产、谁消费、是否进入 DAG、是否需要计费；这些信息要同步更新 `docs/architecture.md` 和 `docs/todos.md`。
 - pipeline step 必须幂等：目标产物已存在时要能跳过或覆盖明确可控，失败后要能从中间步骤续跑。
-- 长任务必须记录 run manifest，至少包含 step、status、input、output、provider/model、started_at、finished_at、error。
+- 长任务必须记录 run manifest 和 status JSON，至少包含 step、status、input、output、provider/model、started_at、finished_at、duration_seconds、artifact_paths、cost_delta、error。运行中状态写入 `library/runs/*.status.json`，供 CLI 和后续 live DAG 消费。
 - 平台下载逻辑只放在 `src/seed/sources/`。
 - 下载相关 source record 必须保留 `download_provider`、`fallback_used` 和 `download_notes`，方便定位 cookies、风控和 fallback 问题。
 - 创作者视频列表发现也属于 `sources/`，输出 `library/notes/*.creator-videos.yaml`，不要直接混入 ASR、视觉分析或总结逻辑；Bilibili 用户名搜索被风控时优先尝试 `--owner-id <mid>`。
@@ -162,7 +162,7 @@ library/shots/*.motion-relations.json  短视频运动关系候选 JSON
 library/transcripts/  ASR 或人工 transcript
 library/frames/       抽帧截图和 shot 代表帧
 library/notes/        source record、creator video list、visual notes、quick summary
-library/runs/         pipeline run manifest，待实现
+library/runs/         pipeline run manifest 和运行态 status JSON
 library/semantics/    单条视频语义
 library/timelines/    视频时间线 JSON
 library/claims/       待核验 claim JSON

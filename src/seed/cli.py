@@ -7,6 +7,8 @@ from urllib.parse import quote
 
 import typer
 from rich.console import Console
+from rich.live import Live
+from rich.table import Table
 
 from seed.costs import (
     build_cost_ledger,
@@ -414,44 +416,50 @@ def run_video_pipeline_cmd(
     frame_mode: Annotated[str, typer.Option("--frame-mode", help="shot-keyframes, fps, or every-frame.")] = "shot-keyframes",
     frame_notes_fps: Annotated[float, typer.Option("--frame-notes-fps", min=0.1)] = 1.0,
     motion_relations: Annotated[bool, typer.Option("--motion-relations/--no-motion-relations")] = True,
+    show_progress: Annotated[bool, typer.Option("--progress/--no-progress")] = True,
     codex_model: Annotated[str | None, typer.Option("--codex-model")] = None,
     root: Annotated[Path, typer.Option("--root")] = Path("library"),
 ) -> None:
-    context, manifest_path = run_video_pipeline(
-        VideoPipelineOptions(
-            source=source,
-            library_root=root,
-            platform=platform,
-            owner=owner,
-            title=title,
-            authorized=authorized,
-            download=download,
-            max_height=max_height,
-            max_filesize_mb=max_filesize_mb,
-            cookies_from_browser=cookies_from_browser,
-            asr_provider=asr_provider,
-            asr_model=asr_model,
-            language=language,
-            max_upload_mb=max_upload_mb,
-            chunk_audio=chunk_audio,
-            chunk_seconds=chunk_seconds,
-            every_seconds=every_seconds,
-            max_frames=max_frames,
-            vision=vision,
-            vision_model=vision_model,
-            short_form=short_form,
-            short_max_seconds=short_max_seconds,
-            shot_detection=shot_detection,
-            shot_threshold=shot_threshold,
-            frame_notes=frame_notes,
-            frame_mode=frame_mode,
-            frame_notes_fps=frame_notes_fps,
-            motion_relations=motion_relations,
-            codex_model=codex_model,
-            force=force,
-        )
+    options = VideoPipelineOptions(
+        source=source,
+        library_root=root,
+        platform=platform,
+        owner=owner,
+        title=title,
+        authorized=authorized,
+        download=download,
+        max_height=max_height,
+        max_filesize_mb=max_filesize_mb,
+        cookies_from_browser=cookies_from_browser,
+        asr_provider=asr_provider,
+        asr_model=asr_model,
+        language=language,
+        max_upload_mb=max_upload_mb,
+        chunk_audio=chunk_audio,
+        chunk_seconds=chunk_seconds,
+        every_seconds=every_seconds,
+        max_frames=max_frames,
+        vision=vision,
+        vision_model=vision_model,
+        short_form=short_form,
+        short_max_seconds=short_max_seconds,
+        shot_detection=shot_detection,
+        shot_threshold=shot_threshold,
+        frame_notes=frame_notes,
+        frame_mode=frame_mode,
+        frame_notes_fps=frame_notes_fps,
+        motion_relations=motion_relations,
+        codex_model=codex_model,
+        force=force,
     )
+    if show_progress:
+        context, manifest_path = run_video_pipeline_with_live_progress(options)
+    else:
+        context, manifest_path = run_video_pipeline(options)
+    status_path = manifest_path.with_suffix(".status.json")
     console.print(f"created pipeline manifest at {manifest_path}")
+    if status_path.exists():
+        console.print(f"created pipeline status at {status_path}")
     if context.html_path:
         console.print(f"created standalone video DAG HTML at {context.html_path}")
     if context.semantics_path:
@@ -468,6 +476,91 @@ def run_video_pipeline_cmd(
         console.print(f"created frame notes at {context.frame_notes_path}")
     if context.motion_relations_path:
         console.print(f"created motion relations at {context.motion_relations_path}")
+
+
+def run_video_pipeline_with_live_progress(options: VideoPipelineOptions):
+    rows: dict[str, dict[str, object]] = {}
+    planned_steps: list[str] = []
+
+    def callback(event: dict[str, object]) -> None:
+        nonlocal planned_steps
+        event_type = event.get("event")
+        if event_type == "run_started":
+            planned_steps = [str(step) for step in event.get("planned_steps", [])]
+            rows.clear()
+            for step in planned_steps:
+                rows[step] = {
+                    "step": step,
+                    "status": "pending",
+                    "duration_seconds": None,
+                    "artifact_paths": [],
+                    "cost_delta": None,
+                }
+        elif event_type in {"step_started", "step_finished"}:
+            step = event.get("step")
+            if isinstance(step, dict):
+                rows[str(step["step"])] = step
+        live.update(build_pipeline_progress_table(rows, planned_steps))
+
+    options.progress_callback = callback
+    with Live(build_pipeline_progress_table(rows, planned_steps), console=console, refresh_per_second=4) as live:
+        return run_video_pipeline(options)
+
+
+def build_pipeline_progress_table(rows: dict[str, dict[str, object]], planned_steps: list[str]) -> Table:
+    table = Table(title="Video pipeline progress", expand=True)
+    table.add_column("Step", no_wrap=True)
+    table.add_column("Status", no_wrap=True)
+    table.add_column("Duration", justify="right", no_wrap=True)
+    table.add_column("Artifacts")
+    table.add_column("Cost")
+    for step in planned_steps:
+        row = rows.get(step, {"step": step, "status": "pending"})
+        table.add_row(
+            step,
+            status_label(str(row.get("status") or "pending")),
+            format_duration(row.get("duration_seconds")),
+            format_artifacts(row.get("artifact_paths")),
+            format_cost(row.get("cost_delta")),
+        )
+    return table
+
+
+def status_label(status: str) -> str:
+    styles = {
+        "pending": "[dim]pending[/dim]",
+        "running": "[yellow]running[/yellow]",
+        "completed": "[green]completed[/green]",
+        "skipped": "[cyan]skipped[/cyan]",
+        "failed": "[red]failed[/red]",
+    }
+    return styles.get(status, status)
+
+
+def format_duration(value: object) -> str:
+    if value is None:
+        return "-"
+    try:
+        return f"{float(value):.1f}s"
+    except (TypeError, ValueError):
+        return "-"
+
+
+def format_artifacts(value: object) -> str:
+    if not isinstance(value, list) or not value:
+        return ""
+    names = [Path(str(path)).name for path in value[:2]]
+    suffix = f" +{len(value) - 2}" if len(value) > 2 else ""
+    return ", ".join(names) + suffix
+
+
+def format_cost(value: object) -> str:
+    if not isinstance(value, dict):
+        return ""
+    totals = value.get("totals")
+    if not isinstance(totals, dict) or not totals:
+        return ""
+    return ", ".join(f"{amount} {currency}" for currency, amount in totals.items())
 
 
 @app.command("distill-note")

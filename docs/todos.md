@@ -100,8 +100,8 @@
   - 顶部 toolbar 改为自适应高度，控件换行时不再被 canvas 覆盖。
 - [ ] 增强 pipeline 运行可观测性。
   - 目标：用户运行一条视频时，能看到预计耗时、当前 step、已完成/运行中/失败/跳过状态、每步耗时、关键日志、当前产物路径和成本增量。
-  - P0 先增强 CLI 进度：用 Rich progress/table 展示 step 状态，运行结束后输出耗时汇总；每个 step 在 manifest 写入 `duration_seconds`、`log_excerpt`、`artifact_paths` 和 `cost_delta`。
-  - P1 增加 run status artifact：在 `library/runs/*.video-pipeline.yaml` 之外同步写一个更适合前端轮询的 `*.status.json`，每个 step 开始/结束时更新。
+  - [x] P0 先增强 CLI 进度：用 Rich table 展示 step 状态，运行结束后输出耗时汇总；每个 step 在 manifest 写入 `duration_seconds`、`artifact_paths` 和 `cost_delta`。
+  - [x] P1 增加 run status artifact：在 `library/runs/*.video-pipeline.yaml` 之外同步写一个更适合前端轮询的 `*.status.json`，每个 step 开始/结束时更新。
   - P2 增加 live DAG preview：生成一个临时 `*.video-dag.live.html`，节点默认有 `pending/running/completed/skipped/failed` 状态；未完成节点可以是虚线/半透明，运行中节点可以有轻量 pulse 动画；前端用轮询或 SSE 读取 status JSON。
   - P3 再评估是否需要 Prefect/Dagster/Temporal 这类外部编排。当前不引入重型服务，除非出现多 worker、定时调度、复杂重试或团队协作需求。
   - 设计原则：运行态画布是辅助视图，不替代准确的 manifest、日志和最终静态 DAG；动画只表达状态，不承载核心信息。
@@ -182,6 +182,7 @@
 - [x] Creator profile 最小样本约束：`seed aggregate-owner` 默认要求同一 owner 至少 3 条 video semantics；少量样本必须显式 `--min-videos` 降级。
 - [x] Reflection 修订建议：`seed suggest-revisions` 基于 reflection log 生成 revision suggestions 草稿，不自动覆盖原资产。
 - [x] 单条视频 pipeline：`seed run-video-pipeline` 串起现有分析步骤并写入 `library/runs/*.video-pipeline.yaml`。
+- [x] Pipeline 可观测性基础：`seed run-video-pipeline` 会显示 Rich step 进度表，并同步写入 `library/runs/*.video-pipeline.status.json`；manifest/status 都记录 step 耗时、artifact paths 和 cost delta。
 - [x] 创作者 pipeline 收敛：`seed run-creator-pipeline` 可以获取视频列表、批量入库、逐条运行视频 pipeline，并自动串起 creator profile、agent assets 和 creator DAG。
 - [x] Creator DAG 第一版：`seed build-creator-dag` 生成 UP/作者级 DAG JSON 和静态 HTML，并可从每条视频展开本地视频、音频、截图和单条 video DAG。
 - [x] 真实创作者样本：`影视飓风` 已生成 3 条 video semantics、creator profile、validation、agent asset draft 和 creator DAG。

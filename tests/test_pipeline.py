@@ -1,13 +1,17 @@
+import json
 from pathlib import Path
 
 import yaml
 
-from seed.pipeline import VideoPipelineOptions, run_manifest_output_path, run_video_pipeline
+from seed.pipeline import VideoPipelineOptions, run_manifest_output_path, run_status_output_path, run_video_pipeline
 
 
 def test_run_manifest_output_path(tmp_path):
     assert run_manifest_output_path(library_root=tmp_path, title="Demo 视频") == (
         tmp_path / "runs" / "demo-视频.video-pipeline.yaml"
+    )
+    assert run_status_output_path(library_root=tmp_path, title="Demo 视频") == (
+        tmp_path / "runs" / "demo-视频.video-pipeline.status.json"
     )
 
 
@@ -72,6 +76,7 @@ def test_run_video_pipeline_for_local_media(tmp_path, monkeypatch):
         "seed.pipeline.run_video_semantics_analysis",
         fake_run_video_semantics_analysis,
     )
+    progress_events = []
 
     context, manifest_path = run_video_pipeline(
         VideoPipelineOptions(
@@ -80,6 +85,7 @@ def test_run_video_pipeline_for_local_media(tmp_path, monkeypatch):
             title="Demo",
             owner="demo-owner",
             vision=False,
+            progress_callback=progress_events.append,
         )
     )
 
@@ -90,7 +96,10 @@ def test_run_video_pipeline_for_local_media(tmp_path, monkeypatch):
     assert context.claims_path.exists()
     assert context.graph_path.exists()
     assert context.html_path.exists()
+    status_path = manifest_path.with_suffix(".status.json")
+    assert status_path.exists()
     data = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+    status = json.loads(status_path.read_text(encoding="utf-8"))
     assert data["title"] == "Demo"
     assert [step["step"] for step in data["steps"]] == [
         "source",
@@ -108,3 +117,12 @@ def test_run_video_pipeline_for_local_media(tmp_path, monkeypatch):
         "export_video_dag_html",
     ]
     assert all(step["status"] in {"completed", "skipped"} for step in data["steps"])
+    assert all(step["duration_seconds"] is not None for step in data["steps"])
+    assert any(str(context.transcript_path) in step["artifact_paths"] for step in data["steps"])
+    assert status["kind"] == "video_pipeline_status"
+    assert status["status"] == "completed"
+    assert status["current_step"] is None
+    assert [step["step"] for step in status["steps"]] == [step["step"] for step in data["steps"]]
+    assert any(event["event"] == "run_started" for event in progress_events)
+    assert any(event["event"] == "step_started" for event in progress_events)
+    assert any(event["event"] == "run_finished" for event in progress_events)

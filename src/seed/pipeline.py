@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -62,6 +63,7 @@ from seed.vision.qwen_vl_provider import DEFAULT_QWEN_VL_MODEL, analyze_frames_w
 
 
 StepFn = Callable[[], dict[str, Any]]
+ProgressCallback = Callable[[dict[str, Any]], None]
 
 
 @dataclass
@@ -100,6 +102,7 @@ class VideoPipelineOptions:
     codex_model: str | None = None
     force: bool = False
     export_html: bool = True
+    progress_callback: ProgressCallback | None = field(default=None, repr=False, compare=False)
 
 
 @dataclass
@@ -131,9 +134,12 @@ class PipelineStepRecord:
     step: str
     status: str
     started_at: str
-    finished_at: str
+    finished_at: str | None
     inputs: dict[str, Any] = field(default_factory=dict)
     outputs: dict[str, Any] = field(default_factory=dict)
+    duration_seconds: float | None = None
+    artifact_paths: list[str] = field(default_factory=list)
+    cost_delta: dict[str, Any] | None = None
     provider: str | None = None
     model: str | None = None
     error: str | None = None
@@ -142,6 +148,36 @@ class PipelineStepRecord:
 def run_manifest_output_path(*, library_root: Path, title: str) -> Path:
     init_library(library_root)
     return library_root / "runs" / f"{slugify(title)}.video-pipeline.yaml"
+
+
+def run_status_output_path(*, library_root: Path, title: str) -> Path:
+    return run_manifest_output_path(library_root=library_root, title=title).with_suffix(".status.json")
+
+
+def planned_video_pipeline_steps(options: VideoPipelineOptions) -> list[str]:
+    steps = [
+        "source",
+        "short_profile",
+        "transcribe",
+        "extract_frames",
+        "detect_shots",
+        "build_frame_notes",
+        "build_motion_relations",
+    ]
+    if options.vision:
+        steps.append("analyze_frames")
+    steps.extend(
+        [
+            "analyze_video_semantics",
+            "build_cost_ledger",
+            "build_timeline",
+            "extract_claims",
+            "build_video_dag",
+        ]
+    )
+    if options.export_html:
+        steps.append("export_video_dag_html")
+    return steps
 
 
 def run_video_pipeline(options: VideoPipelineOptions) -> tuple[VideoPipelineContext, Path]:
@@ -154,7 +190,27 @@ def run_video_pipeline(options: VideoPipelineOptions) -> tuple[VideoPipelineCont
         platform=str(options.platform or Platform.manual),
     )
     manifest_path = run_manifest_output_path(library_root=options.library_root, title=initial_title)
+    status_path = run_status_output_path(library_root=options.library_root, title=initial_title)
+    planned_steps = planned_video_pipeline_steps(options)
     steps: list[PipelineStepRecord] = []
+
+    emit_progress(
+        options,
+        {
+            "event": "run_started",
+            "manifest_path": str(manifest_path),
+            "status_path": str(status_path),
+            "planned_steps": planned_steps,
+        },
+    )
+    write_pipeline_status(
+        status_path,
+        options=options,
+        context=context,
+        steps=steps,
+        planned_steps=planned_steps,
+        run_status="running",
+    )
 
     def run_step(
         name: str,
@@ -164,38 +220,80 @@ def run_video_pipeline(options: VideoPipelineOptions) -> tuple[VideoPipelineCont
         provider: str | None = None,
         model: str | None = None,
     ) -> None:
-        started_at = datetime.now(UTC).isoformat()
+        started = datetime.now(UTC)
+        started_at = started.isoformat()
+        running_step = PipelineStepRecord(
+            step=name,
+            status="running",
+            started_at=started_at,
+            finished_at=None,
+            inputs=_stringify_mapping(inputs or {}),
+            provider=provider,
+            model=model,
+        )
+        write_pipeline_status(
+            status_path,
+            options=options,
+            context=context,
+            steps=steps,
+            planned_steps=planned_steps,
+            run_status="running",
+            current_step=running_step,
+        )
+        emit_progress(options, {"event": "step_started", "step": step_record_dict(running_step)})
         try:
             outputs = fn()
             status = str(outputs.pop("status", "completed"))
-            steps.append(
-                PipelineStepRecord(
-                    step=name,
-                    status=status,
-                    started_at=started_at,
-                    finished_at=datetime.now(UTC).isoformat(),
-                    inputs=_stringify_mapping(inputs or {}),
-                    outputs=_stringify_mapping(outputs),
-                    provider=provider,
-                    model=model,
-                )
+            finished = datetime.now(UTC)
+            record = PipelineStepRecord(
+                step=name,
+                status=status,
+                started_at=started_at,
+                finished_at=finished.isoformat(),
+                inputs=_stringify_mapping(inputs or {}),
+                outputs=_stringify_mapping(outputs),
+                duration_seconds=round((finished - started).total_seconds(), 3),
+                artifact_paths=artifact_paths_from_outputs(outputs),
+                cost_delta=cost_delta_from_outputs(outputs),
+                provider=provider,
+                model=model,
             )
+            steps.append(record)
         except Exception as error:
-            steps.append(
-                PipelineStepRecord(
-                    step=name,
-                    status="failed",
-                    started_at=started_at,
-                    finished_at=datetime.now(UTC).isoformat(),
-                    inputs=_stringify_mapping(inputs or {}),
-                    provider=provider,
-                    model=model,
-                    error=str(error),
-                )
+            finished = datetime.now(UTC)
+            record = PipelineStepRecord(
+                step=name,
+                status="failed",
+                started_at=started_at,
+                finished_at=finished.isoformat(),
+                inputs=_stringify_mapping(inputs or {}),
+                duration_seconds=round((finished - started).total_seconds(), 3),
+                provider=provider,
+                model=model,
+                error=str(error),
             )
+            steps.append(record)
             write_pipeline_manifest(manifest_path, options=options, context=context, steps=steps)
+            write_pipeline_status(
+                status_path,
+                options=options,
+                context=context,
+                steps=steps,
+                planned_steps=planned_steps,
+                run_status="failed",
+            )
+            emit_progress(options, {"event": "step_finished", "step": step_record_dict(record)})
             raise
         write_pipeline_manifest(manifest_path, options=options, context=context, steps=steps)
+        write_pipeline_status(
+            status_path,
+            options=options,
+            context=context,
+            steps=steps,
+            planned_steps=planned_steps,
+            run_status="running",
+        )
+        emit_progress(options, {"event": "step_finished", "step": step_record_dict(record)})
 
     run_step("source", lambda: _source_step(options, context), inputs={"source": options.source})
     run_step("short_profile", lambda: _short_profile_step(options, context), inputs={"media_path": context.media_path})
@@ -260,6 +358,23 @@ def run_video_pipeline(options: VideoPipelineOptions) -> tuple[VideoPipelineCont
         run_step("export_video_dag_html", lambda: _html_step(options, context), inputs={"graph_path": context.graph_path})
 
     write_pipeline_manifest(manifest_path, options=options, context=context, steps=steps)
+    write_pipeline_status(
+        status_path,
+        options=options,
+        context=context,
+        steps=steps,
+        planned_steps=planned_steps,
+        run_status="completed",
+    )
+    emit_progress(
+        options,
+        {
+            "event": "run_finished",
+            "manifest_path": str(manifest_path),
+            "status_path": str(status_path),
+            "steps": [step_record_dict(step) for step in steps],
+        },
+    )
     return context, manifest_path
 
 
@@ -284,6 +399,112 @@ def write_pipeline_manifest(
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
     return path
+
+
+def write_pipeline_status(
+    path: Path,
+    *,
+    options: VideoPipelineOptions,
+    context: VideoPipelineContext,
+    steps: list[PipelineStepRecord],
+    planned_steps: list[str],
+    run_status: str,
+    current_step: PipelineStepRecord | None = None,
+) -> Path:
+    completed_by_name = {step.step: step_record_dict(step) for step in steps}
+    rendered_steps: list[dict[str, Any]] = []
+    for name in planned_steps:
+        if name in completed_by_name:
+            rendered_steps.append(completed_by_name[name])
+        elif current_step and current_step.step == name:
+            rendered_steps.append(step_record_dict(current_step))
+        else:
+            rendered_steps.append(
+                {
+                    "step": name,
+                    "status": "pending",
+                    "started_at": None,
+                    "finished_at": None,
+                    "duration_seconds": None,
+                    "inputs": {},
+                    "outputs": {},
+                    "artifact_paths": [],
+                    "cost_delta": None,
+                    "provider": None,
+                    "model": None,
+                    "error": None,
+                }
+            )
+    data = {
+        "version": 1,
+        "kind": "video_pipeline_status",
+        "status": run_status,
+        "source": options.source,
+        "title": context.title,
+        "owner": context.owner,
+        "platform": context.platform,
+        "updated_at": datetime.now(UTC).isoformat(),
+        "current_step": current_step.step if current_step else None,
+        "outputs": _stringify_mapping(context.__dict__),
+        "steps": rendered_steps,
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    return path
+
+
+def step_record_dict(record: PipelineStepRecord) -> dict[str, Any]:
+    return {
+        "step": record.step,
+        "status": record.status,
+        "started_at": record.started_at,
+        "finished_at": record.finished_at,
+        "inputs": record.inputs,
+        "outputs": record.outputs,
+        "duration_seconds": record.duration_seconds,
+        "artifact_paths": record.artifact_paths,
+        "cost_delta": record.cost_delta,
+        "provider": record.provider,
+        "model": record.model,
+        "error": record.error,
+    }
+
+
+def emit_progress(options: VideoPipelineOptions, event: dict[str, Any]) -> None:
+    if options.progress_callback:
+        options.progress_callback(event)
+
+
+def artifact_paths_from_outputs(outputs: dict[str, Any]) -> list[str]:
+    paths: list[str] = []
+
+    def visit(value: Any) -> None:
+        if isinstance(value, Path):
+            paths.append(str(value))
+        elif isinstance(value, dict):
+            for item in value.values():
+                visit(item)
+        elif isinstance(value, (list, tuple)):
+            for item in value:
+                visit(item)
+
+    visit(outputs)
+    return sorted(set(paths))
+
+
+def cost_delta_from_outputs(outputs: dict[str, Any]) -> dict[str, Any] | None:
+    for key in ("cost_ledger_path", "cost_path"):
+        path = outputs.get(key)
+        if isinstance(path, Path) and path.exists():
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                return None
+            return {
+                "path": str(path),
+                "totals": data.get("totals", {}),
+            }
+    return None
 
 
 def _source_step(options: VideoPipelineOptions, context: VideoPipelineContext) -> dict[str, Any]:
