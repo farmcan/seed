@@ -1,6 +1,6 @@
 # 竞品与类似项目调研
 
-调研日期：2026-05-07；画布与计费补充：2026-05-10；架构复核补充：2026-05-11；视觉笔记、核验、编排补充：2026-05-11；短视频 shot 级分析补充：2026-05-12。
+调研日期：2026-05-07；画布与计费补充：2026-05-10；架构复核补充：2026-05-11；视觉笔记、核验、编排补充：2026-05-11；短视频 shot 级分析补充：2026-05-12；运行可观测性补充：2026-05-13。
 
 ## 结论
 
@@ -50,6 +50,14 @@
 | Prefect | Python-native workflow orchestration；官方 docs 强调 task state lifecycle、client-side orchestration、`.submit()` 并发和 `.delay()` worker 分发。 | 后续 pipeline 复杂到需要调度、重试 UI 和 worker 时再考虑；当前先把本地 run manifest 做扎实。 |
 | Dagster | 面向 data assets 的 orchestrator，强调 integrated lineage、observability、declarative model 和 testability。 | 如果 `library/` 产物变成大量数据资产和跨主题依赖，可以参考 asset model；当前项目还不到引入 Dagster 的复杂度。 |
 | Temporal Python SDK | durable workflow 平台，有 Python SDK，适合长时间运行、可靠重试和分布式任务。 | 如果后续视频批处理需要强一致重试、队列和 worker，再评估；本地 MVP 暂不需要。 |
+| Airflow UI | 官方 UI 提供 Grid、Graph、Calendar、Task Duration、Gantt、Code 等视图，并能查看 task instance 详情和日志。 | 证明运行态可观测性至少需要 step 状态、耗时、日志、依赖图和失败定位；Seed 不需要引入 Airflow，但可以借鉴它的多视图拆分。 |
+| Prefect UI / states | Prefect 的核心是 flow/task state lifecycle、task run、logs 和 orchestration 视图，Python 代码可通过 `.submit()` 并发执行 task。 | Seed 可先学习“状态机 + logs + duration + retry 信息”模型；暂时保留本地 manifest，不引入 server。 |
+| Dagster UI | Dagster 强调 asset lineage、run observability、logs、materialization 和图谱视图。 | 对 Seed 的启发是把 `library/` 产物视为 asset，运行中节点应显示输入/输出 artifact，而不只是“任务名”。 |
+| Temporal Web UI | Temporal Web 用 workflow execution history 和 event timeline 调试长任务。 | 如果未来需要可恢复长任务和可靠重试，可以参考 event history；当前先用 append-only step events 或 status JSON。 |
+| LangGraph Studio | 面向 agent graph 的可视化调试工具，支持在图上调试、观察 node 执行和状态。 | 对 Seed 的 live DAG 有直接参考意义：画布节点可以表达 pending/running/completed/failed，但最终仍要落到 artifact 和 run manifest。 |
+| React Flow / XYFlow 状态节点 | React Flow 官方示例和文档支持动态更新 nodes/edges、自定义节点、layout 和交互。 | 如果 live DAG 变成正式前端，React Flow + ELK 是首选；当前单文件 HTML 可以先用轮询 status JSON 做轻量状态刷新。 |
+| Server-Sent Events / EventSource | 浏览器原生 EventSource 适合服务端向页面推送单向事件流。 | 本地 live preview 可以先轮询 JSON；如果需要更顺滑的运行中动画和日志流，再加 SSE，不必一开始引入 WebSocket。 |
+| Rich Progress / Live | Python Rich 提供 Progress、Live table、spinner 和 console status，适合 CLI 长任务可视化。 | Seed 的第一步应是 CLI 进度条和 step table，因为它实现成本最低，也不依赖浏览器打开。 |
 | ClaimCheck / RAG fact-checking 研究 | 近年的 automated fact-checking 研究普遍拆成 claim decomposition、query planning、evidence retrieval、evidence synthesis、verdict prediction。 | `verify-claims` 不应只是“搜到来源就 unclear”；下一步应实现分阶段 artifact：query plan、evidence snippets、source quality、verdict 和 residual uncertainty。 |
 | Fabric `youtube_summary` pattern | transcript-first 视频总结 pattern，强调通读 transcript、识别主题、提取关键时间点、按视频进程组织 Markdown。 | Seed 的 video semantics 不应直接复制 prompt，但应吸收 timestamp-first、structure-first 和 extract-wisdom 的分析 lenses。 |
 | HoverNotes / Obsidian 视频笔记类产品 | 强调本地 Markdown、截图、timestamp、视觉内容和学习笔记联动。 | 支持 Seed 继续把 keyframe/screenshot/timeline 作为一等证据，而不是只保存 transcript 摘要。 |
@@ -78,6 +86,9 @@
 20. 短视频方法论可先采用“Hook -> Setup/Context -> Proof/Development -> Turn/Reframe -> Payoff/Loop/CTA”的 beat lens，但必须用 transcript、OCR、shot timing、frame evidence 支撑；不要把营销文章里的爆款公式当成无证据结论。
 21. 视觉效果和剪辑手法需要被结构化，不应只写进自然语言总结。短视频 frame evidence 至少要预留：字幕、OCR、蒙版、画中画、贴纸、滤镜/LUT、变速、文字覆盖、镜头运动、人物运动关系、转场类型、声音卡点和剪辑目的。
 22. Provider 设计要分层：默认 deterministic baseline 只做 ffprobe/ffmpeg/OpenCV 级别信息；OCR provider 用 PaddleOCR/RapidVideOCR 类工具；human-motion provider 用 MediaPipe/OpenPose/YOLO pose；cinematic taxonomy 参考 ShotBench/CineTechBench，但最终结论仍由 VL/LLM 基于 evidence 汇总。
+23. 运行过程可观测性应先补数据模型，再补动画。Airflow、Prefect、Dagster、Temporal、LangGraph Studio 的共同点是先记录状态、事件、日志、耗时、依赖和产物，再提供图或时间线视图。Seed 不应先做漂亮动画，而应先让 `run-video-pipeline` 持续写 status artifact。
+24. 对 Seed 最轻量的 live DAG 方案是：每个 step 开始/结束时更新 `library/runs/*.status.json`，CLI 用 Rich 展示 step table，HTML 画布轮询这个 JSON 并把节点显示为 pending/running/completed/skipped/failed。动画只做运行中 pulse 和未完成节点虚化，不引入重型前端或编排服务。
+25. 预计耗时可以先用历史 run manifest 估算：同类平台、视频时长、是否 vision、frame 数、ASR 分片数和模型 provider 作为粗粒度特征。不要一开始承诺精确 ETA；先显示每步已耗时和历史均值区间。
 
 ## Sources
 
@@ -113,6 +124,15 @@
 - Dagster docs: https://docs.dagster.io/
 - Temporal docs: https://docs.temporal.io/
 - Temporal Python SDK: https://python.temporal.io/
+- Airflow UI docs: https://airflow.apache.org/docs/apache-airflow/stable/ui.html
+- Prefect states: https://docs.prefect.io/v3/concepts/states
+- Prefect tasks: https://docs.prefect.io/v3/concepts/tasks
+- Dagster UI: https://docs.dagster.io/guides/operate/webserver
+- Temporal Web UI: https://docs.temporal.io/web-ui
+- LangGraph Studio: https://docs.langchain.com/langgraph-platform/langgraph-studio
+- React Flow updating nodes: https://reactflow.dev/learn/advanced-use/state-management
+- MDN EventSource: https://developer.mozilla.org/en-US/docs/Web/API/EventSource
+- Rich Progress: https://rich.readthedocs.io/en/stable/progress.html
 - ClaimCheck paper: https://arxiv.org/abs/2510.01226
 - Evidence-backed fact checking with RAG: https://arxiv.org/abs/2408.12060
 - Fabric youtube_summary pattern: https://fabric.gavinslater.co.uk/view/youtube_summary

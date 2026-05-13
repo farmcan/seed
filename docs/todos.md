@@ -98,6 +98,13 @@
 - [x] 增强 Creator DAG 的媒体证据入口。
   - UP/作者级画布默认展示 profile、方法论、视频语义和 Agent 资产；每条视频节点可展开 4 个子节点：单条 video DAG HTML、本地视频、本地音频、关键帧截图 gallery。
   - 顶部 toolbar 改为自适应高度，控件换行时不再被 canvas 覆盖。
+- [ ] 增强 pipeline 运行可观测性。
+  - 目标：用户运行一条视频时，能看到预计耗时、当前 step、已完成/运行中/失败/跳过状态、每步耗时、关键日志、当前产物路径和成本增量。
+  - P0 先增强 CLI 进度：用 Rich progress/table 展示 step 状态，运行结束后输出耗时汇总；每个 step 在 manifest 写入 `duration_seconds`、`log_excerpt`、`artifact_paths` 和 `cost_delta`。
+  - P1 增加 run status artifact：在 `library/runs/*.video-pipeline.yaml` 之外同步写一个更适合前端轮询的 `*.status.json`，每个 step 开始/结束时更新。
+  - P2 增加 live DAG preview：生成一个临时 `*.video-dag.live.html`，节点默认有 `pending/running/completed/skipped/failed` 状态；未完成节点可以是虚线/半透明，运行中节点可以有轻量 pulse 动画；前端用轮询或 SSE 读取 status JSON。
+  - P3 再评估是否需要 Prefect/Dagster/Temporal 这类外部编排。当前不引入重型服务，除非出现多 worker、定时调度、复杂重试或团队协作需求。
+  - 设计原则：运行态画布是辅助视图，不替代准确的 manifest、日志和最终静态 DAG；动画只表达状态，不承载核心信息。
 
 ## P6：真实样本验证
 
