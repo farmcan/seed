@@ -20,6 +20,7 @@ def test_build_video_dag_graph_uses_artifact_paths_and_metadata(tmp_path):
     audio = tmp_path / "demo.asr.mp3"
     frames = tmp_path / "frames" / "demo"
     semantics = tmp_path / "demo.video-semantics.md"
+    finance = tmp_path / "demo.finance-signals.json"
     timeline = tmp_path / "demo.timeline.json"
     claims = tmp_path / "demo.claims.json"
     cost = tmp_path / "demo.cost.json"
@@ -34,6 +35,18 @@ def test_build_video_dag_graph_uses_artifact_paths_and_metadata(tmp_path):
     (frames / "frame_0001.jpg").write_bytes(b"jpg")
     semantics.write_text(
         "## Metadata\n\n- Owner: demo-up\n- Platform: bilibili\n\n## Creator Signals\n\n- Teaching style: explain with jokes",
+        encoding="utf-8",
+    )
+    finance.write_text(
+        json.dumps(
+            {
+                "domain": "finance",
+                "stance_summary": "Creator is watching semiconductors.",
+                "instruments": [{"name": "Semiconductors"}],
+                "recommendations": [{"instrument": "Semiconductors", "action": "watch"}],
+                "methodology_signals": [{"method": "event catalyst"}],
+            }
+        ),
         encoding="utf-8",
     )
     timeline.write_text(
@@ -178,6 +191,7 @@ def test_build_video_dag_graph_uses_artifact_paths_and_metadata(tmp_path):
         transcript_path=transcript,
         frame_dir=frames,
         semantics_path=semantics,
+        finance_signals_path=finance,
         timeline_path=timeline,
         claims_path=claims,
         cost_path=cost,
@@ -194,6 +208,7 @@ def test_build_video_dag_graph_uses_artifact_paths_and_metadata(tmp_path):
     video_node = next(node for node in graph["nodes"] if node["id"] == "video-media")
     audio_node = next(node for node in graph["nodes"] if node["id"] == "audio-media")
     creator_signal_node = next(node for node in graph["nodes"] if node["id"] == "creator-signals")
+    finance_node = next(node for node in graph["nodes"] if node["id"] == "finance-signals")
     timeline_node = next(node for node in graph["nodes"] if node["id"] == "timeline")
     timeline_event_node = next(node for node in graph["nodes"] if node["id"] == "timeline-event-1")
     cta_event_node = next(node for node in graph["nodes"] if node["id"] == "timeline-event-2")
@@ -244,6 +259,10 @@ def test_build_video_dag_graph_uses_artifact_paths_and_metadata(tmp_path):
     assert audio_node["preview"]["type"] == "audio"
     assert frame_node["preview"]["type"] == "gallery"
     assert "Teaching style" in creator_signal_node["body"]
+    assert "1 recs" in finance_node["metrics"]
+    assert "Creator is watching semiconductors" in finance_node["body"]
+    assert ["semantics", "finance-signals"] in graph["edges"]
+    assert ["finance-signals", "creator-signals"] in graph["edges"]
     assert ["timeline", "semantics"] in graph["edges"]
     assert ["creator-signals", "creator"] in graph["edges"]
 
@@ -272,12 +291,25 @@ def test_resolve_video_dag_artifacts_by_title(tmp_path):
     frame_dir = frames / "bilibili-bv-demo-法德欧洲大哥之争"
     visual = notes / "法德欧洲大哥之争.visual.md"
     semantic = semantics / "法德欧洲大哥之争.video-semantics.md"
+    finance = semantics / "法德欧洲大哥之争.finance-signals.json"
     timeline = timelines / "法德欧洲大哥之争.timeline.json"
     claim = claims / "法德欧洲大哥之争.claims.json"
     verified_claim = claims / "法德欧洲大哥之争.verified.json"
     cost = costs / "法德欧洲大哥之争.cost.json"
     motion_relations = shots / "法德欧洲大哥之争.motion-relations.json"
-    for path in [video, audio, transcript, visual, semantic, timeline, claim, verified_claim, cost, motion_relations]:
+    for path in [
+        video,
+        audio,
+        transcript,
+        visual,
+        semantic,
+        finance,
+        timeline,
+        claim,
+        verified_claim,
+        cost,
+        motion_relations,
+    ]:
         path.write_text("x", encoding="utf-8")
     frame_dir.mkdir()
 
@@ -293,6 +325,7 @@ def test_resolve_video_dag_artifacts_by_title(tmp_path):
         "frame_dir": frame_dir,
         "visual_notes_path": visual,
         "semantics_path": semantic,
+        "finance_signals_path": finance,
         "timeline_path": timeline,
         "claims_path": verified_claim,
         "cost_path": cost,

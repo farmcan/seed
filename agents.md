@@ -52,6 +52,7 @@ run-creator-pipeline
 - Codex 进程封装：`src/seed/agents/codex.py`
 - Markdown artifact 工具：`src/seed/markdown.py`
 - 共享分析 lens 入口：`src/seed/skill_refs.py`
+- 财经领域信号：`src/seed/domains/finance.py`
 - 视频证据锚点：`src/seed/semantics/evidence.py`
 - Video DAG 构建：`src/seed/graphs/video_dag.py`
 - Creator DAG 构建：`src/seed/graphs/creator_dag.py`
@@ -63,6 +64,7 @@ run-creator-pipeline
   - `skills/video-note-summarizer/SKILL.md`
   - `skills/video-semantics-analyzer/SKILL.md`
   - `skills/video-semantics-analyzer/references/video-analysis-lenses.md`
+  - `skills/video-semantics-analyzer/references/domain-finance-lenses.md`
   - `skills/creator-profile-aggregator/SKILL.md`
 
 ## 架构规则
@@ -70,6 +72,7 @@ run-creator-pipeline
 - `cli.py` 只做参数接线、轻量校验和用户输出。
 - 新增主要功能必须能归入 `run-video-pipeline`、`run-creator-pipeline` 或明确的 artifact 消费链路；不要新增只能手动调用、无法被 pipeline 编排的孤立命令。
 - `run-creator-pipeline` 是创作者级默认入口，必须把 video pipeline、creator cost ledger、creator profile、agent assets 和 creator DAG 串到同一个 manifest；后处理状态写入 `creator_steps`。
+- 创作者级时间窗口过滤使用 `run-creator-pipeline --published-after/--published-before`；有时间窗口时，发布时间缺失的视频应保守排除并记录 notes。
 - 新增主要功能必须写稳定 artifact 到 `library/`，不要只打印到 stdout。
 - 新增 artifact 必须说明谁生产、谁消费、是否进入 DAG、是否需要计费；这些信息要同步更新 `docs/architecture.md` 和 `docs/todos.md`。
 - pipeline step 必须幂等：目标产物已存在时要能跳过或覆盖明确可控，失败后要能从中间步骤续跑。
@@ -102,6 +105,10 @@ run-creator-pipeline
 - Creator DAG 默认是 UP/作者级聚合入口，不应把所有媒体一次性铺满；每条视频节点通过折叠子节点挂载单条 video DAG、本地视频、本地音频和关键帧 gallery。
 - 给用户看的 DAG 默认优先生成静态 HTML；本地 server 只用于调试。
 - 视频分析 skills 必须复用 `video-analysis-lenses.md`，不要在 summarizer、semantics analyzer 和 creator aggregator 里各写一套互相冲突的分析框架。
+- 领域分析必须通过 domain lens 接入，例如财经方向使用 `--domain finance` 和 `domain-finance-lenses.md`；不要把财经规则硬编码到通用视频 pipeline。
+- 财经信号输出在 `library/semantics/*.finance-signals.json`，由 `seed extract-finance-signals` 或 `run-video-pipeline --domain finance` 生成；记录的是创作者观点、推荐/观察信号、风险和证据缺口，不是 Seed 的投资建议。
+- 财经相关结论必须保留发布时间、标的、动作、方向、时间窗口、证据引用和不确定性；没有 ticker 或动作时用 `unknown/null`，不要猜。
+- “最近 10 天 top UP 说了什么”必须通过创作者列表、时间窗口、批量 pipeline 和 finance signals 汇总，不能只根据搜索结果或单条视频臆测。
 - 视频总结、视频语义和创作者聚合 prompt 必须注入共享 lenses；单条视频 prompt 还必须注入 `[T*]`、`[V*]`、`[F*]` 证据锚点。
 - 视频语义和 creator profile 的强结论必须带证据引用；如果证据不足，写入 Open Questions 或 Evidence Gaps，不要用模型猜测补齐。
 - `aggregate-owner` 生成 creator profile 后要写 evidence validation report；手动检查已有 profile 时使用 `seed validate-creator-profile`。
@@ -120,6 +127,8 @@ run-creator-pipeline
 - Source lint：平台发现失败要保留 provider、错误码和 cookies/owner-id 建议；不要吞掉 352/412 这类风控诊断。
 - Cost lint：新增外部模型/API/provider 调用必须记录或预留成本字段，并接入 cost ledger；批量 pipeline 必须考虑预算门槛。
 - DAG lint：新增关键 artifact 必须考虑是否需要 DAG 节点；如果节点能回到视频/音频证据，必须写入 `media_anchor` 或说明缺少时间点的原因。
+- Domain lint：新增领域方向先扩展 domain lens 和专用 artifact；通用 pipeline 只暴露 `--domain <name>`，不要为每个领域复制一套入口。
+- Finance lint：财经内容只能表达“创作者声称/暗示”，不得输出 Seed 自己的投资建议；推荐信号必须保留 evidence refs、risk flags、horizon 和 uncertainty。
 - Verification lint：涉及事实、价格、平台规则、模型价格、库选型等易变信息时，必须查官方或 primary source，并把来源写入调研或 artifact。
 - Canvas lint：不要再手写主布局算法；主路径使用 vendored 成熟布局库，手写逻辑只允许作为 fallback 或小交互 glue。遇到卡顿先做默认简版、卡片正文折叠、视口裁剪和右侧详情收起，不要降级成低信息密度图谱。
 - Skill lint：新增视频分析 prompt/skill 之前，先检查 `video-analysis-lenses.md` 是否能扩展；优先更新共享 lens，避免重复造轮子。
@@ -164,7 +173,7 @@ library/transcripts/  ASR 或人工 transcript
 library/frames/       抽帧截图和 shot 代表帧
 library/notes/        source record、creator video list、visual notes、quick summary
 library/runs/         pipeline run manifest、运行态 status JSON 和 live HTML
-library/semantics/    单条视频语义
+library/semantics/    单条视频语义、财经 finance signals
 library/timelines/    视频时间线 JSON
 library/claims/       待核验 claim JSON
 library/costs/        单条视频 Qwen-VL 成本 JSON 和 pipeline cost ledger
@@ -192,11 +201,11 @@ git status -sb
 ```bash
 .venv/bin/seed --help
 .venv/bin/seed run-video-pipeline --help
+.venv/bin/seed run-creator-pipeline --help
 .venv/bin/seed profile-short-video --help
 .venv/bin/seed detect-shots --help
 .venv/bin/seed fetch-creator-videos --help
 .venv/bin/seed ingest-creator-videos --help
-.venv/bin/seed run-creator-pipeline --help
 .venv/bin/seed build-cost-ledger --help
 .venv/bin/seed build-video-dag --help
 .venv/bin/seed build-creator-dag --help
@@ -211,6 +220,7 @@ git status -sb
 .venv/bin/seed record-reflection --help
 .venv/bin/seed suggest-revisions --help
 .venv/bin/seed analyze-video-semantics --help
+.venv/bin/seed extract-finance-signals --help
 .venv/bin/seed validate-creator-profile --help
 ```
 

@@ -28,6 +28,7 @@ def build_video_dag_graph(
     frame_dir: Path | None = None,
     visual_notes_path: Path | None = None,
     semantics_path: Path | None = None,
+    finance_signals_path: Path | None = None,
     timeline_path: Path | None = None,
     claims_path: Path | None = None,
     cost_path: Path | None = None,
@@ -44,6 +45,7 @@ def build_video_dag_graph(
     resolved_audio_path = audio_path or infer_audio_path(source_path)
     frame_paths = list_frame_paths(frame_dir)
     semantics_text = semantics_path.read_text(encoding="utf-8") if semantics_path and semantics_path.exists() else ""
+    finance_signals = load_json_artifact(finance_signals_path)
     timeline = load_timeline(timeline_path)
     timeline_events = timeline.get("events", []) if timeline else []
     claims = load_claims(claims_path)
@@ -307,6 +309,23 @@ def build_video_dag_graph(
         source_path=source_path,
     )
     nodes.extend(motion_relation_nodes)
+    if finance_signals:
+        nodes.append(
+            node(
+                "finance-signals",
+                "asset",
+                "Finance Signals",
+                finance_signals_summary(finance_signals),
+                850,
+                -360,
+                [
+                    path_metric(finance_signals_path),
+                    f"{len(finance_signals.get('recommendations') or [])} recs",
+                    "not advice",
+                ],
+                finance_signals_path,
+            )
+        )
 
     edges = [
         ["source", "video-media"],
@@ -343,6 +362,13 @@ def build_video_dag_graph(
     edges.extend(["shots", shot_node["id"]] for shot_node in shot_nodes)
     edges.extend(["frame-notes", frame_node["id"]] for frame_node in frame_note_nodes)
     edges.extend(["motion-relations", relation_node["id"]] for relation_node in motion_relation_nodes)
+    if finance_signals:
+        edges.extend(
+            [
+                ["semantics", "finance-signals"],
+                ["finance-signals", "creator-signals"],
+            ]
+        )
 
     return {
         "version": 1,
@@ -364,6 +390,7 @@ def resolve_video_dag_artifacts(
     frame_dir: Path | None = None,
     visual_notes_path: Path | None = None,
     semantics_path: Path | None = None,
+    finance_signals_path: Path | None = None,
     timeline_path: Path | None = None,
     claims_path: Path | None = None,
     cost_path: Path | None = None,
@@ -389,6 +416,14 @@ def resolve_video_dag_artifacts(
         or find_matching_file(library_root / "notes", title_slug=title_slug, suffixes={".md"}),
         "semantics_path": semantics_path
         or find_matching_file(library_root / "semantics", title_slug=title_slug, suffixes={".md"}),
+        "finance_signals_path": finance_signals_path
+        or find_matching_file(
+            library_root / "semantics",
+            title_slug=title_slug,
+            suffixes={".json"},
+            preferred_suffix=".finance-signals",
+            require_preferred=True,
+        ),
         "timeline_path": timeline_path
         or find_matching_file(library_root / "timelines", title_slug=title_slug, suffixes={".json"}),
         "claims_path": claims_path
@@ -631,6 +666,19 @@ def factcheck_summary(claims: list[dict[str, Any]]) -> str:
         return "需要外部来源核验的日期、预算、人物表态、合同和政策声明。当前没有找到 claims artifact。"
     statuses = ", ".join(sorted({str(claim.get("status")) for claim in claims if claim.get("status")}))
     return f"已抽取 {len(claims)} 条待核验 claim。状态集合：{statuses}。"
+
+
+def finance_signals_summary(signals: dict[str, Any]) -> str:
+    if not signals:
+        return "财经领域信号 artifact 尚未生成。它用于结构化记录标的、方向、动作、时间窗口、风险控制和证据引用；所有内容都是创作者观点，不是投资建议。"
+    instruments = signals.get("instruments") or []
+    recommendations = signals.get("recommendations") or []
+    methods = signals.get("methodology_signals") or []
+    stance = signals.get("stance_summary") or "no stance summary"
+    return (
+        f"已提取 {len(instruments)} 个标的、{len(recommendations)} 条推荐/观察信号、"
+        f"{len(methods)} 条方法论信号。立场摘要：{stance}"
+    )
 
 
 def cost_summary(report: dict[str, Any]) -> str:

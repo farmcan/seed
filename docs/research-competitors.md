@@ -1,6 +1,6 @@
 # 竞品与类似项目调研
 
-调研日期：2026-05-07；画布与计费补充：2026-05-10；架构复核补充：2026-05-11；视觉笔记、核验、编排补充：2026-05-11；短视频 shot 级分析补充：2026-05-12；运行可观测性补充：2026-05-13。
+调研日期：2026-05-07；画布与计费补充：2026-05-10；架构复核补充：2026-05-11；视觉笔记、核验、编排补充：2026-05-11；短视频 shot 级分析补充：2026-05-12；运行可观测性补充：2026-05-13；财经 UP 蒸馏补充：2026-05-14。
 
 ## 结论
 
@@ -16,6 +16,7 @@
 | Recall | 面向网页、YouTube、播客、PDF 等内容总结、知识库、问答，并强调 spaced repetition 和 active recall。 | “总结后还要记住和复习”的闭环值得借鉴。 | seed 可以把复习变成 Agent 使用后的反思和方法论更新。 |
 | Readwise Reader / Ghostreader | 对文章、PDF、YouTube 等资料做 AI 总结、自定义 prompt 和阅读辅助；Reader 支持视频旁边展示 time-synced transcript、点击片段跳转、highlight 和 enhanced transcript。 | 视频学习体验的关键不是“摘要按钮”，而是视频、转写、笔记、高亮和当前位置同步。 | seed 的 DAG/HTML 后续可以借鉴这种“媒体预览 + 当前证据片段 + 可回放”的交互。 |
 | Glasp / Eightify / summarize.tech | 轻量 YouTube 总结、转写、时间戳摘要。 | 入口简单，适合“粘贴 URL -> 立即得到摘要”。 | 这些产品偏消费工具，缺少长期方法论建模。 |
+| AlphaCheck | 面向金融 YouTube，提取股票提及、推荐强度、上下文理由，并把发布时价格和最新价格对齐；还支持按频道追踪历史表现。 | 财经方向要把“标的、动作、信念强度、理由、发布时间价格、后验表现”结构化，不要停留在自然语言摘要。 | Seed 先做多平台本地蒸馏和 evidence DAG；后验收益、benchmark 和行情数据作为财经 domain 后续 provider。 |
 
 ## 开源项目与组件
 
@@ -47,6 +48,12 @@
 | `google-ai-edge/mediapipe` | GitHub 上约 35k stars，Apache-2.0；面向 live/streaming media 的跨平台 ML pipeline，常用于 pose、hand、face 等实时视觉任务。 | 人物运动关系 provider 候选：人的位置、姿态、手势、遮挡、人物与镜头/物体关系可以先用 pose/hand/face landmarks 辅助，再交给 VL 总结。 |
 | `CMU-Perceptual-Computing-Lab/openpose` | GitHub 上约 34k stars；实时多人 body/face/hand/foot keypoint detection。 | 适合后续做多人关系和肢体动作的更强 provider，但 license 和安装复杂度需要单独隔离。 |
 | `opencv/opencv` | GitHub 上约 87k stars，Apache-2.0；提供 optical flow、tracking、image processing 等基础视觉算法。 | 当前短视频默认 provider 应优先用 OpenCV/ffmpeg 做低成本 baseline，例如镜头运动、画面变化、字幕区域、运动强度，不依赖大模型。 |
+| `gtfintechlab/VideoConviction` | KDD 2025 项目，研究 YouTube finfluencer 的多模态股票推荐；包含 YouTube data pipeline、annotation pipeline、prompting 和 backtesting。 | 财经 UP 分析应显式抽取 ticker/标的、action、conviction、reasoning 和多模态表达；同时要警惕模型把一般评论误判成明确推荐。 |
+| AlphaCheck / fintuber 类频道追踪工具 | 产品形态是“单条视频抽取股票信号 -> 按频道汇总历史 picks -> 对齐价格/benchmark”。 | 证明“最近 10 天 top UP 说了什么”需要先做稳定频道采集和行情对齐；没有完整样本时不能靠搜索结果猜推荐。 |
+| `AI4Finance-Foundation/FinGPT` | 开源金融大模型项目，覆盖金融情绪、关系抽取、NER、问答、forecaster 等任务。 | 适合作为财经文本任务的参考 taxonomy：sentiment、relation extraction、headline classification、NER、QA；Seed 暂不直接引入模型。 |
+| `AI4Finance-Foundation/FinRobot` | 金融 AI Agent 平台，组合 LLM、金融数据源、量化分析和报告生成；示例包含 FMP、SEC、yfinance 等数据源和 equity report pipeline。 | 后续财经 domain 可以把外部行情、财报、公告和估值工具作为 provider，和视频观点分离。 |
+| `ProsusAI/finBERT` | 金融文本情绪分析 BERT，面向金融语料情绪分类。 | 可作为低成本 sentiment/stance baseline 的参考，但财经视频 recommendation 不能只看情绪，还要抽取 action、horizon、risk。 |
+| `AI4Finance-Foundation/FinRL` | 金融强化学习框架，强调 market environment、agent、application 和 train-test-trade。 | 方法论蒸馏时可借鉴“状态 -> 行动 -> 风险约束 -> 回测”的表达；UP 观点不是可执行策略，必须保留适用条件和失效条件。 |
 | Prefect | Python-native workflow orchestration；官方 docs 强调 task state lifecycle、client-side orchestration、`.submit()` 并发和 `.delay()` worker 分发。 | 后续 pipeline 复杂到需要调度、重试 UI 和 worker 时再考虑；当前先把本地 run manifest 做扎实。 |
 | Dagster | 面向 data assets 的 orchestrator，强调 integrated lineage、observability、declarative model 和 testability。 | 如果 `library/` 产物变成大量数据资产和跨主题依赖，可以参考 asset model；当前项目还不到引入 Dagster 的复杂度。 |
 | Temporal Python SDK | durable workflow 平台，有 Python SDK，适合长时间运行、可靠重试和分布式任务。 | 如果后续视频批处理需要强一致重试、队列和 worker，再评估；本地 MVP 暂不需要。 |
@@ -89,6 +96,10 @@
 23. 运行过程可观测性应先补数据模型，再补动画。Airflow、Prefect、Dagster、Temporal、LangGraph Studio 的共同点是先记录状态、事件、日志、耗时、依赖和产物，再提供图或时间线视图。Seed 不应先做漂亮动画，而应先让 `run-video-pipeline` 持续写 status artifact。
 24. 对 Seed 最轻量的 live DAG 方案是：每个 step 开始/结束时更新 `library/runs/*.status.json`，CLI 用 Rich 展示 step table，HTML 画布轮询这个 JSON 并把节点显示为 pending/running/completed/skipped/failed。动画只做运行中 pulse 和未完成节点虚化，不引入重型前端或编排服务。
 25. 预计耗时可以先用历史 run manifest 估算：同类平台、视频时长、是否 vision、frame 数、ASR 分片数和模型 provider 作为粗粒度特征。不要一开始承诺精确 ETA；先显示每步已耗时和历史均值区间。
+26. 财经 UP 方向要作为 domain lens，而不是复制一套视频 pipeline。通用层仍负责采集、ASR、视觉、semantics、creator profile 和 DAG；财经层只补充 instruments、recommendations、macro theses、methodology signals、risk flags、evidence gaps 和后验行情 provider。
+27. VideoConviction 的关键启发是：多模态输入能帮助 ticker 抽取，但 action 和 conviction 容易被误判；Seed 的 finance signals 必须允许 `unknown`、保留证据引用和 uncertainty，不能把每次提及都当推荐。
+28. AlphaCheck 的产品启发是：用户真正关心频道级 track record，包括每个标的当时价格、当前价格、是否跑赢 benchmark、top winners/losers 和上下文理由。Seed 当前先落地 `*.finance-signals.json`，下一步再接行情 provider 和跨视频收益归因。
+29. “最近 10 天 top UP 都说了什么”不是单纯搜索问题，而是 creator list discovery + date window + 批量 video pipeline + finance signals + channel digest。Bilibili 侧仍受 352/412 风控影响，实际落地优先用 `--owner-id`、cookies 或手动 list。
 
 ## Sources
 
@@ -151,3 +162,9 @@
 - MediaPipe: https://github.com/google-ai-edge/mediapipe
 - OpenPose: https://github.com/CMU-Perceptual-Computing-Lab/openpose
 - OpenCV: https://github.com/opencv/opencv
+- VideoConviction: https://github.com/gtfintechlab/VideoConviction
+- AlphaCheck: https://alphacheck.ai/
+- FinGPT: https://github.com/AI4Finance-Foundation/FinGPT
+- FinRobot: https://github.com/AI4Finance-Foundation/FinRobot
+- FinBERT: https://github.com/ProsusAI/finBERT
+- FinRL: https://github.com/AI4Finance-Foundation/FinRL

@@ -153,6 +153,31 @@
   - Motion/editing provider：优先用 OpenCV optical flow 做镜头运动、运动强度和速度变化 baseline；复杂剪辑效果交给 VL/LLM 基于 frame evidence 判断。
   - 所有 provider 都必须可选，默认链路只保留 deterministic baseline 和 schema，不引入重依赖。
 
+## P8：财经 UP 数据蒸馏
+
+- [x] 调研财经/finfluencer 分析参考。
+  - 已参考 VideoConviction：把金融视频里的 ticker/标的、action、conviction、reasoning 和回测管线拆开。
+  - 已参考 AlphaCheck：频道级追踪不只是摘要，还要对齐视频发布时间、标的、当时价格、当前价格、benchmark 和上下文理由。
+  - 已参考 FinGPT、FinRobot、FinBERT、FinRL：作为金融文本任务 taxonomy、金融 agent 数据源、情绪/stance 和策略表达的参考，不直接把它们塞进默认依赖。
+- [x] 增加财经 domain lens。
+  - `--domain finance` 会追加 `domain-finance-lenses.md`，用于 `summarize-transcript`、`analyze-video-semantics`、`aggregate-owner`、`run-video-pipeline` 和 `run-creator-pipeline`。
+  - 领域 lens 只约束结构和风险边界，不生成 Seed 自己的投资建议。
+- [x] 增加单条视频 finance signals artifact。
+  - `seed extract-finance-signals <semantics.md>` 或 `seed run-video-pipeline --domain finance ...` 生成 `library/semantics/*.finance-signals.json`。
+  - artifact 记录 instruments、recommendations、macro theses、methodology signals、risk flags 和 evidence gaps。
+  - video DAG 和 creator DAG 已接入 finance signals 节点。
+- [ ] 做最近 10 天财经 UP 批量 digest。
+  - 输入平台、UP 名称或 owner-id、时间窗口和 limit。
+  - [x] `run-creator-pipeline` 已支持 `--published-after/--published-before`，可只分析发布时间落在窗口内的视频。
+  - 继续复用 creator video list 和 `run-creator-pipeline --domain finance`，生成窗口内批量样本。
+  - 输出 creator-level digest：最近提到的标的、方向、动作、核心理由、风险、重复方法论和证据缺口。
+- [ ] 接入行情/价格 provider。
+  - 对 finance signals 中的标的补充视频发布时间价格、当前价格、涨跌幅、benchmark 和数据来源。
+  - 行情 provider 必须独立于视频分析；没有可靠 ticker mapping 时保留 unknown，不要猜。
+- [ ] 增加财经方法论回测/后验评估。
+  - 只评估“创作者当时表达的观点是否被后续市场验证”，不输出交易建议。
+  - 需要保留窗口、标的映射、基准、复权/汇率/交易日处理和不确定性。
+
 ## 已完成基础
 
 - [x] GitHub / 本地仓库初始化。

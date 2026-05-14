@@ -28,6 +28,7 @@ from seed.dag_export import (
     relative_asset_base,
     video_dag_html_output_path,
 )
+from seed.domains.finance import finance_signals_output_path, run_finance_signals_extraction
 from seed.factcheck import build_claims_artifact, claims_output_path, write_claims_artifact
 from seed.graphs.video_dag import (
     build_video_dag_graph,
@@ -104,6 +105,7 @@ class VideoPipelineOptions:
     frame_mode: str = "shot-keyframes"
     frame_notes_fps: float = 1.0
     motion_relations: bool = True
+    domain: str | None = None
     semantics_skill_path: Path = DEFAULT_VIDEO_SEMANTICS_SKILL_PATH
     codex_model: str | None = None
     force: bool = False
@@ -129,6 +131,7 @@ class VideoPipelineContext:
     cost_path: Path | None = None
     cost_ledger_path: Path | None = None
     semantics_path: Path | None = None
+    finance_signals_path: Path | None = None
     timeline_path: Path | None = None
     claims_path: Path | None = None
     graph_path: Path | None = None
@@ -173,9 +176,11 @@ def planned_video_pipeline_steps(options: VideoPipelineOptions) -> list[str]:
     ]
     if options.vision:
         steps.append("analyze_frames")
+    steps.append("analyze_video_semantics")
+    if options.domain == "finance":
+        steps.append("extract_finance_signals")
     steps.extend(
         [
-            "analyze_video_semantics",
             "build_cost_ledger",
             "build_timeline",
             "extract_claims",
@@ -365,6 +370,14 @@ def run_video_pipeline(options: VideoPipelineOptions) -> tuple[VideoPipelineCont
         provider="codex",
         model=options.codex_model,
     )
+    if options.domain == "finance":
+        run_step(
+            "extract_finance_signals",
+            lambda: _finance_signals_step(options, context),
+            inputs={"semantics_path": context.semantics_path},
+            provider="codex",
+            model=options.codex_model,
+        )
     run_step("build_cost_ledger", lambda: _cost_ledger_step(options, context), inputs={"title": context.title})
     run_step("build_timeline", lambda: _timeline_step(options, context), inputs={"title": context.title})
     run_step("extract_claims", lambda: _claims_step(options, context), inputs={"semantics_path": context.semantics_path})
@@ -424,6 +437,7 @@ def write_pipeline_manifest(
         "title": context.title,
         "owner": context.owner,
         "platform": context.platform,
+        "domain": options.domain,
         "updated_at": datetime.now(UTC).isoformat(),
         "force": options.force,
         "outputs": _stringify_mapping(context.__dict__),
@@ -476,6 +490,7 @@ def write_pipeline_status(
         "title": context.title,
         "owner": context.owner,
         "platform": context.platform,
+        "domain": options.domain,
         "updated_at": datetime.now(UTC).isoformat(),
         "current_step": current_step.step if current_step else None,
         "outputs": _stringify_mapping(context.__dict__),
@@ -849,11 +864,31 @@ def _semantics_step(options: VideoPipelineOptions, context: VideoPipelineContext
         title=context.title,
         owner=context.owner,
         platform=context.platform,
+        domain=options.domain,
         model=options.codex_model,
         cwd=Path.cwd(),
     )
     context.semantics_path = output_path
     return {"semantics_path": output_path}
+
+
+def _finance_signals_step(options: VideoPipelineOptions, context: VideoPipelineContext) -> dict[str, Any]:
+    semantics_path = _require_path(context.semantics_path, "semantics_path")
+    output_path = finance_signals_output_path(library_root=options.library_root, title=context.title)
+    if output_path.exists() and not options.force:
+        context.finance_signals_path = output_path
+        return {"status": "skipped", "finance_signals_path": output_path}
+    run_finance_signals_extraction(
+        semantics_path=semantics_path,
+        output_path=output_path,
+        title=context.title,
+        owner=context.owner,
+        platform=context.platform,
+        model=options.codex_model,
+        cwd=Path.cwd(),
+    )
+    context.finance_signals_path = output_path
+    return {"finance_signals_path": output_path}
 
 
 def _timeline_step(options: VideoPipelineOptions, context: VideoPipelineContext) -> dict[str, Any]:
@@ -903,6 +938,7 @@ def _dag_step(options: VideoPipelineOptions, context: VideoPipelineContext) -> d
         frame_dir=context.frame_dir,
         visual_notes_path=context.visual_notes_path,
         semantics_path=context.semantics_path,
+        finance_signals_path=context.finance_signals_path,
         timeline_path=context.timeline_path,
         claims_path=context.claims_path,
         cost_path=context.cost_ledger_path or context.cost_path,
@@ -921,6 +957,7 @@ def _dag_step(options: VideoPipelineOptions, context: VideoPipelineContext) -> d
         frame_dir=artifacts["frame_dir"],
         visual_notes_path=artifacts["visual_notes_path"],
         semantics_path=artifacts["semantics_path"],
+        finance_signals_path=artifacts["finance_signals_path"],
         timeline_path=artifacts["timeline_path"],
         claims_path=artifacts["claims_path"],
         cost_path=artifacts["cost_path"],

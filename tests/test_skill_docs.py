@@ -1,8 +1,10 @@
 from pathlib import Path
 
+from seed.domains.finance import build_finance_signals_prompt
 from seed.semantics.aggregator import build_creator_profile_prompt
 from seed.semantics.analyzer import build_video_semantics_prompt
 from seed.summarizers.codex_runner import build_summary_prompt
+from seed.skill_refs import read_video_analysis_lenses
 
 
 def test_video_skills_share_analysis_lenses():
@@ -90,3 +92,45 @@ owner: demo-owner
     assert "F1: Keyframe" in video_prompt
     assert "Use these IDs in the final artifact" in summary_prompt
     assert "<analysis_lenses>" in profile_prompt
+
+
+def test_finance_domain_lenses_are_injected(tmp_path):
+    transcript_path = tmp_path / "finance.transcript.md"
+    transcript_path.write_text("# Transcript\n\n## Chunk 1 (00:00:01)\nWatch AAPL.", encoding="utf-8")
+    semantics_path = tmp_path / "finance.video-semantics.md"
+    semantics_path.write_text(
+        """---
+owner: finance-owner
+---
+
+## Methods And Principles
+
+- Watch AAPL because earnings may be a catalyst. [T1]
+""",
+        encoding="utf-8",
+    )
+
+    lenses = read_video_analysis_lenses(domains=["finance"])
+    video_prompt = build_video_semantics_prompt(
+        transcript_path=transcript_path,
+        skill_path=Path("skills/video-semantics-analyzer/SKILL.md"),
+        domain="finance",
+    )
+    profile_prompt = build_creator_profile_prompt(
+        semantics_paths=[semantics_path],
+        skill_path=Path("skills/creator-profile-aggregator/SKILL.md"),
+        owner="finance-owner",
+        domain="finance",
+    )
+    signals_prompt = build_finance_signals_prompt(
+        semantics_path=semantics_path,
+        title="Finance Demo",
+        owner="finance-owner",
+        platform="bilibili",
+    )
+
+    assert "Finance Domain Lenses" in lenses
+    assert "Recommendation signal" in video_prompt
+    assert "- Domain: finance" in profile_prompt
+    assert '"recommendations"' in signals_prompt
+    assert "not as advice from Seed" in signals_prompt

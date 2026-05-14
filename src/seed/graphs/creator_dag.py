@@ -247,6 +247,7 @@ def resolve_creator_video_artifacts(
             "source_path": None,
             "audio_path": None,
             "frame_dir": None,
+            "finance_signals_path": None,
             "video_dag_path": None,
             "video_dag_html_path": None,
         }
@@ -273,6 +274,7 @@ def build_creator_video_media_nodes(
     source_path = artifacts.get("source_path")
     audio_path = artifacts.get("audio_path")
     frame_dir = artifacts.get("frame_dir")
+    finance_signals_path = artifacts.get("finance_signals_path")
     video_dag_html_path = artifacts.get("video_dag_html_path")
     frame_paths = list_frame_paths(frame_dir)
     nodes: list[dict[str, Any]] = [
@@ -322,10 +324,25 @@ def build_creator_video_media_nodes(
             else None,
         ),
     ]
+    if finance_signals_path:
+        nodes.append(
+            node(
+                f"{video_id}-finance",
+                "asset",
+                "Finance Signals",
+                "单条财经视频中结构化提取的标的、方向、动作、时间窗口、风险控制和证据引用；这些是创作者观点，不是投资建议。",
+                -720,
+                y + 190,
+                [path_metric(finance_signals_path), "not advice"],
+                finance_signals_path,
+            )
+        )
     edges = [
         [video_id, f"{video_id}-video"],
         [video_id, f"{video_id}-audio"],
         [video_id, f"{video_id}-frames"],
         [video_id, f"{video_id}-dag"],
     ]
+    if finance_signals_path:
+        edges.append([video_id, f"{video_id}-finance"])
     return nodes, edges

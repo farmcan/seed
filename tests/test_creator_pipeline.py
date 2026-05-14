@@ -1,6 +1,9 @@
+from datetime import UTC, datetime
+
 from seed.creator_pipeline import (
     CreatorPipelineOptions,
     creator_pipeline_manifest_path,
+    filter_creator_video_list_by_date,
     run_creator_pipeline,
 )
 from seed.models import CreatorVideo, CreatorVideoIngestItem, CreatorVideoIngestResult, CreatorVideoList, Platform
@@ -10,6 +13,45 @@ def test_creator_pipeline_manifest_path(tmp_path):
     assert creator_pipeline_manifest_path(library_root=tmp_path, owner="某 UP") == (
         tmp_path / "runs" / "某-up.creator-pipeline.yaml"
     )
+
+
+def test_filter_creator_video_list_by_published_window():
+    video_list = CreatorVideoList(
+        platform=Platform.bilibili,
+        owner_query="demo",
+        owner="demo",
+        provider="test",
+        videos=[
+            CreatorVideo(
+                platform=Platform.bilibili,
+                owner="demo",
+                title="Old",
+                url="https://bili/old",
+                published_at=datetime(2026, 5, 1, tzinfo=UTC),
+            ),
+            CreatorVideo(
+                platform=Platform.bilibili,
+                owner="demo",
+                title="Fresh",
+                url="https://bili/fresh",
+                published_at=datetime(2026, 5, 12, tzinfo=UTC),
+            ),
+            CreatorVideo(platform=Platform.bilibili, owner="demo", title="Unknown", url="https://bili/unknown"),
+        ],
+    )
+
+    filtered = filter_creator_video_list_by_date(
+        video_list,
+        CreatorPipelineOptions(
+            owner_name="demo",
+            platform=Platform.bilibili,
+            published_after=datetime(2026, 5, 10, tzinfo=UTC),
+            published_before=datetime(2026, 5, 14, tzinfo=UTC),
+        ),
+    )
+
+    assert [video.title for video in filtered.videos] == ["Fresh"]
+    assert "missing_dates_excluded=1" in filtered.notes[-1]
 
 
 def test_run_creator_pipeline_records_video_runs(tmp_path, monkeypatch):

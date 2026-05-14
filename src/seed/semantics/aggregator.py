@@ -53,9 +53,10 @@ def build_creator_profile_prompt(
     skill_path: Path,
     owner: str,
     platform: str | None = None,
+    domain: str | None = None,
 ) -> str:
     skill = skill_path.read_text(encoding="utf-8")
-    lenses = read_video_analysis_lenses()
+    lenses = read_video_analysis_lenses(domains=[domain] if domain else None)
     semantics_sections = "\n".join(
         f"""<video_semantics path="{path}">
 {path.read_text(encoding="utf-8").strip()}
@@ -69,6 +70,7 @@ Return only the final Markdown creator profile. Do not modify files.
 Metadata:
 - Owner: {owner}
 - Platform: {platform or "unknown"}
+- Domain: {domain or "general"}
 - Video semantics count: {len(semantics_paths)}
 
 <skill>
@@ -90,6 +92,7 @@ def run_creator_profile_aggregation(
     skill_path: Path = DEFAULT_CREATOR_PROFILE_SKILL_PATH,
     owner: str,
     platform: str | None = None,
+    domain: str | None = None,
     model: str | None = None,
     cwd: Path | None = None,
     dry_run: bool = False,
@@ -102,6 +105,7 @@ def run_creator_profile_aggregation(
         skill_path=skill_path,
         owner=owner,
         platform=platform,
+        domain=domain,
     )
     return run_codex_prompt(
         prompt=prompt,

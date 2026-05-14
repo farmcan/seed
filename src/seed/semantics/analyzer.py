@@ -32,10 +32,11 @@ def build_video_semantics_prompt(
     title: str | None = None,
     owner: str | None = None,
     platform: str | None = None,
+    domain: str | None = None,
 ) -> str:
     transcript = read_transcript_text(transcript_path)
     skill = skill_path.read_text(encoding="utf-8")
-    lenses = read_video_analysis_lenses()
+    lenses = read_video_analysis_lenses(domains=[domain] if domain else None)
     evidence_anchors = build_video_evidence_anchors(
         transcript_path=transcript_path,
         visual_notes_path=visual_notes_path,
@@ -57,6 +58,7 @@ Metadata:
 - Title: {title or transcript_path.stem}
 - Owner: {owner or "unknown"}
 - Platform: {platform or "unknown"}
+- Domain: {domain or "general"}
 - Transcript path: {transcript_path}
 - Visual notes path: {visual_notes_path or "none"}
 
@@ -88,6 +90,7 @@ def run_video_semantics_analysis(
     title: str | None = None,
     owner: str | None = None,
     platform: str | None = None,
+    domain: str | None = None,
     model: str | None = None,
     cwd: Path | None = None,
     dry_run: bool = False,
@@ -99,6 +102,7 @@ def run_video_semantics_analysis(
         title=title,
         owner=owner,
         platform=platform,
+        domain=domain,
     )
     return run_codex_prompt(
         prompt=prompt,

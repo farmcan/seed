@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from pathlib import Path
 from typing import Annotated
 from urllib.parse import quote
@@ -55,6 +56,10 @@ from seed.dag_export import (
     video_dag_html_output_path,
 )
 from seed.dag_server import serve_video_dag
+from seed.domains.finance import (
+    finance_signals_output_path,
+    run_finance_signals_extraction,
+)
 from seed.factcheck import build_claims_artifact, claims_output_path, write_claims_artifact
 from seed.graphs.video_dag import (
     build_video_dag_graph,
@@ -309,6 +314,14 @@ def run_creator_pipeline_cmd(
         typer.Option("--owner-id", help="Known platform owner id, e.g. Bilibili mid."),
     ] = None,
     start_index: Annotated[int, typer.Option("--start-index", min=1)] = 1,
+    published_after: Annotated[
+        datetime | None,
+        typer.Option("--published-after", help="Only keep creator videos published at or after this date."),
+    ] = None,
+    published_before: Annotated[
+        datetime | None,
+        typer.Option("--published-before", help="Only keep creator videos published before this date."),
+    ] = None,
     authorized: Annotated[bool, typer.Option("--authorized")] = False,
     download: Annotated[bool, typer.Option("--download/--no-download")] = True,
     skip_existing: Annotated[bool, typer.Option("--skip-existing/--no-skip-existing")] = True,
@@ -317,6 +330,7 @@ def run_creator_pipeline_cmd(
     max_filesize_mb: Annotated[int | None, typer.Option("--max-filesize-mb")] = 100,
     cookies_from_browser: Annotated[str | None, typer.Option("--cookies-from-browser")] = None,
     vision: Annotated[bool, typer.Option("--vision/--no-vision")] = True,
+    domain: Annotated[str | None, typer.Option("--domain", help="Optional domain lens, e.g. finance.")] = None,
     force: Annotated[bool, typer.Option("--force/--reuse-existing")] = False,
     max_estimated_cost: Annotated[
         float | None,
@@ -351,6 +365,8 @@ def run_creator_pipeline_cmd(
             owner_id=owner_id,
             limit=limit,
             start_index=start_index,
+            published_after=published_after,
+            published_before=published_before,
             authorized=authorized,
             download=download,
             skip_existing=skip_existing,
@@ -359,6 +375,7 @@ def run_creator_pipeline_cmd(
             max_filesize_mb=max_filesize_mb,
             cookies_from_browser=cookies_from_browser,
             vision=vision,
+            domain=domain,
             force=force,
             max_estimated_cost=max_estimated_cost,
             cost_currency=cost_currency,
@@ -416,6 +433,7 @@ def run_video_pipeline_cmd(
     frame_mode: Annotated[str, typer.Option("--frame-mode", help="shot-keyframes, fps, or every-frame.")] = "shot-keyframes",
     frame_notes_fps: Annotated[float, typer.Option("--frame-notes-fps", min=0.1)] = 1.0,
     motion_relations: Annotated[bool, typer.Option("--motion-relations/--no-motion-relations")] = True,
+    domain: Annotated[str | None, typer.Option("--domain", help="Optional domain lens, e.g. finance.")] = None,
     show_progress: Annotated[bool, typer.Option("--progress/--no-progress")] = True,
     codex_model: Annotated[str | None, typer.Option("--codex-model")] = None,
     root: Annotated[Path, typer.Option("--root")] = Path("library"),
@@ -449,6 +467,7 @@ def run_video_pipeline_cmd(
         frame_mode=frame_mode,
         frame_notes_fps=frame_notes_fps,
         motion_relations=motion_relations,
+        domain=domain,
         codex_model=codex_model,
         force=force,
     )
@@ -466,6 +485,8 @@ def run_video_pipeline_cmd(
         console.print(f"created standalone video DAG HTML at {context.html_path}")
     if context.semantics_path:
         console.print(f"created video semantics at {context.semantics_path}")
+    if context.finance_signals_path:
+        console.print(f"created finance signals at {context.finance_signals_path}")
     if context.cost_path:
         console.print(f"created cost report at {context.cost_path}")
     if context.cost_ledger_path:
@@ -915,6 +936,7 @@ def summarize_transcript(
     title: Annotated[str | None, typer.Option("--title")] = None,
     owner: Annotated[str | None, typer.Option("--owner")] = None,
     platform: Annotated[str | None, typer.Option("--platform")] = None,
+    domain: Annotated[str | None, typer.Option("--domain", help="Optional domain lens, e.g. finance.")] = None,
     visual_notes: Annotated[
         Path | None,
         typer.Option("--visual-notes", help="Optional visual notes markdown from analyze-frames."),
@@ -938,6 +960,7 @@ def summarize_transcript(
         title=title,
         owner=owner,
         platform=platform,
+        domain=domain,
         visual_notes_path=visual_notes,
         model=codex_model,
         cwd=Path.cwd(),
@@ -956,6 +979,7 @@ def analyze_video_semantics(
     title: Annotated[str | None, typer.Option("--title")] = None,
     owner: Annotated[str | None, typer.Option("--owner")] = None,
     platform: Annotated[str | None, typer.Option("--platform")] = None,
+    domain: Annotated[str | None, typer.Option("--domain", help="Optional domain lens, e.g. finance.")] = None,
     skill_path: Annotated[Path, typer.Option("--skill-path")] = DEFAULT_VIDEO_SEMANTICS_SKILL_PATH,
     codex_model: Annotated[str | None, typer.Option("--codex-model")] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
@@ -976,11 +1000,39 @@ def analyze_video_semantics(
         title=title,
         owner=owner,
         platform=platform,
+        domain=domain,
         model=codex_model,
         cwd=Path.cwd(),
         dry_run=dry_run,
     )
     console.print(f"created {'prompt' if dry_run else 'video semantics'} at {output_path}")
+
+
+@app.command("extract-finance-signals")
+def extract_finance_signals(
+    semantics_path: Annotated[Path, typer.Argument(help="Video semantics markdown file.")],
+    title: Annotated[str | None, typer.Option("--title")] = None,
+    owner: Annotated[str | None, typer.Option("--owner")] = None,
+    platform: Annotated[str | None, typer.Option("--platform")] = None,
+    codex_model: Annotated[str | None, typer.Option("--codex-model")] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
+    root: Annotated[Path, typer.Option("--root")] = Path("library"),
+) -> None:
+    resolved_title = title or semantics_path.stem.removesuffix(".video-semantics")
+    output_path = finance_signals_output_path(library_root=root, title=resolved_title)
+    if dry_run:
+        output_path = output_path.with_suffix(".prompt.md")
+    run_finance_signals_extraction(
+        semantics_path=semantics_path,
+        output_path=output_path,
+        title=resolved_title,
+        owner=owner,
+        platform=platform,
+        model=codex_model,
+        cwd=Path.cwd(),
+        dry_run=dry_run,
+    )
+    console.print(f"created {'prompt' if dry_run else 'finance signals'} at {output_path}")
 
 
 @app.command("build-timeline")
@@ -1056,6 +1108,7 @@ def verify_claims(
 def aggregate_owner(
     owner: Annotated[str, typer.Option("--owner", help="Creator, UP, or author to aggregate.")],
     platform: Annotated[str | None, typer.Option("--platform")] = None,
+    domain: Annotated[str | None, typer.Option("--domain", help="Optional domain lens, e.g. finance.")] = None,
     semantics_dir: Annotated[
         Path | None,
         typer.Option("--semantics-dir", help="Override directory containing *.video-semantics.md."),
@@ -1087,6 +1140,7 @@ def aggregate_owner(
         skill_path=skill_path,
         owner=owner,
         platform=platform,
+        domain=domain,
         model=codex_model,
         cwd=Path.cwd(),
         dry_run=dry_run,
@@ -1264,6 +1318,7 @@ def build_video_dag(
     frame_dir: Annotated[Path | None, typer.Option("--frames")] = None,
     visual_notes: Annotated[Path | None, typer.Option("--visual-notes")] = None,
     semantics_path: Annotated[Path | None, typer.Option("--semantics")] = None,
+    finance_signals: Annotated[Path | None, typer.Option("--finance-signals")] = None,
     timeline_path: Annotated[Path | None, typer.Option("--timeline")] = None,
     claims_path: Annotated[Path | None, typer.Option("--claims")] = None,
     cost_path: Annotated[Path | None, typer.Option("--cost")] = None,
@@ -1283,6 +1338,7 @@ def build_video_dag(
         frame_dir=frame_dir,
         visual_notes_path=visual_notes,
         semantics_path=semantics_path,
+        finance_signals_path=finance_signals,
         timeline_path=timeline_path,
         claims_path=claims_path,
         cost_path=cost_path,
@@ -1302,6 +1358,7 @@ def build_video_dag(
         frame_dir=artifacts["frame_dir"],
         visual_notes_path=artifacts["visual_notes_path"],
         semantics_path=artifacts["semantics_path"],
+        finance_signals_path=artifacts["finance_signals_path"],
         timeline_path=artifacts["timeline_path"],
         claims_path=artifacts["claims_path"],
         cost_path=artifacts["cost_path"],
