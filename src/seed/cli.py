@@ -57,8 +57,14 @@ from seed.dag_export import (
 )
 from seed.dag_server import serve_video_dag
 from seed.domains.finance import (
+    build_finance_digest_artifact,
+    enrich_finance_digest_with_prices,
+    finance_digest_output_path,
     finance_signals_output_path,
+    find_finance_signal_files,
+    priced_finance_digest_output_path,
     run_finance_signals_extraction,
+    write_finance_digest_artifact,
 )
 from seed.factcheck import build_claims_artifact, claims_output_path, write_claims_artifact
 from seed.graphs.video_dag import (
@@ -393,7 +399,14 @@ def run_creator_pipeline_cmd(
         console.print(f"{step['name']}: {step['status']}")
         if step.get("reason"):
             console.print(f"  reason: {step['reason']}")
-        for key in ("profile_path", "validation_path", "review_path", "graph_path", "html_path"):
+        for key in (
+            "profile_path",
+            "validation_path",
+            "review_path",
+            "graph_path",
+            "html_path",
+            "digest_path",
+        ):
             if step.get(key):
                 console.print(f"  {key}: {step[key]}")
     if manifest.get("cost_ledger_path"):
@@ -1033,6 +1046,81 @@ def extract_finance_signals(
         dry_run=dry_run,
     )
     console.print(f"created {'prompt' if dry_run else 'finance signals'} at {output_path}")
+
+
+@app.command("build-finance-digest")
+def build_finance_digest(
+    owner: Annotated[str, typer.Option("--owner", help="Creator, UP, or author.")],
+    platform: Annotated[str | None, typer.Option("--platform")] = None,
+    signal_path: Annotated[
+        list[Path] | None,
+        typer.Option("--signal", help="Explicit *.finance-signals.json path. Can be repeated."),
+    ] = None,
+    published_after: Annotated[
+        datetime | None,
+        typer.Option("--published-after", help="Only include records published at or after this date."),
+    ] = None,
+    published_before: Annotated[
+        datetime | None,
+        typer.Option("--published-before", help="Only include records published before this date."),
+    ] = None,
+    root: Annotated[Path, typer.Option("--root")] = Path("library"),
+) -> None:
+    paths = signal_path or find_finance_signal_files(library_root=root, owner=owner)
+    if not paths:
+        raise typer.BadParameter(f"No finance signal files found for owner: {owner}")
+    artifact = build_finance_digest_artifact(
+        signal_paths=paths,
+        owner=owner,
+        platform=platform,
+        published_after=published_after,
+        published_before=published_before,
+    )
+    output_path = finance_digest_output_path(
+        library_root=root,
+        owner=owner,
+        published_after=published_after,
+        published_before=published_before,
+    )
+    write_finance_digest_artifact(output_path, artifact)
+    console.print(f"created finance digest at {output_path}")
+    console.print(f"videos: {artifact['videos_analyzed']}, recommendations: {artifact['totals']['recommendations']}")
+
+
+@app.command("enrich-finance-prices")
+def enrich_finance_prices(
+    digest_path: Annotated[Path, typer.Argument(help="Path to *.finance-digest.json.")],
+    ticker_map: Annotated[
+        list[str],
+        typer.Option("--ticker-map", help="Instrument to ticker mapping, e.g. --ticker-map AI=nvda.us."),
+    ],
+    benchmark_ticker: Annotated[str | None, typer.Option("--benchmark")] = None,
+    provider: Annotated[str, typer.Option("--provider")] = "stooq",
+    output_path: Annotated[Path | None, typer.Option("--output")] = None,
+) -> None:
+    digest = json.loads(digest_path.read_text(encoding="utf-8"))
+    mapping = parse_ticker_map(ticker_map)
+    enriched = enrich_finance_digest_with_prices(
+        digest,
+        ticker_map=mapping,
+        benchmark_ticker=benchmark_ticker,
+        provider=provider,
+    )
+    resolved_output = output_path or priced_finance_digest_output_path(digest_path=digest_path)
+    write_finance_digest_artifact(resolved_output, enriched)
+    console.print(f"created priced finance digest at {resolved_output}")
+    console.print(f"priced recommendations: {enriched['totals'].get('priced_recommendations', 0)}")
+
+
+def parse_ticker_map(values: list[str]) -> dict[str, str]:
+    mapping: dict[str, str] = {}
+    for value in values:
+        if "=" not in value:
+            raise typer.BadParameter(f"Invalid --ticker-map value: {value}. Expected NAME=TICKER.")
+        name, ticker = value.split("=", 1)
+        mapping[name] = ticker
+        mapping[name.casefold()] = ticker
+    return mapping
 
 
 @app.command("build-timeline")

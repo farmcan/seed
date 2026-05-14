@@ -43,7 +43,7 @@ seed run-creator-pipeline --platform <platform> <owner>
   -> 创作者视频列表
   -> 多条视频 pipeline + budget gate
   -> creator profile + creator DAG + agent assets
-  -> `--domain finance` 时按财经 lens 聚合跨视频方法论
+  -> `--domain finance` 时按财经 lens 聚合跨视频方法论并生成 finance digest
   -> `--published-after/--published-before` 可限制发布时间窗口
 ```
 
@@ -65,7 +65,7 @@ seed run-creator-pipeline --platform <platform> <owner>
 | 书籍/笔记 | `seed import-book-note`, `seed analyze-book-note`, `seed aggregate-topic` | `src/seed/books.py` | `library/notes/*.book-note.md`, `library/semantics/*.book-semantics.md`, `library/distilled/*.topic-profile.md` |
 | 快速总结 | `seed summarize-transcript` | `src/seed/summarizers/`, `src/seed/skill_refs.py`, `src/seed/semantics/evidence.py` | `library/notes/*.summary.md` |
 | 视频语义 | `seed analyze-video-semantics` | `src/seed/semantics/analyzer.py`, `src/seed/skill_refs.py`, `src/seed/semantics/evidence.py` | `library/semantics/*.video-semantics.md` |
-| 领域信号 | `seed extract-finance-signals`, `seed run-video-pipeline --domain finance` | `src/seed/domains/finance.py`, `src/seed/skill_refs.py` | `library/semantics/*.finance-signals.json`, video DAG / creator DAG finance 节点 |
+| 领域信号 | `seed extract-finance-signals`, `seed build-finance-digest`, `seed enrich-finance-prices`, `seed run-video-pipeline --domain finance`, `seed run-creator-pipeline --domain finance` | `src/seed/domains/finance.py`, `src/seed/skill_refs.py` | `library/semantics/*.finance-signals.json`, `library/distilled/*.finance-digest.json`, `*.finance-digest.priced.json`, video DAG / creator DAG finance 节点 |
 | 时间线 | `seed build-timeline` | `src/seed/timeline.py` | `library/timelines/*.timeline.json` |
 | 事实核验队列 | `seed extract-claims` | `src/seed/factcheck.py` | `library/claims/*.claims.json` |
 | 事实核验 | `seed verify-claims` | `src/seed/claim_verification.py` | `library/claims/*.verified.json` |
@@ -88,7 +88,7 @@ seed run-creator-pipeline --platform <platform> <owner>
 - `shorts.py`：短视频 profile、shot boundary baseline、shot 代表帧、frame evidence notes 和 motion relation candidates。默认用 `ffprobe` 判断 `duration <= 60s` 是否进入短视频强分析，用 `ffmpeg` scene threshold 生成本地 shot artifact；`frame_notes` 默认按 shot 代表帧生成低成本 JSONL，并预留蒙版、画中画、贴纸、字幕、人的运动关系、滤镜、变速、转场和剪辑意图字段；`motion_relations` 默认只从相邻 frame notes 生成可追溯候选并标记 `needs_pose_or_vl`，后续可把 PySceneDetect/TransNetV2、逐帧 Qwen-VL/OCR、MediaPipe/OpenPose/YOLO pose 和 OpenCV optical flow 接成 provider。
 - `costs.py`：统一写入单条视频成本报告和 pipeline cost ledger。默认记录 Qwen-VL token 用量、单价来源、估算金额，并为 ASR、Codex、搜索/核验保留成本项；实际价格可通过环境变量覆盖。
 - `skill_refs.py`：读取共享 video analysis lenses 和可选 domain lenses。prompt 构建器只引用这个入口，避免各模块复制 lens 文本。
-- `domains/finance.py`：财经领域信号抽取。输入单条 `video-semantics.md`，输出 `*.finance-signals.json`，结构化记录标的、方向、动作、时间窗口、风险、方法论信号和证据缺口。所有推荐都必须标记为创作者观点，不是 Seed 投资建议。
+- `domains/finance.py`：财经领域信号抽取、窗口汇总和可选行情补强。输入单条 `video-semantics.md`，输出 `*.finance-signals.json`；输入多条 signals，输出 `*.finance-digest.json`；显式 ticker mapping 后可用 Stooq 日线生成 `*.finance-digest.priced.json`。所有推荐都必须标记为创作者观点，不是 Seed 投资建议。
 - `semantics/evidence.py`：从 transcript chunk、visual notes 和 keyframe metadata 生成 `T*`、`V*`、`F*` 证据锚点，供总结、视频语义和创作者聚合引用。
 - `summarizers/`：单条 transcript 的轻量总结，适合作为人工快速预览；prompt 必须注入共享 lenses 和证据锚点。
 - `semantics/analyzer.py`：单条视频语义融合，输入 transcript 和 visual notes，输出 `library/semantics/*.video-semantics.md`；强结论要引用 transcript、visual notes 或 keyframe 证据 ID。
@@ -152,6 +152,8 @@ prompt 构建时会自动注入：
 - `library/graphs/*.creator-dag.json` 和 `*.creator-dag.html`：UP/作者级画布。
 - `library/distilled/*.topic-profile.md`：跨书籍/笔记/视频的主题聚合草稿。
 - `library/distilled/*.creator-profile.md`：创作者级聚合画像。
+- `library/distilled/*.finance-digest.json`：财经 domain 的 UP/窗口级汇总，聚合多条 finance signals 的标的、推荐/观察、宏观 thesis、方法论信号、风险和证据缺口；不包含行情后验时只能作为观点汇总。
+- `library/distilled/*.finance-digest.priced.json`：在 finance digest 基础上追加行情后验 baseline，包含显式 ticker mapping、发布日附近价格、最新价格、收益率、可选 benchmark 和数据来源；不做交易建议。
 - `library/distilled/*.creator-profile.validation.json`：creator profile 输出后证据校验报告，只提示缺口，不自动改写 profile。
 - `library/skills/` 和 `library/checks/`：从 creator profile 生成、待人工 review 的 Agent 可加载资产。
 - `library/checks/*.agent-assets.review.json`：Agent 资产 review manifest，记录每个 skill/check 的 `draft/reviewed/installed/deprecated` 状态。

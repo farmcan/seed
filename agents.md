@@ -106,7 +106,7 @@ run-creator-pipeline
 - 给用户看的 DAG 默认优先生成静态 HTML；本地 server 只用于调试。
 - 视频分析 skills 必须复用 `video-analysis-lenses.md`，不要在 summarizer、semantics analyzer 和 creator aggregator 里各写一套互相冲突的分析框架。
 - 领域分析必须通过 domain lens 接入，例如财经方向使用 `--domain finance` 和 `domain-finance-lenses.md`；不要把财经规则硬编码到通用视频 pipeline。
-- 财经信号输出在 `library/semantics/*.finance-signals.json`，由 `seed extract-finance-signals` 或 `run-video-pipeline --domain finance` 生成；记录的是创作者观点、推荐/观察信号、风险和证据缺口，不是 Seed 的投资建议。
+- 财经信号输出在 `library/semantics/*.finance-signals.json`，由 `seed extract-finance-signals` 或 `run-video-pipeline --domain finance` 生成；财经窗口汇总输出在 `library/distilled/*.finance-digest.json`，由 `seed build-finance-digest` 或 `run-creator-pipeline --domain finance` 生成；行情补强输出 `*.finance-digest.priced.json`，由 `seed enrich-finance-prices` 生成且必须显式传 ticker mapping。记录的是创作者观点、推荐/观察信号、风险和证据缺口，不是 Seed 的投资建议。
 - 财经相关结论必须保留发布时间、标的、动作、方向、时间窗口、证据引用和不确定性；没有 ticker 或动作时用 `unknown/null`，不要猜。
 - “最近 10 天 top UP 说了什么”必须通过创作者列表、时间窗口、批量 pipeline 和 finance signals 汇总，不能只根据搜索结果或单条视频臆测。
 - 视频总结、视频语义和创作者聚合 prompt 必须注入共享 lenses；单条视频 prompt 还必须注入 `[T*]`、`[V*]`、`[F*]` 证据锚点。
@@ -129,6 +129,7 @@ run-creator-pipeline
 - DAG lint：新增关键 artifact 必须考虑是否需要 DAG 节点；如果节点能回到视频/音频证据，必须写入 `media_anchor` 或说明缺少时间点的原因。
 - Domain lint：新增领域方向先扩展 domain lens 和专用 artifact；通用 pipeline 只暴露 `--domain <name>`，不要为每个领域复制一套入口。
 - Finance lint：财经内容只能表达“创作者声称/暗示”，不得输出 Seed 自己的投资建议；推荐信号必须保留 evidence refs、risk flags、horizon 和 uncertainty。
+- Market data lint：行情补强不能猜 ticker；必须由 `--ticker-map 标的=ticker` 或未来可靠 mapping provider 提供，并记录 provider、source_url、价格日期和不确定状态。
 - Verification lint：涉及事实、价格、平台规则、模型价格、库选型等易变信息时，必须查官方或 primary source，并把来源写入调研或 artifact。
 - Canvas lint：不要再手写主布局算法；主路径使用 vendored 成熟布局库，手写逻辑只允许作为 fallback 或小交互 glue。遇到卡顿先做默认简版、卡片正文折叠、视口裁剪和右侧详情收起，不要降级成低信息密度图谱。
 - Skill lint：新增视频分析 prompt/skill 之前，先检查 `video-analysis-lenses.md` 是否能扩展；优先更新共享 lens，避免重复造轮子。
@@ -221,6 +222,8 @@ git status -sb
 .venv/bin/seed suggest-revisions --help
 .venv/bin/seed analyze-video-semantics --help
 .venv/bin/seed extract-finance-signals --help
+.venv/bin/seed build-finance-digest --help
+.venv/bin/seed enrich-finance-prices --help
 .venv/bin/seed validate-creator-profile --help
 ```
 

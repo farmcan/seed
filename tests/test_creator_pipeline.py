@@ -320,3 +320,87 @@ Demo creator profile.
     assert (tmp_path / "library" / "distilled" / "demo.creator-profile.md").exists()
     assert (tmp_path / "library" / "checks" / "demo.agent-assets.review.json").exists()
     assert (tmp_path / "library" / "graphs" / "demo.creator-dag.html").exists()
+
+
+def test_run_creator_pipeline_builds_finance_digest(tmp_path, monkeypatch):
+    video_list = CreatorVideoList(
+        platform=Platform.bilibili,
+        owner_query="demo",
+        owner="demo",
+        provider="test",
+        videos=[
+            CreatorVideo(
+                platform=Platform.bilibili,
+                owner="demo",
+                title="Finance One",
+                url="https://bili/finance-1",
+                published_at=datetime(2026, 5, 12, tzinfo=UTC),
+            )
+        ],
+    )
+
+    def fake_fetch_creator_video_list(**kwargs):
+        return video_list
+
+    def fake_ingest_creator_videos(*args, **kwargs):
+        raw_path = tmp_path / "library" / "raw" / "finance-one.mp4"
+        raw_path.parent.mkdir(parents=True, exist_ok=True)
+        raw_path.write_bytes(b"video")
+        return CreatorVideoIngestResult(
+            selected=1,
+            downloaded=1,
+            recorded=1,
+            items=[
+                CreatorVideoIngestItem(
+                    url="https://bili/finance-1",
+                    title="Finance One",
+                    status="downloaded",
+                    raw_path=raw_path,
+                )
+            ],
+        )
+
+    def fake_run_video_pipeline(options):
+        library = tmp_path / "library"
+        signal_path = library / "semantics" / "finance-one.finance-signals.json"
+        cost_path = library / "costs" / "finance-one.ledger.json"
+        manifest_path = library / "runs" / "finance-one.video-pipeline.yaml"
+        for path in [signal_path, cost_path, manifest_path]:
+            path.parent.mkdir(parents=True, exist_ok=True)
+        signal_path.write_text(
+            '{"title":"Finance One","owner":"demo","platform":"bilibili","instruments":[{"name":"AI"}],"recommendations":[{"instrument":"AI","action":"watch"}]}',
+            encoding="utf-8",
+        )
+        cost_path.write_text('{"kind":"cost_ledger","items":[],"totals":{}}', encoding="utf-8")
+        manifest_path.write_text("steps: []", encoding="utf-8")
+        context = type(
+            "Context",
+            (),
+            {"html_path": None, "cost_ledger_path": cost_path, "finance_signals_path": signal_path},
+        )()
+        return context, manifest_path
+
+    monkeypatch.setattr("seed.creator_pipeline.fetch_creator_video_list", fake_fetch_creator_video_list)
+    monkeypatch.setattr("seed.creator_pipeline.ingest_creator_videos", fake_ingest_creator_videos)
+    monkeypatch.setattr("seed.creator_pipeline.run_video_pipeline", fake_run_video_pipeline)
+
+    manifest, _ = run_creator_pipeline(
+        CreatorPipelineOptions(
+            owner_name="demo",
+            platform=Platform.bilibili,
+            library_root=tmp_path / "library",
+            authorized=True,
+            domain="finance",
+            aggregate_profile=False,
+            generate_assets=False,
+            build_creator_dag=False,
+            published_after=datetime(2026, 5, 10, tzinfo=UTC),
+            published_before=datetime(2026, 5, 14, tzinfo=UTC),
+        )
+    )
+
+    digest_step = manifest["creator_steps"][-1]
+    assert digest_step["name"] == "build_finance_digest"
+    assert digest_step["status"] == "completed"
+    assert digest_step["recommendations"] == 1
+    assert (tmp_path / "library" / "distilled" / "demo.20260510-to-20260514.finance-digest.json").exists()

@@ -166,17 +166,20 @@
   - `seed extract-finance-signals <semantics.md>` 或 `seed run-video-pipeline --domain finance ...` 生成 `library/semantics/*.finance-signals.json`。
   - artifact 记录 instruments、recommendations、macro theses、methodology signals、risk flags 和 evidence gaps。
   - video DAG 和 creator DAG 已接入 finance signals 节点。
-- [ ] 做最近 10 天财经 UP 批量 digest。
+- [x] 做最近 10 天财经 UP 批量 digest。
   - 输入平台、UP 名称或 owner-id、时间窗口和 limit。
   - [x] `run-creator-pipeline` 已支持 `--published-after/--published-before`，可只分析发布时间落在窗口内的视频。
-  - 继续复用 creator video list 和 `run-creator-pipeline --domain finance`，生成窗口内批量样本。
-  - 输出 creator-level digest：最近提到的标的、方向、动作、核心理由、风险、重复方法论和证据缺口。
-- [ ] 接入行情/价格 provider。
-  - 对 finance signals 中的标的补充视频发布时间价格、当前价格、涨跌幅、benchmark 和数据来源。
-  - 行情 provider 必须独立于视频分析；没有可靠 ticker mapping 时保留 unknown，不要猜。
+  - `run-creator-pipeline --domain finance` 会在窗口内批量样本后生成 `library/distilled/*.finance-digest.json`。
+  - `seed build-finance-digest --owner ... --signal ...` 可对已有 signals 重建 digest。
+  - 当前 digest 输出最近提到的标的、方向、动作、核心理由、风险、重复方法论和证据缺口；还没有行情后验。
+- [x] 接入行情/价格 provider baseline。
+  - `seed enrich-finance-prices <digest.json> --ticker-map 标的=ticker` 会生成 `*.finance-digest.priced.json`。
+  - 当前 provider 是可选 `stooq` 日线 CSV，记录发布日附近收盘价、最新收盘价、涨跌幅、可选 benchmark 和数据来源 URL。
+  - 行情 provider 独立于视频分析；没有显式 ticker mapping 时保持 `missing_ticker`，不猜。
 - [ ] 增加财经方法论回测/后验评估。
-  - 只评估“创作者当时表达的观点是否被后续市场验证”，不输出交易建议。
-  - 需要保留窗口、标的映射、基准、复权/汇率/交易日处理和不确定性。
+  - 当前 priced digest 只给 recommendation 级后验价格变化 baseline。
+  - 下一步才做系统性评估：按 action/direction/horizon 计算命中、超额收益、窗口收益，并汇总到 UP 方法论层。
+  - 仍然只评估“创作者当时表达的观点是否被后续市场验证”，不输出交易建议。
 
 ## 已完成基础
 

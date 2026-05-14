@@ -54,6 +54,7 @@
 | `AI4Finance-Foundation/FinRobot` | 金融 AI Agent 平台，组合 LLM、金融数据源、量化分析和报告生成；示例包含 FMP、SEC、yfinance 等数据源和 equity report pipeline。 | 后续财经 domain 可以把外部行情、财报、公告和估值工具作为 provider，和视频观点分离。 |
 | `ProsusAI/finBERT` | 金融文本情绪分析 BERT，面向金融语料情绪分类。 | 可作为低成本 sentiment/stance baseline 的参考，但财经视频 recommendation 不能只看情绪，还要抽取 action、horizon、risk。 |
 | `AI4Finance-Foundation/FinRL` | 金融强化学习框架，强调 market environment、agent、application 和 train-test-trade。 | 方法论蒸馏时可借鉴“状态 -> 行动 -> 风险约束 -> 回测”的表达；UP 观点不是可执行策略，必须保留适用条件和失效条件。 |
+| Stooq daily CSV / pandas-datareader StooqDailyReader | Stooq 提供历史行情 CSV 下载，pandas-datareader 也内置 StooqDailyReader，底层使用 `https://stooq.com/q/d/l/`。 | 适合做轻量行情后验 baseline；Seed 先要求显式 ticker mapping，避免把视频里的中文标的名猜成错误代码。 |
 | Prefect | Python-native workflow orchestration；官方 docs 强调 task state lifecycle、client-side orchestration、`.submit()` 并发和 `.delay()` worker 分发。 | 后续 pipeline 复杂到需要调度、重试 UI 和 worker 时再考虑；当前先把本地 run manifest 做扎实。 |
 | Dagster | 面向 data assets 的 orchestrator，强调 integrated lineage、observability、declarative model 和 testability。 | 如果 `library/` 产物变成大量数据资产和跨主题依赖，可以参考 asset model；当前项目还不到引入 Dagster 的复杂度。 |
 | Temporal Python SDK | durable workflow 平台，有 Python SDK，适合长时间运行、可靠重试和分布式任务。 | 如果后续视频批处理需要强一致重试、队列和 worker，再评估；本地 MVP 暂不需要。 |
@@ -100,6 +101,7 @@
 27. VideoConviction 的关键启发是：多模态输入能帮助 ticker 抽取，但 action 和 conviction 容易被误判；Seed 的 finance signals 必须允许 `unknown`、保留证据引用和 uncertainty，不能把每次提及都当推荐。
 28. AlphaCheck 的产品启发是：用户真正关心频道级 track record，包括每个标的当时价格、当前价格、是否跑赢 benchmark、top winners/losers 和上下文理由。Seed 当前先落地 `*.finance-signals.json`，下一步再接行情 provider 和跨视频收益归因。
 29. “最近 10 天 top UP 都说了什么”不是单纯搜索问题，而是 creator list discovery + date window + 批量 video pipeline + finance signals + channel digest。Bilibili 侧仍受 352/412 风控影响，实际落地优先用 `--owner-id`、cookies 或手动 list。
+30. 行情后验应先做可解释 baseline：显式 `标的=ticker` mapping、发布日附近收盘价、最新收盘价、可选 benchmark、source URL 和价格日期。不要在没有可靠映射时猜 ticker，也不要把涨跌幅解释成交易建议。
 
 ## Sources
 
@@ -168,3 +170,5 @@
 - FinRobot: https://github.com/AI4Finance-Foundation/FinRobot
 - FinBERT: https://github.com/ProsusAI/finBERT
 - FinRL: https://github.com/AI4Finance-Foundation/FinRL
+- pandas-datareader StooqDailyReader: https://pydata.github.io/pandas-datareader/devel/readers/stooq.html
+- pandas-datareader Stooq source: https://github.com/pydata/pandas-datareader/blob/master/pandas_datareader/stooq.py

@@ -21,6 +21,11 @@ from seed.agent_assets import (
 )
 from seed.creator_ingest import ingest_creator_videos
 from seed.dag_export import export_video_dag_html, relative_asset_base
+from seed.domains.finance import (
+    build_finance_digest_artifact,
+    finance_digest_output_path,
+    write_finance_digest_artifact,
+)
 from seed.graphs.creator_dag import (
     build_creator_dag_graph,
     creator_dag_html_output_path,
@@ -109,6 +114,15 @@ def run_creator_pipeline(options: CreatorPipelineOptions) -> tuple[dict[str, Any
     )
 
     video_runs = []
+    video_metadata_by_title = {
+        video.title or video.url: {
+            "title": video.title,
+            "url": video.url,
+            "video_id": video.video_id,
+            "published_at": video.published_at.isoformat() if video.published_at else None,
+        }
+        for video in video_list.videos
+    }
     cost_paths: list[Path] = []
     current_ledger = build_cost_ledger(
         title=video_list.owner,
@@ -167,7 +181,14 @@ def run_creator_pipeline(options: CreatorPipelineOptions) -> tuple[dict[str, Any
                     "status": "completed",
                     "manifest_path": str(manifest_path),
                     "html_path": str(context.html_path) if context.html_path else None,
+                    "finance_signals_path": str(getattr(context, "finance_signals_path", None))
+                    if getattr(context, "finance_signals_path", None)
+                    else None,
                     "cost_path": str(cost_path) if cost_path else None,
+                    "published_at": video_metadata_by_title.get(item.title or item.url, {}).get(
+                        "published_at"
+                    ),
+                    "video_id": video_metadata_by_title.get(item.title or item.url, {}).get("video_id"),
                     "budget": budget_record(current_ledger, options),
                 }
             )
@@ -189,6 +210,8 @@ def run_creator_pipeline(options: CreatorPipelineOptions) -> tuple[dict[str, Any
         owner=video_list.owner,
         platform=options.platform,
         ledger_path=ledger_path,
+        video_runs=video_runs,
+        video_metadata_by_title=video_metadata_by_title,
         options=options,
     )
     manifest = {
@@ -221,6 +244,8 @@ def run_creator_post_processing(
     owner: str,
     platform: Platform,
     ledger_path: Path,
+    video_runs: list[dict[str, Any]],
+    video_metadata_by_title: dict[str, dict[str, Any]],
     options: CreatorPipelineOptions,
 ) -> list[dict[str, Any]]:
     semantics_paths = find_video_semantics_files(
@@ -260,6 +285,16 @@ def run_creator_post_processing(
             options=options,
         )
     )
+    if options.domain == "finance":
+        steps.append(
+            maybe_build_finance_digest(
+                owner=owner,
+                platform=platform,
+                video_runs=video_runs,
+                video_metadata_by_title=video_metadata_by_title,
+                options=options,
+            )
+        )
     return steps
 
 
@@ -454,6 +489,57 @@ def maybe_build_creator_dag(
             "status": "completed",
             "graph_path": str(graph_path),
             "html_path": str(html_path) if html_path else None,
+        }
+    )
+    return step
+
+
+def maybe_build_finance_digest(
+    *,
+    owner: str,
+    platform: Platform,
+    video_runs: list[dict[str, Any]],
+    video_metadata_by_title: dict[str, dict[str, Any]],
+    options: CreatorPipelineOptions,
+) -> dict[str, Any]:
+    step: dict[str, Any] = {
+        "name": "build_finance_digest",
+        "status": "pending",
+    }
+    signal_paths = [
+        Path(run["finance_signals_path"])
+        for run in video_runs
+        if run.get("finance_signals_path") and Path(run["finance_signals_path"]).exists()
+    ]
+    if not signal_paths:
+        return skipped_step(step, "no finance signals")
+    try:
+        artifact = build_finance_digest_artifact(
+            signal_paths=signal_paths,
+            owner=owner,
+            platform=str(platform),
+            published_after=options.published_after,
+            published_before=options.published_before,
+            video_metadata_by_title=video_metadata_by_title,
+        )
+        output_path = finance_digest_output_path(
+            library_root=options.library_root,
+            owner=owner,
+            published_after=options.published_after,
+            published_before=options.published_before,
+        )
+        write_finance_digest_artifact(output_path, artifact)
+    except Exception as error:
+        if not options.keep_going:
+            raise
+        return failed_step(step, error)
+
+    step.update(
+        {
+            "status": "completed",
+            "digest_path": str(output_path),
+            "videos_analyzed": artifact["videos_analyzed"],
+            "recommendations": artifact["totals"]["recommendations"],
         }
     )
     return step
