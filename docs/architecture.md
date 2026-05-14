@@ -75,7 +75,7 @@ seed run-creator-pipeline --platform <platform> <owner>
 - `sources/`：平台采集适配器。只关心 URL、授权、下载、metadata，不做内容理解；下载结果需要记录 provider、fallback 和 cookies 相关诊断。
 - `sources/creator_videos.py`：按平台和创作者名称发现视频列表。Bilibili 支持 `--owner-id` 直接传 mid；未传时先做用户名搜索，再复用 `yt-dlp` 的 UP 空间 extractor，并保留 WBI API fallback。小红书先输出搜索候选，后续再替换成稳定登录态 provider。
 - `creator_ingest.py`：读取 `*.creator-videos.yaml`，按起始位置和数量选择视频，跳过已完整入库 URL，并复用现有下载适配器与 source record 写入。已有 source record 但没有本地 `raw_path` 时，不视为下载完成，会继续补齐原始素材。
-- `pipeline.py`：负责把现有单步命令背后的业务函数串成单条视频 pipeline，写入 run manifest 和 status JSON，并支持断点续跑。每个 step 记录状态、输入输出、provider/model、耗时、artifact paths 和 cost delta；CLI 可用 Rich 进度表实时展示。
+- `pipeline.py`：负责把现有单步命令背后的业务函数串成单条视频 pipeline，写入 run manifest、status JSON 和 live DAG HTML，并支持断点续跑。每个 step 记录状态、输入输出、provider/model、耗时、artifact paths 和 cost delta；CLI 可用 Rich 进度表实时展示，live DAG 只展示运行态 step graph，不混入最终内容 DAG。
 - `creator_pipeline.py`：负责创作者级批量任务、失败继续、成本预算门槛、creator profile 聚合、agent assets 生成和 creator DAG 导出；`--max-estimated-cost` 到达后停止后续视频，并在 manifest 写入 `budget_exceeded`，后处理步骤写入 `creator_steps`。
 - `asr/` 和 `media.py`：音频抽取、超限音频分片和线上 ASR provider。只产出 transcript；长音频会同时按文件大小和 `ffprobe` 时长判断是否切片，默认超过 300 秒会分段，transcript 会在 frontmatter 记录 `asr_chunks`。
 - `vision/`：抽帧、Qwen-VL 调用和 visual notes。只描述画面证据，不负责最终方法论；Qwen-VL provider 需要返回 token usage，供成本模块记录。
@@ -132,6 +132,7 @@ prompt 构建时会自动注入：
 - `library/notes/*.book-note.md`：手动导入的书籍/笔记。
 - `library/runs/`：pipeline run manifest，记录 step 状态、输入输出、错误、provider/model 和耗时。
 - `library/runs/*.video-pipeline.status.json`：pipeline 运行态快照，面向 CLI 进度表和后续 live DAG 轮询；包含 pending/running/completed/skipped/failed 状态、当前 step、耗时、artifact paths 和 cost delta。
+- `library/runs/*.video-pipeline.live.html`：pipeline 运行态画布，使用独立 step graph 展示 pending/running/completed/skipped/failed；打开静态文件可看嵌入快照，通过本地 HTTP 打开时可轮询同目录 status JSON。
 - `library/semantics/*.video-semantics.md`：单条视频语义，是后续聚合的主数据。
 - `library/semantics/*.book-semantics.md`：书籍/笔记语义，默认没有 visual language。
 - `library/timelines/*.timeline.json`：视频时间线事件，包含 transcript chunk、keyframe、内容结构、广告候选和不确定性。

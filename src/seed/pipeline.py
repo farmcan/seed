@@ -21,7 +21,13 @@ from seed.costs import (
     write_cost_ledger,
     write_video_cost_report,
 )
-from seed.dag_export import export_video_dag_html, relative_asset_base, video_dag_html_output_path
+from seed.dag_export import (
+    export_pipeline_live_dag_html,
+    export_video_dag_html,
+    pipeline_live_dag_html_output_path,
+    relative_asset_base,
+    video_dag_html_output_path,
+)
 from seed.factcheck import build_claims_artifact, claims_output_path, write_claims_artifact
 from seed.graphs.video_dag import (
     build_video_dag_graph,
@@ -127,6 +133,7 @@ class VideoPipelineContext:
     claims_path: Path | None = None
     graph_path: Path | None = None
     html_path: Path | None = None
+    live_html_path: Path | None = None
 
 
 @dataclass
@@ -211,6 +218,10 @@ def run_video_pipeline(options: VideoPipelineOptions) -> tuple[VideoPipelineCont
         planned_steps=planned_steps,
         run_status="running",
     )
+    context.live_html_path = export_pipeline_live_dag(
+        status_path=status_path,
+        options=options,
+    )
 
     def run_step(
         name: str,
@@ -281,6 +292,10 @@ def run_video_pipeline(options: VideoPipelineOptions) -> tuple[VideoPipelineCont
                 steps=steps,
                 planned_steps=planned_steps,
                 run_status="failed",
+            )
+            context.live_html_path = export_pipeline_live_dag(
+                status_path=status_path,
+                options=options,
             )
             emit_progress(options, {"event": "step_finished", "step": step_record_dict(record)})
             raise
@@ -366,16 +381,34 @@ def run_video_pipeline(options: VideoPipelineOptions) -> tuple[VideoPipelineCont
         planned_steps=planned_steps,
         run_status="completed",
     )
+    context.live_html_path = export_pipeline_live_dag(
+        status_path=status_path,
+        options=options,
+    )
     emit_progress(
         options,
         {
             "event": "run_finished",
             "manifest_path": str(manifest_path),
             "status_path": str(status_path),
+            "live_html_path": str(context.live_html_path) if context.live_html_path else None,
             "steps": [step_record_dict(step) for step in steps],
         },
     )
     return context, manifest_path
+
+
+def export_pipeline_live_dag(*, status_path: Path, options: VideoPipelineOptions) -> Path | None:
+    if not options.export_html:
+        return None
+    output_path = pipeline_live_dag_html_output_path(status_path=status_path)
+    return export_pipeline_live_dag_html(
+        status_path=status_path,
+        output_path=output_path,
+        asset_base=relative_asset_base(output_path=output_path, repo_root=Path.cwd()),
+        status_url=status_path.name,
+        live_status=True,
+    )
 
 
 def write_pipeline_manifest(

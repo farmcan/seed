@@ -96,6 +96,7 @@ def test_run_video_pipeline_for_local_media(tmp_path, monkeypatch):
     assert context.claims_path.exists()
     assert context.graph_path.exists()
     assert context.html_path.exists()
+    assert context.live_html_path.exists()
     status_path = manifest_path.with_suffix(".status.json")
     assert status_path.exists()
     data = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
@@ -126,3 +127,4 @@ def test_run_video_pipeline_for_local_media(tmp_path, monkeypatch):
     assert any(event["event"] == "run_started" for event in progress_events)
     assert any(event["event"] == "step_started" for event in progress_events)
     assert any(event["event"] == "run_finished" for event in progress_events)
+    assert "window.SEED_EMBEDDED_STATUS" in context.live_html_path.read_text(encoding="utf-8")

@@ -246,6 +246,36 @@
       box-shadow: 0 0 0 3px var(--accent-soft), var(--shadow);
     }
 
+    .node.status-pending {
+      opacity: 0.58;
+      border-style: dashed;
+    }
+
+    .node.status-running {
+      border-color: var(--amber);
+      box-shadow: 0 0 0 3px var(--amber-soft), var(--shadow);
+      animation: nodePulse 1.4s ease-in-out infinite;
+    }
+
+    .node.status-completed {
+      border-color: #86efac;
+    }
+
+    .node.status-skipped {
+      border-color: #67e8f9;
+      background: #f8feff;
+    }
+
+    .node.status-failed {
+      border-color: var(--rose);
+      box-shadow: 0 0 0 3px var(--rose-soft), var(--shadow);
+    }
+
+    @keyframes nodePulse {
+      0%, 100% { box-shadow: 0 0 0 2px rgb(180 83 9 / 18%), var(--shadow); }
+      50% { box-shadow: 0 0 0 6px rgb(180 83 9 / 10%), var(--shadow); }
+    }
+
     .node-header {
       display: flex;
       align-items: center;
@@ -274,6 +304,24 @@
       text-overflow: ellipsis;
       white-space: nowrap;
     }
+
+    .node-status {
+      flex: 0 0 auto;
+      display: inline-flex;
+      align-items: center;
+      height: 22px;
+      padding: 0 7px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      color: #475467;
+      background: #f2f4f7;
+    }
+
+    .node-status.running { color: var(--amber); background: var(--amber-soft); }
+    .node-status.completed { color: var(--green); background: var(--green-soft); }
+    .node-status.skipped { color: var(--cyan); background: var(--cyan-soft); }
+    .node-status.failed { color: var(--rose); background: var(--rose-soft); }
 
     .expand-button {
       flex: 0 0 auto;
@@ -841,7 +889,9 @@
       inspectorOpen: false,
       cardDetails: false,
       nodeMedia: true,
-      renderedIds: new Set()
+      renderedIds: new Set(),
+      pipelineStatus: window.SEED_EMBEDDED_STATUS || null,
+      statusPollTimer: null
     };
 
     const appEl = document.querySelector(".app");
@@ -1002,6 +1052,7 @@
         return;
       }
       state.graph = graph;
+      applyPipelineStatus(state.pipelineStatus);
       resetExpansionState();
       state.selectedId = defaultSelectedNodeId(graph);
       layoutGraph();
@@ -1027,6 +1078,76 @@
       }
     }
 
+    async function startStatusPolling() {
+      if (window.SEED_EMBEDDED_STATUS) {
+        applyPipelineStatus(window.SEED_EMBEDDED_STATUS);
+      }
+      const statusUrl = window.SEED_STATUS_URL || new URLSearchParams(window.location.search).get("status");
+      if (!statusUrl || window.SEED_LIVE_STATUS === false) {
+        render();
+        return;
+      }
+      const poll = async () => {
+        try {
+          const response = await fetch(statusUrl, { cache: "no-store" });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          applyPipelineStatus(await response.json());
+          render();
+        } catch (error) {
+          console.warn("Unable to refresh pipeline status:", error);
+        }
+      };
+      await poll();
+      state.statusPollTimer = window.setInterval(poll, 1500);
+    }
+
+    function applyPipelineStatus(status) {
+      if (!status || !Array.isArray(status.steps)) return;
+      state.pipelineStatus = status;
+      const byStep = new Map(status.steps.map((step) => [String(step.step), step]));
+      for (const node of state.graph.nodes) {
+        const step = byStep.get(String(node.pipeline_step || node.id));
+        if (!step) continue;
+        node.run_status = step.status || "pending";
+        node.body = pipelineStatusBody(step);
+        node.metrics = pipelineStatusMetrics(step);
+        const artifacts = step.artifact_paths || [];
+        if (!node.path && artifacts.length) node.path = artifacts[0];
+      }
+    }
+
+    function pipelineStatusBody(step) {
+      const parts = [`status=${step.status || "pending"}`];
+      if (step.duration_seconds !== null && step.duration_seconds !== undefined) {
+        parts.push(`duration=${step.duration_seconds}s`);
+      }
+      if (Array.isArray(step.artifact_paths) && step.artifact_paths.length) {
+        parts.push(`artifacts=${step.artifact_paths.length}`);
+      }
+      if (step.error) {
+        parts.push(`error=${step.error}`);
+      }
+      return `${parts.join("；")}。`;
+    }
+
+    function pipelineStatusMetrics(step) {
+      const metrics = [String(step.status || "pending")];
+      if (step.duration_seconds !== null && step.duration_seconds !== undefined) {
+        metrics.push(`${step.duration_seconds}s`);
+      }
+      if (step.provider) metrics.push(String(step.provider));
+      if (Array.isArray(step.artifact_paths) && step.artifact_paths.length) {
+        metrics.push(`${step.artifact_paths.length} artifacts`);
+      }
+      const totals = step.cost_delta?.totals;
+      if (totals && typeof totals === "object") {
+        for (const [currency, amount] of Object.entries(totals)) {
+          metrics.push(`${amount} ${currency}`);
+        }
+      }
+      return metrics;
+    }
+
     function renderNodes() {
       nodesEl.innerHTML = "";
       const nodes = visibleNodes();
@@ -1037,7 +1158,8 @@
       state.renderedIds = new Set(renderedNodes.map((node) => node.id));
       for (const node of renderedNodes) {
         const el = document.createElement("article");
-        el.className = `node ${node.type} ${node.id === state.selectedId ? "selected" : ""}`;
+        const runStatus = nodeRunStatus(node);
+        el.className = `node ${node.type} status-${runStatus} ${node.id === state.selectedId ? "selected" : ""}`;
         el.style.left = `${node.x}px`;
         el.style.top = `${node.y}px`;
         el.dataset.id = node.id;
@@ -1045,6 +1167,7 @@
           <div class="node-header">
             <span class="node-type">${escapeHtml(node.type)}</span>
             <span class="node-title">${escapeHtml(node.title)}</span>
+            ${nodeStatusHtml(node)}
             ${expandButtonHtml(node)}
           </div>
           ${state.nodeMedia ? nodePreviewHtml(node) : ""}
@@ -1065,6 +1188,16 @@
         media.addEventListener("pointerdown", (event) => event.stopPropagation());
         media.addEventListener("click", (event) => event.stopPropagation());
       });
+    }
+
+    function nodeRunStatus(node) {
+      return String(node.run_status || node.status || "completed").replace(/[^a-z_-]/gi, "").toLowerCase() || "completed";
+    }
+
+    function nodeStatusHtml(node) {
+      if (!node.run_status && !node.pipeline_step) return "";
+      const status = nodeRunStatus(node);
+      return `<span class="node-status ${escapeAttr(status)}">${escapeHtml(status)}</span>`;
     }
 
     function nodeInRenderViewport(node) {
@@ -1792,6 +1925,7 @@
       autoLayoutGraph({ fit: true });
     }
     loadGraphFromUrl();
+    startStatusPolling();
   </script>
 </body>
 </html>

@@ -460,6 +460,8 @@ def run_video_pipeline_cmd(
     console.print(f"created pipeline manifest at {manifest_path}")
     if status_path.exists():
         console.print(f"created pipeline status at {status_path}")
+    if context.live_html_path:
+        console.print(f"created live pipeline DAG HTML at {context.live_html_path}")
     if context.html_path:
         console.print(f"created standalone video DAG HTML at {context.html_path}")
     if context.semantics_path:
