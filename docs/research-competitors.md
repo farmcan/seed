@@ -50,6 +50,8 @@
 | `opencv/opencv` | GitHub 上约 87k stars，Apache-2.0；提供 optical flow、tracking、image processing 等基础视觉算法。 | 当前短视频默认 provider 应优先用 OpenCV/ffmpeg 做低成本 baseline，例如镜头运动、画面变化、字幕区域、运动强度，不依赖大模型。 |
 | `gtfintechlab/VideoConviction` | KDD 2025 项目，研究 YouTube finfluencer 的多模态股票推荐；包含 YouTube data pipeline、annotation pipeline、prompting 和 backtesting。 | 财经 UP 分析应显式抽取 ticker/标的、action、conviction、reasoning 和多模态表达；同时要警惕模型把一般评论误判成明确推荐。 |
 | AlphaCheck / fintuber 类频道追踪工具 | 产品形态是“单条视频抽取股票信号 -> 按频道汇总历史 picks -> 对齐价格/benchmark”。 | 证明“最近 10 天 top UP 说了什么”需要先做稳定频道采集和行情对齐；没有完整样本时不能靠搜索结果猜推荐。 |
+| TickerReceipts | 公开站点展示 YouTube stock picks，按频道、ticker、日期、price at mention、current price 和 return 组织。 | Seed 的财经 digest 应该继续向 time-stamped event feed 演进，而不是只有 UP 画像摘要。 |
+| FinCap / finfluencer short-video caption 研究 | 面向金融短视频 caption，强调文本、音频和视觉模态组合。 | 适合补强财经短视频：ASR 只能覆盖口播，图表、字幕、持仓截图和语气也应进入 conviction 与 evidence。 |
 | `AI4Finance-Foundation/FinGPT` | 开源金融大模型项目，覆盖金融情绪、关系抽取、NER、问答、forecaster 等任务。 | 适合作为财经文本任务的参考 taxonomy：sentiment、relation extraction、headline classification、NER、QA；Seed 暂不直接引入模型。 |
 | `AI4Finance-Foundation/FinRobot` | 金融 AI Agent 平台，组合 LLM、金融数据源、量化分析和报告生成；示例包含 FMP、SEC、yfinance 等数据源和 equity report pipeline。 | 后续财经 domain 可以把外部行情、财报、公告和估值工具作为 provider，和视频观点分离。 |
 | `ProsusAI/finBERT` | 金融文本情绪分析 BERT，面向金融语料情绪分类。 | 可作为低成本 sentiment/stance baseline 的参考，但财经视频 recommendation 不能只看情绪，还要抽取 action、horizon、risk。 |
@@ -102,6 +104,9 @@
 28. AlphaCheck 的产品启发是：用户真正关心频道级 track record，包括每个标的当时价格、当前价格、是否跑赢 benchmark、top winners/losers 和上下文理由。Seed 当前先落地 `*.finance-signals.json`，下一步再接行情 provider 和跨视频收益归因。
 29. “最近 10 天 top UP 都说了什么”不是单纯搜索问题，而是 creator list discovery + date window + 批量 video pipeline + finance signals + channel digest。Bilibili 侧仍受 352/412 风控影响，实际落地优先用 `--owner-id`、cookies 或手动 list。
 30. 行情后验应先做可解释 baseline：显式 `标的=ticker` mapping、发布日附近收盘价、最新收盘价、可选 benchmark、source URL 和价格日期。不要在没有可靠映射时猜 ticker，也不要把涨跌幅解释成交易建议。
+31. 下一步不要继续堆 summary 字段，应把 `finance-signals.json` 升级成观点事件 ledger：先判断是否存在 recommendation，再抽 ticker/entity、action、direction、horizon、conviction、entry/exit/invalidation、timestamp evidence 和 modality evidence。
+32. VideoConviction 的 action taxonomy 可直接作为 Seed 初版参考：buy、hold、don't buy、sell、short sell；Seed 还需要兼容 watch、add、reduce、allocate、unknown，因为中文财经 UP 经常是“观察/等回调/配置/减仓”。
+33. 后验评估不能只看 latest return。event 应根据 horizon 计算 1D/5D/20D/60D/latest、benchmark relative return 和风险指标；没有 horizon 时只输出 baseline，不做命中判断。
 
 ## Sources
 
@@ -165,7 +170,10 @@
 - OpenPose: https://github.com/CMU-Perceptual-Computing-Lab/openpose
 - OpenCV: https://github.com/opencv/opencv
 - VideoConviction: https://github.com/gtfintechlab/VideoConviction
+- VideoConviction dataset: https://huggingface.co/datasets/gtfintechlab/VideoConviction
 - AlphaCheck: https://alphacheck.ai/
+- TickerReceipts: https://tickerreceipts.com/
+- FinCap paper: https://arxiv.org/abs/2509.25745
 - FinGPT: https://github.com/AI4Finance-Foundation/FinGPT
 - FinRobot: https://github.com/AI4Finance-Foundation/FinRobot
 - FinBERT: https://github.com/ProsusAI/finBERT

@@ -159,6 +159,9 @@
   - 已参考 VideoConviction：把金融视频里的 ticker/标的、action、conviction、reasoning 和回测管线拆开。
   - 已参考 AlphaCheck：频道级追踪不只是摘要，还要对齐视频发布时间、标的、当时价格、当前价格、benchmark 和上下文理由。
   - 已参考 FinGPT、FinRobot、FinBERT、FinRL：作为金融文本任务 taxonomy、金融 agent 数据源、情绪/stance 和策略表达的参考，不直接把它们塞进默认依赖。
+  - 新增调研结论：VideoConviction 的 annotation workflow 比普通 summary 更适合 Seed，核心对象应是“观点事件”，包含 recommendation presence、ticker/entity、action、price/quantity、action timestamps、conviction score 和后验价格。
+  - 新增调研结论：TickerReceipts/AlphaCheck 类产品把 YouTube stock picks 做成 time-stamped feed 和 channel track record，说明财经 UP 方向必须把“证据时间点 + 后验表现 + 频道级画像”放在同一条链路。
+  - 新增调研结论：FinCap 这类短视频金融 caption 研究强调 T/A/V 多模态组合，财经短视频不能只看 ASR；口播、字幕/OCR、图表/持仓截图和语气都可能影响 conviction 判断。
 - [x] 增加财经 domain lens。
   - `--domain finance` 会追加 `domain-finance-lenses.md`，用于 `summarize-transcript`、`analyze-video-semantics`、`aggregate-owner`、`run-video-pipeline` 和 `run-creator-pipeline`。
   - 领域 lens 只约束结构和风险边界，不生成 Seed 自己的投资建议。
@@ -180,6 +183,25 @@
   - 当前 priced digest 只给 recommendation 级后验价格变化 baseline。
   - 下一步才做系统性评估：按 action/direction/horizon 计算命中、超额收益、窗口收益，并汇总到 UP 方法论层。
   - 仍然只评估“创作者当时表达的观点是否被后续市场验证”，不输出交易建议。
+
+## P9：财经观点事件模型升级
+
+- [ ] 把 `finance-signals.json` 从摘要字段升级为观点事件 ledger。
+  - 保留现有 `recommendations` 兼容字段，但新增 `viewpoint_events` 作为主对象。
+  - 每个 event 至少包含：`event_id`、`video_title`、`published_at`、`instrument`、`ticker`、`asset_class`、`action`、`direction`、`horizon`、`conviction`、`entry_condition`、`exit_or_invalidation`、`risk_flags`、`evidence_refs`、`timestamp_start/end`、`modality_evidence`、`uncertainty`。
+  - action taxonomy 参考 VideoConviction：buy、hold、don't buy、sell、short sell，再加 Seed 当前已有 watch/add/reduce/allocate/unknown。
+- [ ] 增加 recommendation detection 阶段。
+  - 先判断视频/片段是否存在明确 recommendation，不存在时只记录 commentary，不进入回测。
+  - 避免把一般行情评论、新闻解读、情绪表达误判成交易建议；这是 VideoConviction 明确指出的模型难点。
+- [ ] 增加 conviction 评估字段。
+  - 先用 LLM 基于 transcript、visual notes、timestamp 和风险说明给出 1-3 或 low/medium/high。
+  - 之后再补 VL/音频线索：语气、表情、图表展示、仓位/持仓截图、反复强调程度。
+- [ ] 做 event-level priced outcome。
+  - 价格补强从 digest 级移动到 event 级，按 event 的 `published_at` 和 `horizon` 计算 1D/5D/20D/60D/latest。
+  - 输出 `event_outcomes`，包含 asset return、benchmark return、relative return、max drawdown、price source、交易日对齐和 ticker mapping 来源。
+- [ ] 做 creator-level finance profile。
+  - 从多个 event 和 outcome 中总结 UP 的方法论：偏宏观/政策/产业/财报/估值/技术面/情绪面，是否给风险和失效条件，哪些 horizon 更稳定，哪些标的/行业经常误判。
+  - 输出可以合入 `creator-profile.md` 的 finance section，也可以先生成 `*.finance-profile.json`。
 
 ## 已完成基础
 
