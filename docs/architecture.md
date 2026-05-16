@@ -45,9 +45,24 @@ seed run-creator-pipeline --platform <platform> <owner>
   -> creator profile + creator DAG + agent assets
   -> `--domain finance` 时按财经 lens 聚合跨视频方法论并生成 finance digest
   -> `--published-after/--published-before` 可限制发布时间窗口
+
+seed run-creator-batch --platform <platform> <owner...>
+  -> 批量处理多个 UP/作者，复用 run-creator-pipeline 流程
+  -> 适合跑固定样本池和 top UP 并行对比
+
+seed compare-up-profiles --platform <platform> <owner...>
+  -> 输出 UP 横向对比 HTML
+  -> 显示方法论结构、证据缺口、validation 与成本对齐视角
+
+seed distill-up-list <up-list.yaml>
+  -> 按名单一次跑多位 UP 的 creator pipeline（可配置 owner-id/窗口/预算）
+  -> 自动生成横向对比 HTML + 每个 UP 的独立 `.up-homepage.html`
+
+seed build-up-homepage --platform <platform> <owner...>
+  -> 基于已有 run/manifest 快速补生成每个 UP 的主页卡片视图
 ```
 
-这两个命令已经是当前优先入口；其他 CLI 视为可组合 step 或调试入口。新增功能如果不能进入 pipeline、不能生成稳定 artifact、不能被 DAG 或 creator aggregation 消费，就不应作为主功能推进。
+这六个命令已经是当前优先入口；其他 CLI 视为可组合 step 或调试入口。新增功能如果不能进入 pipeline、不能生成稳定 artifact、不能被 DAG 或 creator aggregation 消费，就不应作为主功能推进。
 
 ## 功能模块总览
 
@@ -56,6 +71,7 @@ seed run-creator-pipeline --platform <platform> <owner>
 | 来源采集 | `seed ingest-url` | `src/seed/sources/`, `src/seed/library.py` | `library/raw/*`, `library/notes/*.source.yaml` |
 | 创作者视频列表 | `seed fetch-creator-videos` | `src/seed/sources/creator_videos.py`, `src/seed/library.py` | `library/notes/*.creator-videos.yaml` |
 | 创作者批量入库 | `seed ingest-creator-videos` | `src/seed/creator_ingest.py`, `src/seed/sources/yt_dlp_adapter.py` | `library/raw/*`, `library/notes/*.source.yaml` |
+| 创作者批量入口 | `seed run-creator-batch` | `src/seed/cli.py`, `src/seed/creator_pipeline.py` | 多 UP 批量 manifest、creator profile、creator DAG、agent assets（按顺序运行） |
 | 视频 pipeline | `seed run-video-pipeline` | `src/seed/pipeline.py` | pipeline manifest、单条视频全量产物、cost ledger |
 | 创作者 pipeline | `seed run-creator-pipeline` | `src/seed/creator_pipeline.py` | 多视频 manifest、creator profile、creator DAG、creator cost ledger |
 | ASR 转写 | `seed transcribe-media` | `src/seed/media.py`, `src/seed/asr/`, `src/seed/transcripts.py` | `library/raw/*.asr.mp3`, `library/raw/*.asr.chunks/*`, `library/transcripts/*.transcript.md` |
@@ -73,6 +89,8 @@ seed run-creator-pipeline --platform <platform> <owner>
 | Creator DAG | `seed build-creator-dag` | `src/seed/graphs/creator_dag.py` | `library/graphs/*.creator-dag.json`, `library/graphs/*.creator-dag.html` |
 | 创作者聚合 | `seed aggregate-owner`, `seed validate-creator-profile` | `src/seed/semantics/aggregator.py`, `src/seed/semantics/validation.py` | `library/distilled/*.creator-profile.md`, `*.creator-profile.validation.json` |
 | Agent 资产生成 | `seed generate-agent-assets`, `seed review-agent-assets`, `seed record-reflection`, `seed suggest-revisions` | `src/seed/agent_assets.py`, `src/seed/reflections.py` | `library/skills/*/SKILL.md`, `library/checks/*.md`, `library/checks/*.agent-assets.review.json`, `library/reflections/*` |
+| 横向对比 | `seed compare-up-profiles` | `src/seed/cross_compare.py` | `library/reports/*.up-comparison.html` |
+| UP 主页与名单蒸馏 | `seed distill-up-list`, `seed build-up-homepage` | `src/seed/cli.py` | `library/reports/*.up-comparison.html`, `library/reports/*.up-homepage.html` |
 
 当前视频 DAG 会展示本地视频、音频、关键帧截图、short profile、shot strip、frame evidence notes、motion relation candidates、transcript、visual notes、cost ledger、timeline event、semantic 子节点、可选 finance signals、creator signals、fact-check queue 和 agent assets。Creator DAG 以 UP/作者级 profile、方法论和 Agent 资产为主，同时每条视频节点都可展开本地视频、音频、截图 gallery、可选 finance signals 和单条 video DAG HTML 入口。带 `start_seconds` 的 timeline event、shot、frame note 和 motion relation 节点会写入 `media_anchor`，画布详情区可以把视频/音频定位到对应时间点。DOM/ELK 画布保留卡片式视觉，默认简版显示，节点媒体默认渲染，顶部 `媒体` 按钮可一键隐藏或恢复，卡片正文默认折叠，右侧详情默认关闭。
 
@@ -88,7 +106,7 @@ seed run-creator-pipeline --platform <platform> <owner>
 - `shorts.py`：短视频 profile、shot boundary baseline、shot 代表帧、frame evidence notes 和 motion relation candidates。默认用 `ffprobe` 判断 `duration <= 60s` 是否进入短视频强分析，用 `ffmpeg` scene threshold 生成本地 shot artifact；`frame_notes` 默认按 shot 代表帧生成低成本 JSONL，并预留蒙版、画中画、贴纸、字幕、人的运动关系、滤镜、变速、转场和剪辑意图字段；`motion_relations` 默认只从相邻 frame notes 生成可追溯候选并标记 `needs_pose_or_vl`，后续可把 PySceneDetect/TransNetV2、逐帧 Qwen-VL/OCR、MediaPipe/OpenPose/YOLO pose 和 OpenCV optical flow 接成 provider。
 - `costs.py`：统一写入单条视频成本报告和 pipeline cost ledger。默认记录 Qwen-VL token 用量、单价来源、估算金额，并为 ASR、Codex、搜索/核验保留成本项；实际价格可通过环境变量覆盖。
 - `skill_refs.py`：读取共享 video analysis lenses 和可选 domain lenses。prompt 构建器只引用这个入口，避免各模块复制 lens 文本。
-- `domains/finance.py`：财经领域信号抽取、窗口汇总和可选行情补强。输入单条 `video-semantics.md`，输出 `*.finance-signals.json`；输入多条 signals，输出 `*.finance-digest.json`；显式 ticker mapping 后可用 Stooq 日线生成 `*.finance-digest.priced.json`。所有推荐都必须标记为创作者观点，不是 Seed 投资建议。
+- `domains/finance.py`：财经领域信号抽取、窗口汇总和可选行情补强。输入单条 `video-semantics.md`，输出 `*.finance-signals.json`，每条信号优先返回 `viewpoint_events`（主对象）；输入多条 signals，输出 `*.finance-digest.json`；显式 ticker mapping 后可用 Stooq 日线生成 `*.finance-digest.priced.json`。所有观点都必须标记为创作者观点，不是 Seed 投资建议。
 - `semantics/evidence.py`：从 transcript chunk、visual notes 和 keyframe metadata 生成 `T*`、`V*`、`F*` 证据锚点，供总结、视频语义和创作者聚合引用。
 - `summarizers/`：单条 transcript 的轻量总结，适合作为人工快速预览；prompt 必须注入共享 lenses 和证据锚点。
 - `semantics/analyzer.py`：单条视频语义融合，输入 transcript 和 visual notes，输出 `library/semantics/*.video-semantics.md`；强结论要引用 transcript、visual notes 或 keyframe 证据 ID。
@@ -138,11 +156,12 @@ prompt 构建时会自动注入：
 - `library/notes/*.summary.md`：快速摘要，不作为长期聚合主数据。
 - `library/notes/*.creator-videos.yaml`：创作者视频列表，作为后续批量下载、批量分析和 UP 级聚合的入口。
 - `library/notes/*.book-note.md`：手动导入的书籍/笔记。
+- `library/reports/*.up-comparison.html`：UP 横向对比报告。
 - `library/runs/`：pipeline run manifest，记录 step 状态、输入输出、错误、provider/model 和耗时。
 - `library/runs/*.video-pipeline.status.json`：pipeline 运行态快照，面向 CLI 进度表和后续 live DAG 轮询；包含 pending/running/completed/skipped/failed 状态、当前 step、耗时、artifact paths 和 cost delta。
 - `library/runs/*.video-pipeline.live.html`：pipeline 运行态画布，使用独立 step graph 展示 pending/running/completed/skipped/failed；打开静态文件可看嵌入快照，通过本地 HTTP 打开时可轮询同目录 status JSON。
 - `library/semantics/*.video-semantics.md`：单条视频语义，是后续聚合的主数据。
-- `library/semantics/*.finance-signals.json`：财经 domain 的单条视频结构化信号，记录 instruments、recommendations、macro theses、methodology signals、risk flags 和 evidence gaps；进入 video DAG 和 creator DAG，但不能被视为投资建议。
+- `library/semantics/*.finance-signals.json`：财经 domain 的单条视频结构化信号，记录 instruments、`viewpoint_events`、兼容的 `recommendations`、macro theses、methodology signals、risk flags 和 evidence gaps；进入 video DAG 和 creator DAG，但不能被视为投资建议。
 - `library/semantics/*.book-semantics.md`：书籍/笔记语义，默认没有 visual language。
 - `library/timelines/*.timeline.json`：视频时间线事件，包含 transcript chunk、keyframe、内容结构、广告候选和不确定性。
 - `library/claims/*.claims.json`：待核验 claim 队列，状态至少从 `unverified` 开始。
@@ -153,7 +172,7 @@ prompt 构建时会自动注入：
 - `library/distilled/*.topic-profile.md`：跨书籍/笔记/视频的主题聚合草稿。
 - `library/distilled/*.creator-profile.md`：创作者级聚合画像。
 - `library/distilled/*.finance-digest.json`：财经 domain 的 UP/窗口级汇总，聚合多条 finance signals 的标的、推荐/观察、宏观 thesis、方法论信号、风险和证据缺口；不包含行情后验时只能作为观点汇总。
-- `library/distilled/*.finance-digest.priced.json`：在 finance digest 基础上追加行情后验 baseline，包含显式 ticker mapping、发布日附近价格、最新价格、收益率、可选 benchmark 和数据来源；不做交易建议。
+- `library/distilled/*.finance-digest.priced.json`：在 finance digest 基础上追加 event-level 价格后验，包含 1D/5D/20D/60D/latest horizon、asset/benchmark/relative return、max drawdown、交易日对齐和 ticker mapping 来源；不做交易建议。
 - `library/distilled/*.creator-profile.validation.json`：creator profile 输出后证据校验报告，只提示缺口，不自动改写 profile。
 - `library/skills/` 和 `library/checks/`：从 creator profile 生成、待人工 review 的 Agent 可加载资产。
 - `library/checks/*.agent-assets.review.json`：Agent 资产 review manifest，记录每个 skill/check 的 `draft/reviewed/installed/deprecated` 状态。

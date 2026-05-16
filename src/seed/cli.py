@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+from html import escape
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated
 from urllib.parse import quote
 
 import typer
+import yaml
 from rich.console import Console
 from rich.live import Live
 from rich.table import Table
@@ -48,6 +50,7 @@ from seed.claim_verification import (
     verified_claims_output_path,
     write_verified_claims_artifact,
 )
+from seed.cross_compare import build_cross_up_compare_html, build_cross_up_compare_payload, compare_report_output_path
 from seed.creator_ingest import ingest_creator_videos as ingest_creator_videos_from_list
 from seed.creator_pipeline import CreatorPipelineOptions, run_creator_pipeline
 from seed.dag_export import (
@@ -90,6 +93,7 @@ from seed.library import (
 from seed.media import extract_audio
 from seed.models import Methodology, Platform, SourceRecord
 from seed.pipeline import VideoPipelineOptions, run_video_pipeline
+from seed.markdown import read_markdown_body
 from seed.reflections import ReflectionRecord, append_reflection_record, write_revision_suggestions
 from seed.semantics.analyzer import (
     DEFAULT_VIDEO_SEMANTICS_SKILL_PATH,
@@ -363,7 +367,84 @@ def run_creator_pipeline_cmd(
     codex_model: Annotated[str | None, typer.Option("--codex-model")] = None,
     root: Annotated[Path, typer.Option("--root")] = Path("library"),
 ) -> None:
-    manifest, manifest_path = run_creator_pipeline(
+    manifest, manifest_path = run_creator_pipeline_cmd_impl(
+        owner_name=owner_name,
+        platform=platform,
+        owner_id=owner_id,
+        limit=limit,
+        start_index=start_index,
+        published_after=published_after,
+        published_before=published_before,
+        authorized=authorized,
+        download=download,
+        skip_existing=skip_existing,
+        keep_going=keep_going,
+        max_height=max_height,
+        max_filesize_mb=max_filesize_mb,
+        cookies_from_browser=cookies_from_browser,
+        vision=vision,
+        domain=domain,
+        force=force,
+        max_estimated_cost=max_estimated_cost,
+        cost_currency=cost_currency,
+        aggregate_profile=aggregate_profile,
+        min_profile_videos=min_profile_videos,
+        generate_assets=generate_assets,
+        build_creator_dag=build_creator_dag,
+        export_creator_dag_html=export_creator_dag_html,
+        codex_model=codex_model,
+        root=root,
+    )
+    console.print(f"created creator pipeline manifest at {manifest_path}")
+    console.print(f"video runs: {len(manifest['video_runs'])}")
+    for step in manifest.get("creator_steps", []):
+        console.print(f"{step['name']}: {step['status']}")
+        if step.get("reason"):
+            console.print(f"  reason: {step['reason']}")
+        for key in (
+            "profile_path",
+            "validation_path",
+            "review_path",
+            "graph_path",
+            "html_path",
+            "digest_path",
+        ):
+            if step.get(key):
+                console.print(f"  {key}: {step[key]}")
+    if manifest.get("cost_ledger_path"):
+        console.print(f"created creator cost ledger at {manifest['cost_ledger_path']}")
+
+
+def run_creator_pipeline_cmd_impl(
+    *,
+    owner_name: str,
+    platform: Platform,
+    owner_id: str | None,
+    limit: int,
+    start_index: int,
+    published_after: datetime | None,
+    published_before: datetime | None,
+    authorized: bool,
+    download: bool,
+    skip_existing: bool,
+    keep_going: bool,
+    max_height: int,
+    max_filesize_mb: int | None,
+    cookies_from_browser: str | None,
+    vision: bool,
+    domain: str | None,
+    force: bool,
+    max_estimated_cost: float | None,
+    cost_currency: str,
+    aggregate_profile: bool,
+    min_profile_videos: int,
+    generate_assets: bool,
+    build_creator_dag: bool,
+    export_creator_dag_html: bool,
+    codex_model: str | None,
+    root: Path,
+) -> tuple[dict, Path]:
+    return run_creator_pipeline(
         CreatorPipelineOptions(
             owner_name=owner_name,
             platform=platform,
@@ -387,30 +468,674 @@ def run_creator_pipeline_cmd(
             cost_currency=cost_currency,
             aggregate_profile=aggregate_profile,
             min_profile_videos=min_profile_videos,
+            codex_model=codex_model,
+            generate_assets=generate_assets,
+            build_creator_dag=build_creator_dag,
+            export_creator_dag_html=export_creator_dag_html,
+        )
+    )
+
+
+def _parse_optional_datetime(value: object, field: str) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value
+    if not isinstance(value, str):
+        raise typer.BadParameter(f"{field} must be an ISO timestamp or null.")
+    text = value.strip()
+    if not text:
+        return None
+    if text.endswith("Z"):
+        text = f"{text[:-1]}+00:00"
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError as error:
+        raise typer.BadParameter(f"{field} must be an ISO timestamp string.") from error
+
+
+def _parse_batch_config_defaults(raw: object) -> dict[str, object]:
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise typer.BadParameter("`defaults` must be a YAML map.")
+    return raw
+
+
+def load_creator_batch_config(config_path: Path) -> tuple[
+    Platform,
+    list[str],
+    list[str | None],
+    dict[str, object],
+]:
+    payload = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise typer.BadParameter(f"Invalid YAML config: {config_path}")
+
+    platform_value = payload.get("platform", "bilibili")
+    try:
+        platform = Platform(str(platform_value))
+    except ValueError as error:
+        raise typer.BadParameter(f"Invalid platform in config: {platform_value}") from error
+
+    owners_raw = payload.get("owners")
+    if not isinstance(owners_raw, list) or not owners_raw:
+        raise typer.BadParameter("`owners` must be a non-empty YAML list.")
+
+    owners: list[str] = []
+    owner_ids: list[str | None] = []
+    for owner_raw in owners_raw:
+        if isinstance(owner_raw, str):
+            owners.append(owner_raw)
+            owner_ids.append(None)
+            continue
+        if not isinstance(owner_raw, dict):
+            raise typer.BadParameter("Each owner must be a string or a map with `name`.")
+        owner_name = owner_raw.get("name") or owner_raw.get("owner")
+        if not isinstance(owner_name, str) or not owner_name.strip():
+            raise typer.BadParameter("Each owner map must have a non-empty `name`.")
+        owners.append(owner_name)
+        owner_id = owner_raw.get("owner_id") or owner_raw.get("ownerId") or owner_raw.get("mid")
+        owner_ids.append(str(owner_id) if owner_id is not None else None)
+
+    defaults = _parse_batch_config_defaults(payload.get("defaults"))
+    defaults_owner_ids = defaults.get("owner_ids")
+    if defaults_owner_ids is not None:
+        if not isinstance(defaults_owner_ids, list):
+            raise typer.BadParameter("`defaults.owner_ids` must be a list.")
+        if len(defaults_owner_ids) != len(owners):
+            raise typer.BadParameter("`defaults.owner_ids` length must match `owners`.")
+        owner_ids = [str(item) if item is not None else None for item in defaults_owner_ids]
+
+    options: dict[str, object] = {
+        "limit": defaults.get("limit", 5),
+        "start_index": defaults.get("start_index", defaults.get("start-index", 1)),
+        "published_after": _parse_optional_datetime(defaults.get("published_after"), "published_after"),
+        "published_before": _parse_optional_datetime(defaults.get("published_before"), "published_before"),
+        "authorized": bool(defaults.get("authorized", False)),
+        "download": bool(defaults.get("download", True)),
+        "skip_existing": bool(defaults.get("skip_existing", True)),
+        "keep_going": bool(defaults.get("keep_going", True)),
+        "continue_on_error": bool(defaults.get("continue_on_error", True)),
+        "max_height": int(defaults.get("max_height", 360)),
+        "max_filesize_mb": defaults.get("max_filesize_mb"),
+        "cookies_from_browser": defaults.get("cookies_from_browser"),
+        "vision": bool(defaults.get("vision", True)),
+        "domain": defaults.get("domain"),
+        "force": bool(defaults.get("force", False)),
+        "max_estimated_cost": defaults.get("max_estimated_cost"),
+        "cost_currency": str(defaults.get("cost_currency", "USD")),
+        "aggregate_profile": bool(defaults.get("aggregate_profile", True)),
+        "min_profile_videos": int(defaults.get("min_profile_videos", 3)),
+        "generate_assets": bool(defaults.get("generate_assets", True)),
+        "build_creator_dag": bool(defaults.get("build_creator_dag", True)),
+        "export_creator_dag_html": bool(defaults.get("export_creator_dag_html", True)),
+        "codex_model": defaults.get("codex_model"),
+        "root": str(defaults.get("root", "library")),
+    }
+    return platform, owners, owner_ids, options
+
+
+def run_creator_batch_from_config(
+    platform: Platform,
+    owners: list[str],
+    owner_ids: list[str | None],
+    options: dict[str, object],
+) -> None:
+    run_creator_batch_cmd_impl(
+        owners=owners,
+        owner_id=owner_ids,
+        platform=platform,
+        limit=int(options["limit"]),
+        start_index=int(options["start_index"]),
+        published_after=options["published_after"],  # type: ignore[assignment]
+        published_before=options["published_before"],  # type: ignore[assignment]
+        authorized=bool(options["authorized"]),
+        download=bool(options["download"]),
+        skip_existing=bool(options["skip_existing"]),
+        keep_going=bool(options["keep_going"]),
+        continue_on_error=bool(options["continue_on_error"]),
+        max_height=int(options["max_height"]),
+        max_filesize_mb=options["max_filesize_mb"] if options["max_filesize_mb"] is None else int(options["max_filesize_mb"]),
+        cookies_from_browser=options["cookies_from_browser"],  # type: ignore[assignment]
+        vision=bool(options["vision"]),
+        domain=options["domain"],  # type: ignore[assignment]
+        force=bool(options["force"]),
+        max_estimated_cost=options["max_estimated_cost"],  # type: ignore[assignment]
+        cost_currency=str(options["cost_currency"]),
+        aggregate_profile=bool(options["aggregate_profile"]),
+        min_profile_videos=int(options["min_profile_videos"]),
+        generate_assets=bool(options["generate_assets"]),
+        build_creator_dag=bool(options["build_creator_dag"]),
+        export_creator_dag_html=bool(options["export_creator_dag_html"]),
+        codex_model=options["codex_model"],  # type: ignore[assignment]
+        root=Path(str(options["root"])),
+    )
+
+
+def _load_yaml_map(path: Path) -> dict[str, object]:
+    if not path.exists():
+        return {}
+    payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _resolve_creator_videos_list_path(owner: str, root: Path) -> Path | None:
+    notes_root = root / "notes"
+    if not notes_root.exists():
+        return None
+    candidates = sorted(notes_root.glob("*.creator-videos.yaml"))
+    owner_slug = slugify(owner)
+    exact: Path | None = None
+    for path in candidates:
+        payload = _load_yaml_map(path)
+        if payload.get("owner") == owner or payload.get("owner_query") == owner:
+            return path
+        if (
+            exact is None
+            and isinstance(payload.get("owner_slug"), str)
+            and slugify(payload.get("owner_slug")) == owner_slug
+        ):
+            exact = path
+    if not owner_slug:
+        return exact
+    for path in candidates:
+        if owner_slug in slugify(path.name):
+            return path
+    return exact
+
+
+def _build_up_homepage_output_path(*, library_root: Path, owner: str, output_dir: Path | None = None) -> Path:
+    base_dir = output_dir or library_root / "reports"
+    return base_dir / f"{slugify(owner)}.up-homepage.html"
+
+
+def _ensure_html_path(path: Path) -> Path:
+    if path.suffix.lower() == ".html":
+        return path
+    return path.with_suffix(".html")
+
+
+def _extract_profile_summary(profile_path: Path, max_chars: int = 480) -> str:
+    if not profile_path.exists():
+        return ""
+    body = read_markdown_body(profile_path).strip()
+    if not body:
+        return ""
+    summary = body.split("\n## ", 1)[0].strip()
+    if len(summary) <= max_chars:
+        return summary
+    return f"{summary[:max_chars].rstrip()}..."
+
+
+def build_up_homepage(
+    owner: str,
+    root: Path,
+    platform: Platform = Platform.bilibili,
+    output_dir: Path | None = None,
+) -> Path:
+    owner_slug = slugify(owner)
+    manifest_path = root / "runs" / f"{owner_slug}.creator-pipeline.yaml"
+    manifest = _load_yaml_map(manifest_path)
+
+    profile_path = root / "distilled" / f"{owner_slug}.creator-profile.md"
+    validation_path = creator_profile_validation_output_path(library_root=root, owner=owner)
+    video_list_path: Path | None = None
+    if isinstance(manifest.get("creator_video_list_path"), str):
+        candidate = Path(str(manifest.get("creator_video_list_path")))
+        if candidate.exists():
+            video_list_path = candidate
+    if video_list_path is None:
+        resolved_video_list = _resolve_creator_videos_list_path(owner=owner, root=root)
+        if resolved_video_list is not None:
+            video_list_path = resolved_video_list
+    video_list_payload = _load_yaml_map(video_list_path) if video_list_path is not None else {}
+    resolved_owner = (
+        str(manifest.get("owner"))
+        if manifest.get("owner")
+        else str(video_list_payload.get("owner"))
+        if video_list_payload.get("owner")
+        else owner
+    )
+    owner_url = (
+        str(video_list_payload.get("owner_url")) if video_list_payload.get("owner_url") else None
+    ) or None
+
+    summary = _extract_profile_summary(profile_path)
+    cost_ledger_path = (
+        Path(str(manifest.get("cost_ledger_path")))
+        if isinstance(manifest.get("cost_ledger_path"), str)
+        else None
+    )
+    digest_path = root / "distilled" / f"{owner_slug}.finance-digest.json"
+    if not digest_path.exists():
+        digest_path = None
+    steps: list[dict[str, object]] = []
+    for step in manifest.get("creator_steps", []) if isinstance(manifest.get("creator_steps"), list) else []:
+        if isinstance(step, dict):
+            steps.append(step)
+    video_runs = (
+        [run for run in manifest.get("video_runs", []) if isinstance(run, dict)]
+        if isinstance(manifest.get("video_runs"), list)
+        else []
+    )
+    latest_videos = []
+    for run in video_runs[:8]:
+        title = str(run.get("title") or run.get("video_title") or "-")
+        published = run.get("published_at") or "-"
+        latest_videos.append(
+            f"<li>{escape(title)} <span class='muted'>[{escape(str(run.get('status', 'unknown')))} · {escape(str(published))}]</span></li>"
+        )
+
+    output_path = _build_up_homepage_output_path(
+        library_root=root,
+        owner=owner,
+        output_dir=output_dir,
+    )
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    run_summary = f"已处理 {len(video_runs)} 条，完成 {len([run for run in video_runs if run.get('status') == 'completed'])} 条"
+    step_html = "".join(
+        f"<li>{escape(str(step.get('name', 'step')))}: <strong>{escape(str(step.get('status', 'unknown')))}</strong>"
+        + (f"（{escape(str(step.get('reason')))}）" if step.get("reason") else "")
+        + "</li>"
+        for step in steps
+    )
+    artifact_links = []
+    if profile_path.exists():
+        artifact_links.append(f"<a href='{escape(str(profile_path))}'>creator-profile.md</a>")
+    if validation_path.exists():
+        artifact_links.append(f"<a href='{escape(str(validation_path))}'>creator-profile.validation.json</a>")
+    if manifest_path.exists():
+        artifact_links.append(f"<a href='{escape(str(manifest_path))}'>creator-pipeline.yaml</a>")
+    if cost_ledger_path and cost_ledger_path.exists():
+        artifact_links.append(f"<a href='{escape(str(cost_ledger_path))}'>creator-ledger.json</a>")
+    if video_list_path and video_list_path.exists():
+        artifact_links.append(f"<a href='{escape(str(video_list_path))}'>creator-videos.yaml</a>")
+    if digest_path:
+        artifact_links.append(f"<a href='{escape(str(digest_path))}'>finance-digest.json</a>")
+
+    output_path.write_text(
+        f"""<!doctype html>
+<html>
+  <head>
+    <meta charset='utf-8' />
+    <title>{escape(resolved_owner)} - UP 主页</title>
+    <style>
+      :root {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; color: #111827; }}
+      body {{ margin: 20px; background: #f1f5f9; }}
+      .card {{ max-width: 980px; margin: 0 auto; background: #fff; border: 1px solid #d7e1ef; border-radius: 12px; padding: 16px; }}
+      .row {{ display: grid; grid-template-columns: 120px 1fr; gap: 16px; align-items: center; }}
+      .avatar {{ width: 88px; height: 88px; border-radius: 16px; display: flex; align-items: center; justify-content: center; background: #dbeafe; font-size: 36px; font-weight: 700; color: #1e40af; }}
+      h1 {{ margin: 0 0 8px 0; }}
+      .meta {{ color: #475569; margin: 0 0 12px 0; }}
+      .section {{ margin-top: 16px; }}
+      h2 {{ margin: 4px 0 8px 0; font-size: 18px; }}
+      ul {{ margin: 0; padding-left: 18px; }}
+      li {{ margin: 4px 0; }}
+      .muted {{ color: #64748b; font-size: 13px; }}
+      .pill {{ display: inline-block; padding: 2px 10px; border-radius: 999px; border: 1px solid #cbd5e1; font-size: 12px; }}
+      .links a {{ margin-right: 12px; }}
+    </style>
+  </head>
+  <body>
+    <div class='card'>
+      <div class='row'>
+        <div class='avatar'>{escape(resolved_owner[:1] or "UP")}</div>
+        <div>
+          <h1>{escape(resolved_owner)}</h1>
+          <div class='meta'>
+            平台：{escape(platform.value)} ｜ 主页：{escape(owner_url) if owner_url else "无"}
+            {f" ｜ <a href='{escape(owner_url)}' target='_blank'>打开空间</a>" if owner_url else ""}
+          </div>
+          <div class='pill'>{escape(run_summary)}</div>
+        </div>
+      </div>
+      <div class='section'>
+        <h2>主页总结</h2>
+        <p>{escape(summary) if summary else '尚未生成 creator profile，可先运行 run-creator-pipeline/批量蒸馏后重试。'}</p>
+      </div>
+      <div class='section'>
+        <h2>最近视频（蒸馏结果）</h2>
+        <ul>{''.join(latest_videos) or '<li>暂无视频处理记录</li>'}</ul>
+      </div>
+      <div class='section'>
+        <h2>创作者步骤</h2>
+        <ul>{step_html or '<li>暂无步骤信息</li>'}</ul>
+      </div>
+      <div class='section links'>
+        <h2>可点击产物</h2>
+        { " · ".join(artifact_links) if artifact_links else "<span class=muted>暂无产物</span>"}
+      </div>
+    </div>
+  </body>
+</html>""",
+        encoding="utf-8",
+    )
+    return output_path
+
+
+@app.command("run-creator-batch")
+def run_creator_batch_cmd(
+    owners: Annotated[
+        list[str],
+        typer.Argument(help="Creator names to process. Can be repeated."),
+    ],
+    platform: Annotated[Platform, typer.Option("--platform")],
+    owner_id: Annotated[
+        list[str] | None,
+        typer.Option("--owner-id", help="Optional owner id, repeat to align with owner order."),
+    ] = None,
+    limit: Annotated[int, typer.Option("--limit", min=1, max=50)] = 5,
+    start_index: Annotated[int, typer.Option("--start-index", min=1)] = 1,
+    published_after: Annotated[
+        datetime | None,
+        typer.Option("--published-after", help="Only keep creator videos published at or after this date."),
+    ] = None,
+    published_before: Annotated[
+        datetime | None,
+        typer.Option("--published-before", help="Only keep creator videos published before this date."),
+    ] = None,
+    authorized: Annotated[bool, typer.Option("--authorized")] = False,
+    download: Annotated[bool, typer.Option("--download/--no-download")] = True,
+    skip_existing: Annotated[bool, typer.Option("--skip-existing/--no-skip-existing")] = True,
+    keep_going: Annotated[bool, typer.Option("--keep-going/--stop-on-error")] = True,
+    continue_on_error: Annotated[
+        bool,
+        typer.Option("--continue-on-error/--stop-on-first-error"),
+    ] = True,
+    max_height: Annotated[int, typer.Option("--max-height")] = 360,
+    max_filesize_mb: Annotated[int | None, typer.Option("--max-filesize-mb")] = 100,
+    cookies_from_browser: Annotated[str | None, typer.Option("--cookies-from-browser")] = None,
+    vision: Annotated[bool, typer.Option("--vision/--no-vision")] = True,
+    domain: Annotated[str | None, typer.Option("--domain", help="Optional domain lens, e.g. finance.")] = None,
+    force: Annotated[bool, typer.Option("--force/--reuse-existing")] = False,
+    max_estimated_cost: Annotated[
+        float | None,
+        typer.Option("--max-estimated-cost", help="Stop before the next video once this budget is reached."),
+    ] = None,
+    cost_currency: Annotated[str, typer.Option("--cost-currency")] = "USD",
+    aggregate_profile: Annotated[
+        bool,
+        typer.Option("--aggregate-profile/--no-aggregate-profile"),
+    ] = True,
+    min_profile_videos: Annotated[int, typer.Option("--min-profile-videos", min=1)] = 3,
+    generate_assets: Annotated[
+        bool,
+        typer.Option("--generate-assets/--no-generate-assets"),
+    ] = True,
+    build_creator_dag: Annotated[
+        bool,
+        typer.Option("--build-creator-dag/--no-build-creator-dag"),
+    ] = True,
+    export_creator_dag_html: Annotated[
+        bool,
+        typer.Option("--export-creator-dag-html/--no-export-creator-dag-html"),
+    ] = True,
+    codex_model: Annotated[str | None, typer.Option("--codex-model")] = None,
+    root: Annotated[Path, typer.Option("--root")] = Path("library"),
+) -> None:
+    run_creator_batch_cmd_impl(
+        owners=owners,
+        owner_id=owner_id,
+        platform=platform,
+        limit=limit,
+        start_index=start_index,
+        published_after=published_after,
+        published_before=published_before,
+        authorized=authorized,
+        download=download,
+        skip_existing=skip_existing,
+        keep_going=keep_going,
+        continue_on_error=continue_on_error,
+        max_height=max_height,
+        max_filesize_mb=max_filesize_mb,
+        cookies_from_browser=cookies_from_browser,
+        vision=vision,
+        domain=domain,
+        force=force,
+        max_estimated_cost=max_estimated_cost,
+        cost_currency=cost_currency,
+        aggregate_profile=aggregate_profile,
+        min_profile_videos=min_profile_videos,
+        generate_assets=generate_assets,
+        build_creator_dag=build_creator_dag,
+        export_creator_dag_html=export_creator_dag_html,
+        codex_model=codex_model,
+        root=root,
+    )
+
+
+def run_creator_batch_cmd_impl(
+    *,
+    owners: list[str],
+    owner_id: list[str] | None,
+    platform: Platform,
+    limit: int,
+    start_index: int,
+    published_after: datetime | None,
+    published_before: datetime | None,
+    authorized: bool,
+    download: bool,
+    skip_existing: bool,
+    keep_going: bool,
+    continue_on_error: bool,
+    max_height: int,
+    max_filesize_mb: int | None,
+    cookies_from_browser: str | None,
+    vision: bool,
+    domain: str | None,
+    force: bool,
+    max_estimated_cost: float | None,
+    cost_currency: str,
+    aggregate_profile: bool,
+    min_profile_videos: int,
+    generate_assets: bool,
+    build_creator_dag: bool,
+    export_creator_dag_html: bool,
+    codex_model: str | None,
+    root: Path,
+) -> None:
+    if owner_id is not None and len(owner_id) not in (0, len(owners)):
+        raise typer.BadParameter("--owner-id must be omitted or provide one value per owner.")
+
+    for idx, owner in enumerate(owners):
+        mapped_owner_id = owner_id[idx] if owner_id else None
+        console.print(f"running creator pipeline for {owner}")
+        manifest, manifest_path = run_creator_pipeline_cmd_impl(
+            owner_name=owner,
+            platform=platform,
+            owner_id=mapped_owner_id,
+            limit=limit,
+            start_index=start_index,
+            published_after=published_after,
+            published_before=published_before,
+            authorized=authorized,
+            download=download,
+            skip_existing=skip_existing,
+            keep_going=keep_going,
+            max_height=max_height,
+            max_filesize_mb=max_filesize_mb,
+            cookies_from_browser=cookies_from_browser,
+            vision=vision,
+            domain=domain,
+            force=force,
+            max_estimated_cost=max_estimated_cost,
+            cost_currency=cost_currency,
+            aggregate_profile=aggregate_profile,
+            min_profile_videos=min_profile_videos,
             generate_assets=generate_assets,
             build_creator_dag=build_creator_dag,
             export_creator_dag_html=export_creator_dag_html,
             codex_model=codex_model,
+            root=root,
         )
+        console.print(f"created creator pipeline manifest at {manifest_path}")
+        console.print(f"video runs: {len(manifest['video_runs'])}")
+        if manifest.get("cost_ledger_path"):
+            console.print(f"created creator cost ledger at {manifest['cost_ledger_path']}")
+    if any(run.get("status") == "failed" for run in manifest.get("video_runs", [])) and not continue_on_error:
+        raise typer.Exit(1)
+
+
+@app.command("compare-up-profiles")
+def compare_up_profiles_cmd(
+    owners: Annotated[
+        list[str],
+        typer.Argument(help="Owner names to include in the cross-up comparison."),
+    ],
+    platform: Annotated[Platform, typer.Option("--platform")] = Platform.bilibili,
+    output: Annotated[
+        Path | None,
+        typer.Option("--output"),
+    ] = None,
+    root: Annotated[Path, typer.Option("--root")] = Path("library"),
+) -> None:
+    payload = build_cross_up_compare_payload(
+        owners=owners,
+        platform=platform.value,
+        root=root,
     )
-    console.print(f"created creator pipeline manifest at {manifest_path}")
-    console.print(f"video runs: {len(manifest['video_runs'])}")
-    for step in manifest.get("creator_steps", []):
-        console.print(f"{step['name']}: {step['status']}")
-        if step.get("reason"):
-            console.print(f"  reason: {step['reason']}")
-        for key in (
-            "profile_path",
-            "validation_path",
-            "review_path",
-            "graph_path",
-            "html_path",
-            "digest_path",
-        ):
-            if step.get(key):
-                console.print(f"  {key}: {step[key]}")
-    if manifest.get("cost_ledger_path"):
-        console.print(f"created creator cost ledger at {manifest['cost_ledger_path']}")
+    if output is None:
+        output = compare_report_output_path(
+            library_root=root,
+            title="up-cross-comparison",
+        )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(
+        build_cross_up_compare_html(payload),
+        encoding="utf-8",
+    )
+    console.print(f"created up profile comparison report at {output}")
+
+@app.command("run-creator-batch-config")
+def run_creator_batch_config_cmd(
+    config: Annotated[Path, typer.Argument(help="Path to creator batch YAML config.")],
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Show resolved owner list and options without running."),
+    ] = False,
+) -> None:
+    platform, owners, owner_ids, options = load_creator_batch_config(config_path=config)
+    if dry_run:
+        console.print(f"loaded {len(owners)} owners from {config}")
+        console.print(f"platform={platform}")
+        console.print(
+            "defaults="
+            f"limit={options['limit']}, start_index={options['start_index']}, root={options['root']}"
+        )
+        for index, owner in enumerate(owners):
+            owner_id = owner_ids[index]
+            console.print(f"- {owner}{f' (owner-id: {owner_id})' if owner_id else ''}")
+        return
+
+    run_creator_batch_from_config(platform=platform, owners=owners, owner_ids=owner_ids, options=options)
+
+
+@app.command("distill-up-list")
+def distill_up_list(
+    config: Annotated[Path, typer.Argument(help="Path to UP distill list config.")],
+    report_title: Annotated[
+        str,
+        typer.Option("--report-title", help="Title for cross-UP summary report."),
+    ] = "up-distill",
+    output: Annotated[
+        Path | None,
+        typer.Option("--output", help="Optional explicit path of output HTML report."),
+    ] = None,
+    build_homepages: Annotated[
+        bool,
+        typer.Option("--build-homepages/--skip-homepages"),
+    ] = True,
+    homepage_output_dir: Annotated[
+        Path | None,
+        typer.Option("--homepage-output-dir", help="Directory for generated UP homepage HTML files."),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Only resolve owner list and options, do not run pipelines."),
+    ] = False,
+) -> None:
+    platform, owners, owner_ids, options = load_creator_batch_config(config_path=config)
+    library_root = Path(str(options["root"]))
+
+    if dry_run:
+        console.print(f"loaded {len(owners)} owners from {config}")
+        console.print(f"platform={platform}")
+        console.print(
+            "defaults="
+            f"limit={options['limit']}, start_index={options['start_index']}, root={options['root']}"
+        )
+        for index, owner in enumerate(owners):
+            owner_id = owner_ids[index]
+            console.print(f"- {owner}{f' (owner-id: {owner_id})' if owner_id else ''}")
+        return
+
+    run_creator_batch_from_config(
+        platform=platform,
+        owners=owners,
+        owner_ids=owner_ids,
+        options=options,
+    )
+
+    payload = build_cross_up_compare_payload(
+        owners=owners,
+        platform=platform.value,
+        root=library_root,
+    )
+    report_path = output or compare_report_output_path(
+        library_root=library_root,
+        title=report_title,
+    )
+    report_path = _ensure_html_path(report_path)
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(
+        build_cross_up_compare_html(payload),
+        encoding="utf-8",
+    )
+    console.print(f"created up distill report at {report_path}")
+
+    if build_homepages:
+        homepage_paths = [
+            build_up_homepage(
+                owner=owner,
+                root=library_root,
+                platform=platform,
+                output_dir=homepage_output_dir,
+            )
+            for owner in owners
+        ]
+        for owner, homepage_path in zip(owners, homepage_paths):
+            console.print(f"created up homepage for {owner}: {homepage_path}")
+
+
+@app.command("build-up-homepage")
+def build_up_homepage_cmd(
+    owners: Annotated[
+        list[str],
+        typer.Argument(help="UP owner names. Can be repeated."),
+    ],
+    platform: Annotated[
+        Platform,
+        typer.Option("--platform", help="Platform used for homepage metadata context."),
+    ] = Platform.bilibili,
+    output_dir: Annotated[
+        Path | None,
+        typer.Option("--output-dir", help="Directory for output homepage HTML files."),
+    ] = None,
+    root: Annotated[
+        Path,
+        typer.Option("--root", help="Library root directory."),
+    ] = Path("library"),
+) -> None:
+    for owner in owners:
+        homepage_path = build_up_homepage(
+            owner=owner,
+            root=root,
+            platform=platform,
+            output_dir=output_dir,
+        )
+        console.print(f"created up homepage at {homepage_path}")
 
 
 @app.command("run-video-pipeline")
@@ -1084,7 +1809,11 @@ def build_finance_digest(
     )
     write_finance_digest_artifact(output_path, artifact)
     console.print(f"created finance digest at {output_path}")
-    console.print(f"videos: {artifact['videos_analyzed']}, recommendations: {artifact['totals']['recommendations']}")
+    console.print(
+        f"videos: {artifact['videos_analyzed']}, "
+        f"events: {artifact['totals'].get('viewpoint_events', 0)}, "
+        f"compat recommendations: {artifact['totals'].get('recommendations', 0)}"
+    )
 
 
 @app.command("enrich-finance-prices")
@@ -1109,7 +1838,10 @@ def enrich_finance_prices(
     resolved_output = output_path or priced_finance_digest_output_path(digest_path=digest_path)
     write_finance_digest_artifact(resolved_output, enriched)
     console.print(f"created priced finance digest at {resolved_output}")
-    console.print(f"priced recommendations: {enriched['totals'].get('priced_recommendations', 0)}")
+    console.print(
+        f"priced events: {enriched['totals'].get('priced_viewpoint_events', 0)}, "
+        f"compat recommendations: {enriched['totals'].get('priced_recommendations', 0)}"
+    )
 
 
 def parse_ticker_map(values: list[str]) -> dict[str, str]:

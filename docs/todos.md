@@ -118,6 +118,16 @@
   - `ingest-creator-videos --skip-existing` 只有在已有 source record 同时存在本地 `raw_path` 时才跳过；如果之前只是记录 URL，会继续下载并补齐 source record。
 - [x] 修复长音频 ASR 只按文件大小判断的问题。
   - DashScope 可能因音频时长拒绝请求；当前 ASR chunking 同时按文件大小和 `ffprobe` duration 判断，默认超过 300 秒会切片。
+- [x] 增加 UP 批量执行入口。
+  - 新增 `run-creator-batch`，支持一次跑多位 UP（支持可选按位绑定 `--owner-id`），用于固定样本池的回归测试。
+  - 当前计划默认用同一参数批量跑：`影视飓风`、`燕三嘤嘤嘤`（后者预计仍然触发 352/412，用于验证失败提示链路），以及后续补充的财经/行业样本池。
+- [x] 增加 UP 横向对比入口。
+  - 新增 `compare-up-profiles`，直接读取已有 profile / manifest / ledger / validation，生成 `library/reports/*.up-comparison.html`。
+  - 对比报表包含：视频样本量、video runs 完成率、validation 结果、缺口计数、方法点数、skill 数和 cost 聚合，支持快速横向决策。
+- [x] 增加 UP 名单蒸馏入口。
+  - 新增 `distill-up-list`：读取 UP 名单配置后，一次性跑 creator pipeline 并生成横向报告。
+  - 同时自动产出每位 UP 的 `.up-homepage.html` 主页，便于点击查看概要与产物入口。
+  - 新增 `build-up-homepage`：对已有结果快速重建 UP 主页。
 
 ## P7：60s 短视频强分析
 
@@ -144,7 +154,9 @@
   - 输出 `library/shots/*.motion-relations.json`，由 `build-motion-relations` 和 `run-video-pipeline` 生成。
   - 默认 `schema-baseline` 只根据相邻 frame notes 生成可追溯候选，状态为 `needs_pose_or_vl`，不把未识别的动作关系写成结论。
   - Video DAG 已接入 `motion-relations` 节点和可点击的 relation 子节点，带时间点时写入 `media_anchor`。
-- [ ] 跑真实短视频样本验证。
+- [x] 跑真实短视频样本验证。
+  - 以本地 `library/raw/short-effects-demo.mp4`（3.6s）验证短视频链路：`run-video-pipeline` 能稳定进入 short profile / shots / frame notes / motion relations / timeline / claims / DAG，全链路完备。
+  - 发现并修复无音频素材导致转写中断问题：`short-profile` 可继续，`transcribe` 输出 `no_audio_stream` reason 的 skipped 状态。
   - 选 3 条 60s 内 Bilibili/小红书/手动本地视频，至少覆盖口播型、图文字幕型、强剪辑型。
   - 验证项：shot boundary 是否合理、逐帧成本是否可控、DAG 是否可读、短视频 semantics 是否比长视频模板更有信息密度。
 - [ ] 接入可选视觉 provider。
@@ -167,36 +179,36 @@
   - 领域 lens 只约束结构和风险边界，不生成 Seed 自己的投资建议。
 - [x] 增加单条视频 finance signals artifact。
   - `seed extract-finance-signals <semantics.md>` 或 `seed run-video-pipeline --domain finance ...` 生成 `library/semantics/*.finance-signals.json`。
-  - artifact 记录 instruments、recommendations、macro theses、methodology signals、risk flags 和 evidence gaps。
+  - artifact 记录 instruments、`viewpoint_events`（主对象）、兼容 recommendations、macro theses、methodology signals、risk flags 和 evidence gaps。
   - video DAG 和 creator DAG 已接入 finance signals 节点。
 - [x] 做最近 10 天财经 UP 批量 digest。
   - 输入平台、UP 名称或 owner-id、时间窗口和 limit。
   - [x] `run-creator-pipeline` 已支持 `--published-after/--published-before`，可只分析发布时间落在窗口内的视频。
   - `run-creator-pipeline --domain finance` 会在窗口内批量样本后生成 `library/distilled/*.finance-digest.json`。
   - `seed build-finance-digest --owner ... --signal ...` 可对已有 signals 重建 digest。
-  - 当前 digest 输出最近提到的标的、方向、动作、核心理由、风险、重复方法论和证据缺口；还没有行情后验。
+  - 当前 digest 输出最近提到的标的、方向、动作、核心理由、风险、重复方法论和证据缺口；价格后验在 `enrich-finance-prices` 做 event-level。
 - [x] 接入行情/价格 provider baseline。
   - `seed enrich-finance-prices <digest.json> --ticker-map 标的=ticker` 会生成 `*.finance-digest.priced.json`。
   - 当前 provider 是可选 `stooq` 日线 CSV，记录发布日附近收盘价、最新收盘价、涨跌幅、可选 benchmark 和数据来源 URL。
   - 行情 provider 独立于视频分析；没有显式 ticker mapping 时保持 `missing_ticker`，不猜。
 - [ ] 增加财经方法论回测/后验评估。
-  - 当前 priced digest 只给 recommendation 级后验价格变化 baseline。
+  - 当前 priced digest 已有 event-level 基础价格后验，缺少系统性回测框架。
   - 下一步才做系统性评估：按 action/direction/horizon 计算命中、超额收益、窗口收益，并汇总到 UP 方法论层。
   - 仍然只评估“创作者当时表达的观点是否被后续市场验证”，不输出交易建议。
 
 ## P9：财经观点事件模型升级
 
-- [ ] 把 `finance-signals.json` 从摘要字段升级为观点事件 ledger。
+- [x] 把 `finance-signals.json` 从摘要字段升级为观点事件 ledger。
   - 保留现有 `recommendations` 兼容字段，但新增 `viewpoint_events` 作为主对象。
   - 每个 event 至少包含：`event_id`、`video_title`、`published_at`、`instrument`、`ticker`、`asset_class`、`action`、`direction`、`horizon`、`conviction`、`entry_condition`、`exit_or_invalidation`、`risk_flags`、`evidence_refs`、`timestamp_start/end`、`modality_evidence`、`uncertainty`。
   - action taxonomy 参考 VideoConviction：buy、hold、don't buy、sell、short sell，再加 Seed 当前已有 watch/add/reduce/allocate/unknown。
-- [ ] 增加 recommendation detection 阶段。
+- [x] 增加 recommendation detection 阶段。
   - 先判断视频/片段是否存在明确 recommendation，不存在时只记录 commentary，不进入回测。
   - 避免把一般行情评论、新闻解读、情绪表达误判成交易建议；这是 VideoConviction 明确指出的模型难点。
-- [ ] 增加 conviction 评估字段。
+- [x] 增加 conviction 评估字段。
   - 先用 LLM 基于 transcript、visual notes、timestamp 和风险说明给出 1-3 或 low/medium/high。
   - 之后再补 VL/音频线索：语气、表情、图表展示、仓位/持仓截图、反复强调程度。
-- [ ] 做 event-level priced outcome。
+- [x] 做 event-level priced outcome。
   - 价格补强从 digest 级移动到 event 级，按 event 的 `published_at` 和 `horizon` 计算 1D/5D/20D/60D/latest。
   - 输出 `event_outcomes`，包含 asset return、benchmark return、relative return、max drawdown、price source、交易日对齐和 ticker mapping 来源。
 - [ ] 做 creator-level finance profile。

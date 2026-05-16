@@ -1,0 +1,33 @@
+platform: bilibili
+
+owners:
+  - name: 创业投资钱博士
+    owner_id: "你的 mid"
+  - name: another-up
+  # 也可以直接写纯字符串，等同于 {"name": "..."} 且不绑定 owner_id
+
+defaults:
+  # 建议默认先跑短周期窗口，减少噪音
+  limit: 8
+  start_index: 1
+  published_after: "2026-05-01T00:00:00+08:00"
+  published_before: null
+  authorized: false
+  download: true
+  skip_existing: true
+  keep_going: true
+  continue_on_error: true
+  max_height: 360
+  max_filesize_mb: 100
+  cookies_from_browser: null
+  vision: true
+  domain: finance
+  force: false
+  max_estimated_cost: 20.0
+  cost_currency: USD
+  aggregate_profile: true
+  min_profile_videos: 3
+  generate_assets: true
+  build_creator_dag: true
+  export_creator_dag_html: true
+  root: library
