@@ -29,6 +29,7 @@ library/distilled/*
 library/skills/*
 library/checks/*
 library/reflections/*
+library/.cache/*
 !library/**/.gitkeep
 
 # Large media outputs.

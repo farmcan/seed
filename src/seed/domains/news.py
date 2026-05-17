@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import urllib.parse
-import urllib.request
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -10,6 +9,7 @@ from typing import Any
 from seed.agents.codex import run_codex_prompt
 from seed.library import init_library, slugify
 from seed.skill_refs import read_video_analysis_lenses
+from seed.http_fetch import fetch_json_with_cache
 
 
 GDELT_DOC_API_URL = "https://api.gdeltproject.org/api/v2/doc/doc"
@@ -100,6 +100,9 @@ def fetch_gdelt_news(
     published_after: datetime | None = None,
     published_before: datetime | None = None,
     sort: str = "datedesc",
+    cache_root: Path | None = None,
+    cache_ttl_seconds: int = 3600 * 2,
+    max_retries: int = 3,
 ) -> dict[str, Any]:
     source_url = build_gdelt_doc_url(
         query=query,
@@ -109,14 +112,21 @@ def fetch_gdelt_news(
         published_before=published_before,
         sort=sort,
     )
-    request = urllib.request.Request(source_url, headers={"User-Agent": "seed/0.1"})
-    with urllib.request.urlopen(request, timeout=30) as response:
-        payload = json.loads(response.read().decode("utf-8", errors="replace"))
+    payload, source_quality = fetch_json_with_cache(
+        url=source_url,
+        headers={"User-Agent": "seed/0.1"},
+        cache_root=cache_root,
+        cache_ttl_seconds=cache_ttl_seconds,
+        max_retries=max_retries,
+        timeout=30,
+    )
     articles = payload.get("articles") if isinstance(payload, dict) else []
-    return {
+    result = {
         "source_url": source_url,
+        "source_quality": source_quality,
         "articles": normalize_gdelt_articles(articles if isinstance(articles, list) else []),
     }
+    return result
 
 
 def normalize_gdelt_articles(articles: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -143,6 +153,7 @@ def build_news_search_artifact(
     query: str,
     articles: list[dict[str, Any]],
     source_url: str,
+    source_quality: dict[str, Any] | None = None,
     published_after: datetime | None = None,
     published_before: datetime | None = None,
     provider: str = "gdelt-doc-2.0",
@@ -158,6 +169,7 @@ def build_news_search_artifact(
             "published_after": normalize_datetime(published_after),
             "published_before": normalize_datetime(published_before),
         },
+        "source_quality": source_quality or {},
         "article_count": len(articles),
         "articles": articles,
     }

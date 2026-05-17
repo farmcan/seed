@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import urllib.request
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -10,12 +9,14 @@ from typing import Any
 from seed.agents.codex import run_codex_prompt
 from seed.library import init_library, slugify
 from seed.skill_refs import read_video_analysis_lenses
+from seed.http_fetch import fetch_json_with_cache
 
 
 SEC_COMPANY_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
 SEC_SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik}.json"
 SEC_COMPANYFACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json"
 DEFAULT_SEC_USER_AGENT = "seed/0.1 local-research set-SEED_SEC_USER_AGENT"
+DEFAULT_SEC_CACHE_TTL_SECONDS = 3600 * 12
 EARNINGS_PARSER_SKILL_PATH = Path("skills/earnings-parser/SKILL.md")
 
 IMPORTANT_CONCEPTS = {
@@ -83,21 +84,39 @@ def sec_filing_index_url(*, cik: str, accession_number: str) -> str:
     )
 
 
-def fetch_sec_json(url: str, *, user_agent: str | None = None) -> dict[str, Any]:
-    request = urllib.request.Request(
-        url,
-        headers={
-            "User-Agent": resolve_sec_user_agent(user_agent),
-            "Accept": "application/json",
-        },
+def fetch_sec_json(
+    url: str,
+    *,
+    user_agent: str | None = None,
+    cache_root: Path | None = None,
+    cache_ttl_seconds: int = DEFAULT_SEC_CACHE_TTL_SECONDS,
+    max_retries: int = 3,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    payload, quality = fetch_json_with_cache(
+        url=url,
+        headers={"User-Agent": resolve_sec_user_agent(user_agent), "Accept": "application/json"},
+        cache_root=cache_root,
+        cache_ttl_seconds=cache_ttl_seconds,
+        max_retries=max_retries,
+        timeout=30,
     )
-    with urllib.request.urlopen(request, timeout=30) as response:
-        payload = json.loads(response.read().decode("utf-8", errors="replace"))
-    return payload if isinstance(payload, dict) else {}
+    return payload if isinstance(payload, dict) else {}, quality
 
 
-def fetch_company_tickers(*, user_agent: str | None = None) -> list[dict[str, Any]]:
-    payload = fetch_sec_json(SEC_COMPANY_TICKERS_URL, user_agent=user_agent)
+def fetch_company_tickers(
+    *,
+    user_agent: str | None = None,
+    cache_root: Path | None = None,
+    cache_ttl_seconds: int = DEFAULT_SEC_CACHE_TTL_SECONDS,
+    max_retries: int = 3,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    payload, quality = fetch_sec_json(
+        SEC_COMPANY_TICKERS_URL,
+        user_agent=user_agent,
+        cache_root=cache_root,
+        cache_ttl_seconds=cache_ttl_seconds,
+        max_retries=max_retries,
+    )
     rows: list[dict[str, Any]] = []
     for item in payload.values():
         if isinstance(item, dict):
@@ -108,7 +127,7 @@ def fetch_company_tickers(*, user_agent: str | None = None) -> list[dict[str, An
                     "title": item.get("title"),
                 }
             )
-    return rows
+    return rows, quality
 
 
 def resolve_company_identifier(
@@ -116,15 +135,29 @@ def resolve_company_identifier(
     *,
     company_tickers: list[dict[str, Any]] | None = None,
     user_agent: str | None = None,
-) -> dict[str, Any]:
+    cache_root: Path | None = None,
+    cache_ttl_seconds: int = DEFAULT_SEC_CACHE_TTL_SECONDS,
+    max_retries: int = 3,
+) -> tuple[dict[str, Any], dict[str, Any]]:
     text = identifier.strip()
     if text.upper().startswith("CIK") or text.isdigit():
-        return {"cik": normalize_cik(text), "ticker": None, "title": None}
+        return {"cik": normalize_cik(text), "ticker": None, "title": None}, {
+            "provider": "input",
+            "status": "ok",
+        }
 
-    rows = company_tickers if company_tickers is not None else fetch_company_tickers(user_agent=user_agent)
+    lookup_quality: dict[str, Any] = {"provider": "sec-company-tickers", "status": "ok"}
+    rows = company_tickers
+    if rows is None:
+        rows, lookup_quality = fetch_company_tickers(
+            user_agent=user_agent,
+            cache_root=cache_root,
+            cache_ttl_seconds=cache_ttl_seconds,
+            max_retries=max_retries,
+        )
     for row in rows:
         if str(row.get("ticker") or "").upper() == text.upper():
-            return row
+            return row, lookup_quality
     raise ValueError(f"Could not resolve ticker to SEC CIK: {identifier}")
 
 
@@ -134,16 +167,42 @@ def fetch_sec_earnings_artifact(
     forms: list[str] | None = None,
     filing_limit: int = 10,
     user_agent: str | None = None,
+    cache_root: Path | None = None,
+    cache_ttl_seconds: int = DEFAULT_SEC_CACHE_TTL_SECONDS,
+    max_retries: int = 3,
 ) -> dict[str, Any]:
-    company = resolve_company_identifier(identifier, user_agent=user_agent)
+    company, company_lookup_quality = resolve_company_identifier(
+        identifier,
+        user_agent=user_agent,
+        cache_root=cache_root,
+        cache_ttl_seconds=cache_ttl_seconds,
+        max_retries=max_retries,
+    )
     cik = company["cik"]
-    submissions = fetch_sec_json(sec_submissions_url(cik), user_agent=user_agent)
-    companyfacts = fetch_sec_json(sec_companyfacts_url(cik), user_agent=user_agent)
+    submissions, submissions_quality = fetch_sec_json(
+        sec_submissions_url(cik),
+        user_agent=user_agent,
+        cache_root=cache_root,
+        cache_ttl_seconds=cache_ttl_seconds,
+        max_retries=max_retries,
+    )
+    companyfacts, companyfacts_quality = fetch_sec_json(
+        sec_companyfacts_url(cik),
+        user_agent=user_agent,
+        cache_root=cache_root,
+        cache_ttl_seconds=cache_ttl_seconds,
+        max_retries=max_retries,
+    )
     return build_sec_earnings_artifact(
         identifier=identifier,
         company=company,
         submissions=submissions,
         companyfacts=companyfacts,
+        source_quality={
+            "submissions": submissions_quality,
+            "companyfacts": companyfacts_quality,
+            "company_tickers": company_lookup_quality,
+        },
         forms=forms,
         filing_limit=filing_limit,
     )
@@ -155,6 +214,7 @@ def build_sec_earnings_artifact(
     company: dict[str, Any],
     submissions: dict[str, Any],
     companyfacts: dict[str, Any],
+    source_quality: dict[str, Any] | None = None,
     forms: list[str] | None = None,
     filing_limit: int = 10,
 ) -> dict[str, Any]:
@@ -189,6 +249,7 @@ def build_sec_earnings_artifact(
             "companyfacts_url": sec_companyfacts_url(cik),
             "company_tickers_url": SEC_COMPANY_TICKERS_URL,
         },
+        "source_quality": source_quality or {},
         "recent_filings": recent_filings,
         "financial_facts": extract_financial_concepts(companyfacts),
     }

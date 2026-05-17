@@ -230,8 +230,9 @@
 - [x] 增加财报视频 domain。
   - 新增 `skills/earnings-parser/SKILL.md` 和 `domain-earnings-lenses.md`。
   - `run-video-pipeline --domain earnings` 会额外输出 `library/semantics/*.earnings-analysis.json`，把视频里的公司、财报 claim、driver 和 source gap 拆成待 SEC 核验 artifact，并进入 video DAG。
-- [ ] 补新闻/财报 provider 的缓存与重试。
-  - 当前命令直接请求 GDELT/SEC；后续应增加 response cache、rate-limit backoff、失败重试和 source quality scoring。
+- [x] 补新闻/财报 provider 的缓存与重试。
+  - 已增加 `src/seed/http_fetch.py`，为 GDELT/SEC 请求提供 TTL cache、指数退避重试和 source quality 评分；
+    `seed search-news`、`seed research-news`、`seed fetch-earnings`、`seed parse-earnings` 已默认接入 `root/.cache/http`。
 - [ ] 把新闻 facts digest 接入财经事件上下文。
   - 目标是让财经 UP 的观点事件可以引用外部 news facts，避免 Codex 只受 UP 观点影响。
   - 先做事实引用，不做自动交易建议。

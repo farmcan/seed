@@ -1895,11 +1895,13 @@ def search_news(
         published_after=published_after,
         published_before=published_before,
         sort=sort,
+        cache_root=root / ".cache" / "http",
     )
     artifact = build_news_search_artifact(
         query=query,
         articles=fetched["articles"],
         source_url=fetched["source_url"],
+        source_quality=fetched.get("source_quality") if isinstance(fetched, dict) else None,
         published_after=published_after,
         published_before=published_before,
     )
@@ -1962,11 +1964,13 @@ def research_news(
         published_after=published_after,
         published_before=published_before,
         sort=sort,
+        cache_root=root / ".cache" / "http",
     )
     search_artifact = build_news_search_artifact(
         query=query,
         articles=fetched["articles"],
         source_url=fetched["source_url"],
+        source_quality=fetched.get("source_quality") if isinstance(fetched, dict) else None,
         published_after=published_after,
         published_before=published_before,
     )
@@ -2041,6 +2045,7 @@ def fetch_earnings(
         forms=form,
         filing_limit=filing_limit,
         user_agent=user_agent,
+        cache_root=root / ".cache" / "http",
     )
     output_path = earnings_artifact_output_path(library_root=root, identifier=identifier)
     write_earnings_artifact(output_path, artifact)
@@ -2091,6 +2096,7 @@ def parse_earnings(
         forms=form,
         filing_limit=filing_limit,
         user_agent=user_agent,
+        cache_root=root / ".cache" / "http",
     )
     artifact_path = earnings_artifact_output_path(library_root=root, identifier=identifier)
     write_earnings_artifact(artifact_path, artifact)
