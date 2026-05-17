@@ -61,10 +61,12 @@ from seed.dag_export import (
 from seed.dag_server import serve_video_dag
 from seed.domains.finance import (
     build_finance_digest_artifact,
+    enrich_finance_digest_with_news_context,
     enrich_finance_digest_with_prices,
     finance_digest_output_path,
     finance_signals_output_path,
     find_finance_signal_files,
+    news_context_finance_digest_output_path,
     priced_finance_digest_output_path,
     run_finance_signals_extraction,
     write_finance_digest_artifact,
@@ -1864,6 +1866,38 @@ def enrich_finance_prices(
     console.print(
         f"priced events: {enriched['totals'].get('priced_viewpoint_events', 0)}, "
         f"compat recommendations: {enriched['totals'].get('priced_recommendations', 0)}"
+    )
+
+
+@app.command("enrich-finance-news")
+def enrich_finance_news(
+    digest_path: Annotated[Path, typer.Argument(help="Path to *.finance-digest.json.")],
+    news_digest_path: Annotated[
+        list[Path],
+        typer.Option("--news-digest", help="Path to *.news-digest.json. Can be repeated."),
+    ],
+    max_contexts_per_event: Annotated[int, typer.Option("--max-contexts-per-event", min=1, max=20)] = 5,
+    output_path: Annotated[Path | None, typer.Option("--output")] = None,
+) -> None:
+    if not news_digest_path:
+        raise typer.BadParameter("At least one --news-digest path is required.")
+    missing_paths = [path for path in news_digest_path if not path.exists()]
+    if missing_paths:
+        raise typer.BadParameter(
+            f"News digest path does not exist: {missing_paths[0]}"
+        )
+    digest = json.loads(digest_path.read_text(encoding="utf-8"))
+    enriched = enrich_finance_digest_with_news_context(
+        digest,
+        news_digest_paths=news_digest_path,
+        max_contexts_per_event=max_contexts_per_event,
+    )
+    resolved_output = output_path or news_context_finance_digest_output_path(digest_path=digest_path)
+    write_finance_digest_artifact(resolved_output, enriched)
+    console.print(f"created news-context finance digest at {resolved_output}")
+    console.print(
+        f"events with context: {enriched['totals'].get('events_with_news_context', 0)}, "
+        f"matches: {enriched['totals'].get('news_context_matches', 0)}"
     )
 
 

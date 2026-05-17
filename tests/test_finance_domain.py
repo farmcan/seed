@@ -4,8 +4,10 @@ from datetime import UTC, datetime
 from seed.domains.finance import (
     build_finance_digest_artifact,
     build_market_data_record,
+    enrich_finance_digest_with_news_context,
     enrich_finance_digest_with_prices,
     finance_digest_output_path,
+    news_context_finance_digest_output_path,
     parse_stooq_daily_csv,
     write_finance_digest_artifact,
 )
@@ -144,3 +146,69 @@ def test_enrich_finance_digest_with_prices(monkeypatch):
     assert outcomes["horizons"]["1D"]["status"] == "priced"
     assert outcomes["horizons"]["1D"]["asset_return"] == 20.0
     assert outcomes["latest"]["status"] == "priced"
+
+
+def test_enrich_finance_digest_with_news_context(tmp_path):
+    news_digest = tmp_path / "ai.news-digest.json"
+    news_digest.write_text(
+        json.dumps(
+            {
+                "kind": "news_facts_digest",
+                "topic": "AI supply chain",
+                "facts": [
+                    {
+                        "fact_id": "f1",
+                        "statement": "Nvidia reported strong datacenter demand.",
+                        "status": "reported",
+                        "entities": ["Nvidia", "AI"],
+                        "source_urls": ["https://example.test/nvda"],
+                        "source_titles": ["Example"],
+                    }
+                ],
+                "industry_impacts": [
+                    {
+                        "industry": "AI",
+                        "mechanism": "Datacenter demand may affect chip suppliers.",
+                        "possible_direction": "mixed",
+                        "affected_entities": ["Nvidia"],
+                        "fact_refs": ["f1"],
+                    }
+                ],
+                "market_relevance": [
+                    {
+                        "asset_or_sector": "AI",
+                        "relevance": "Relevant to AI hardware equities.",
+                        "fact_refs": ["f1"],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    digest = {
+        "kind": "finance_digest",
+        "viewpoint_events": [
+            {
+                "event_id": "one-ai-1",
+                "instrument": "AI",
+                "ticker": "NVDA.US",
+                "video_title": "One",
+                "action": "watch",
+            }
+        ],
+        "totals": {"viewpoint_events": 1},
+    }
+
+    enriched = enrich_finance_digest_with_news_context(
+        digest,
+        news_digest_paths=[news_digest],
+    )
+
+    event_context = enriched["viewpoint_events"][0]["news_context"][0]
+    assert enriched["kind"] == "finance_digest_with_news_context"
+    assert enriched["totals"]["events_with_news_context"] == 1
+    assert event_context["fact_refs"] == ["f1"]
+    assert event_context["source_urls"] == ["https://example.test/nvda"]
+    assert news_context_finance_digest_output_path(
+        digest_path=tmp_path / "demo.finance-digest.json"
+    ) == tmp_path / "demo.finance-digest.news-context.json"

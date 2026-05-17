@@ -233,9 +233,9 @@
 - [x] 补新闻/财报 provider 的缓存与重试。
   - 已增加 `src/seed/http_fetch.py`，为 GDELT/SEC 请求提供 TTL cache、指数退避重试和 source quality 评分；
     `seed search-news`、`seed research-news`、`seed fetch-earnings`、`seed parse-earnings` 已默认接入 `root/.cache/http`。
-- [ ] 把新闻 facts digest 接入财经事件上下文。
-  - 目标是让财经 UP 的观点事件可以引用外部 news facts，避免 Codex 只受 UP 观点影响。
-  - 先做事实引用，不做自动交易建议。
+- [x] 把新闻 facts digest 接入财经事件上下文。
+  - `seed enrich-finance-news` 可把一个或多个 `*.news-digest.json` 确定性挂到 `viewpoint_events[].news_context`。
+  - 匹配依据是实体、ticker、标的、行业和 fact refs；只引用 facts、source URLs、industry impacts、market relevance、source gaps 和 open questions，不自动生成交易建议。
 
 ## 已完成基础
 

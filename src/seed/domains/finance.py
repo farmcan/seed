@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import urllib.parse
 import urllib.request
 from datetime import UTC, datetime
@@ -36,6 +37,13 @@ def priced_finance_digest_output_path(*, digest_path: Path) -> Path:
     if name.endswith(".finance-digest.json"):
         return digest_path.with_name(name.replace(".finance-digest.json", ".finance-digest.priced.json"))
     return digest_path.with_suffix(".priced.json")
+
+
+def news_context_finance_digest_output_path(*, digest_path: Path) -> Path:
+    name = digest_path.name
+    if name.endswith(".json"):
+        return digest_path.with_name(name.removesuffix(".json") + ".news-context.json")
+    return digest_path.with_suffix(".news-context.json")
 
 
 def finance_window_slug(
@@ -436,6 +444,299 @@ def write_finance_digest_artifact(path: Path, artifact: dict[str, Any]) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(artifact, ensure_ascii=False, indent=2), encoding="utf-8")
     return path
+
+
+def enrich_finance_digest_with_news_context(
+    digest: dict[str, Any],
+    *,
+    news_digest_paths: list[Path],
+    max_contexts_per_event: int = 5,
+) -> dict[str, Any]:
+    news_records = [
+        build_news_context_record(path)
+        for path in news_digest_paths
+        if path.exists()
+    ]
+    enriched_events = [
+        {
+            **event,
+            "news_context": match_news_context_for_event(
+                event,
+                news_records=news_records,
+                max_contexts=max_contexts_per_event,
+            ),
+        }
+        for event in digest.get("viewpoint_events") or []
+    ]
+    enriched = {
+        **digest,
+        "kind": finance_digest_news_context_kind(digest.get("kind")),
+        "news_context": {
+            "provider": "seed-deterministic-news-facts",
+            "generated_at": datetime.now(UTC).isoformat(),
+            "news_digest_paths": [str(path) for path in news_digest_paths],
+            "matching_policy": "entity, ticker, instrument, sector, and fact_ref overlap",
+            "not_investment_advice": True,
+        },
+        "viewpoint_events": enriched_events,
+    }
+    enriched["totals"] = {
+        **(digest.get("totals") or {}),
+        "news_digests": len(news_records),
+        "events_with_news_context": sum(1 for event in enriched_events if event.get("news_context")),
+        "news_context_matches": sum(len(event.get("news_context") or []) for event in enriched_events),
+    }
+    return enriched
+
+
+def finance_digest_news_context_kind(kind: Any) -> str:
+    text = str(kind or "finance_digest")
+    if text.endswith("_with_news_context"):
+        return text
+    return f"{text}_with_news_context"
+
+
+def build_news_context_record(path: Path) -> dict[str, Any]:
+    artifact = json.loads(path.read_text(encoding="utf-8"))
+    facts = {
+        str(fact.get("fact_id") or f"fact-{index + 1}"): fact
+        for index, fact in enumerate(artifact.get("facts") or [])
+        if isinstance(fact, dict)
+    }
+    return {
+        "path": str(path),
+        "topic": artifact.get("topic") or artifact.get("query") or path.stem,
+        "basis_path": artifact.get("basis_path"),
+        "facts": facts,
+        "industry_impacts": [
+            item for item in artifact.get("industry_impacts") or [] if isinstance(item, dict)
+        ],
+        "market_relevance": [
+            item for item in artifact.get("market_relevance") or [] if isinstance(item, dict)
+        ],
+        "source_gaps": artifact.get("source_gaps") or [],
+        "open_questions": artifact.get("open_questions") or [],
+    }
+
+
+def match_news_context_for_event(
+    event: dict[str, Any],
+    *,
+    news_records: list[dict[str, Any]],
+    max_contexts: int,
+) -> list[dict[str, Any]]:
+    terms = event_match_terms(event)
+    if not terms:
+        return []
+    matches = [
+        context
+        for context in (
+            build_event_news_context(event_terms=terms, news_record=record)
+            for record in news_records
+        )
+        if context.get("fact_refs") or context.get("industry_impacts") or context.get("market_relevance")
+    ]
+    matches.sort(key=lambda item: (-int(item.get("match_score") or 0), str(item.get("topic") or "")))
+    return matches[:max_contexts]
+
+
+def build_event_news_context(
+    *,
+    event_terms: list[str],
+    news_record: dict[str, Any],
+) -> dict[str, Any]:
+    facts: dict[str, dict[str, Any]] = news_record.get("facts") or {}
+    matched_facts: dict[str, dict[str, Any]] = {}
+    matched_impacts = []
+    matched_relevance = []
+    matched_terms: set[str] = set()
+    score = 0
+
+    for fact_id, fact in facts.items():
+        item_score, terms = score_news_item(
+            event_terms,
+            primary_values=fact.get("entities") or [],
+            secondary_values=[fact.get("statement"), fact.get("evidence_notes")],
+        )
+        if item_score <= 0:
+            continue
+        matched_facts[fact_id] = fact
+        matched_terms.update(terms)
+        score += item_score
+
+    for index, impact in enumerate(news_record.get("industry_impacts") or []):
+        item_score, terms = score_news_item(
+            event_terms,
+            primary_values=[impact.get("industry"), *(impact.get("affected_entities") or [])],
+            secondary_values=[impact.get("mechanism")],
+        )
+        if item_score <= 0:
+            continue
+        fact_refs = [str(ref) for ref in impact.get("fact_refs") or []]
+        for ref in fact_refs:
+            if ref in facts:
+                matched_facts[ref] = facts[ref]
+        matched_impacts.append(
+            {
+                "impact_id": f"industry-impact-{index + 1}",
+                "industry": impact.get("industry"),
+                "mechanism": impact.get("mechanism"),
+                "possible_direction": impact.get("possible_direction"),
+                "affected_entities": impact.get("affected_entities") or [],
+                "fact_refs": fact_refs,
+                "uncertainty": impact.get("uncertainty"),
+            }
+        )
+        matched_terms.update(terms)
+        score += item_score
+
+    for index, relevance in enumerate(news_record.get("market_relevance") or []):
+        item_score, terms = score_news_item(
+            event_terms,
+            primary_values=[relevance.get("asset_or_sector")],
+            secondary_values=[relevance.get("relevance")],
+        )
+        if item_score <= 0:
+            continue
+        fact_refs = [str(ref) for ref in relevance.get("fact_refs") or []]
+        for ref in fact_refs:
+            if ref in facts:
+                matched_facts[ref] = facts[ref]
+        matched_relevance.append(
+            {
+                "relevance_id": f"market-relevance-{index + 1}",
+                "asset_or_sector": relevance.get("asset_or_sector"),
+                "relevance": relevance.get("relevance"),
+                "fact_refs": fact_refs,
+                "uncertainty": relevance.get("uncertainty"),
+            }
+        )
+        matched_terms.update(terms)
+        score += item_score
+
+    source_urls = dedupe_preserve_order(
+        [
+            str(url)
+            for fact in matched_facts.values()
+            for url in fact.get("source_urls") or []
+            if url
+        ]
+    )
+    return {
+        "topic": news_record.get("topic"),
+        "news_digest_path": news_record.get("path"),
+        "basis_path": news_record.get("basis_path"),
+        "matched_terms": sorted(matched_terms),
+        "match_score": score,
+        "fact_refs": sorted(matched_facts),
+        "facts": [compact_news_fact(fact_id, fact) for fact_id, fact in sorted(matched_facts.items())],
+        "industry_impacts": matched_impacts,
+        "market_relevance": matched_relevance,
+        "source_urls": source_urls,
+        "source_gaps": news_record.get("source_gaps") or [],
+        "open_questions": news_record.get("open_questions") or [],
+        "usage_note": "Factual context only; do not treat this as Seed investment advice.",
+    }
+
+
+def compact_news_fact(fact_id: str, fact: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "fact_id": fact_id,
+        "statement": fact.get("statement"),
+        "status": fact.get("status"),
+        "entities": fact.get("entities") or [],
+        "source_urls": fact.get("source_urls") or [],
+        "source_titles": fact.get("source_titles") or [],
+        "uncertainty": fact.get("uncertainty"),
+    }
+
+
+def score_news_item(
+    terms: list[str],
+    *,
+    primary_values: list[Any],
+    secondary_values: list[Any],
+) -> tuple[int, list[str]]:
+    score = 0
+    matched_terms: list[str] = []
+    primary_text = " ".join(str(value) for value in primary_values if value)
+    secondary_text = " ".join(str(value) for value in secondary_values if value)
+    for term in terms:
+        if text_contains_term(primary_text, term):
+            score += 3
+            matched_terms.append(term)
+        elif text_contains_term(secondary_text, term):
+            score += 1
+            matched_terms.append(term)
+    return score, dedupe_preserve_order(matched_terms)
+
+
+def event_match_terms(event: dict[str, Any]) -> list[str]:
+    raw_terms = [
+        event.get("instrument"),
+        event.get("ticker"),
+        ticker_root(event.get("ticker")),
+        event.get("asset_class"),
+    ]
+    terms = []
+    for value in raw_terms:
+        term = str(value or "").strip()
+        if not term or is_generic_market_term(term):
+            continue
+        if len(term.encode("utf-8")) < 2:
+            continue
+        terms.append(term)
+    return dedupe_preserve_order(terms)
+
+
+def ticker_root(value: Any) -> str | None:
+    if not value:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    return re.split(r"[.:/\\-]", text, maxsplit=1)[0]
+
+
+def is_generic_market_term(value: str) -> bool:
+    return value.casefold() in {
+        "stock",
+        "stocks",
+        "equity",
+        "equities",
+        "market",
+        "markets",
+        "fund",
+        "etf",
+        "index",
+        "bond",
+        "cash",
+        "unknown",
+    }
+
+
+def text_contains_term(text: str, term: str) -> bool:
+    if not text or not term:
+        return False
+    if term.isascii() and re.fullmatch(r"[A-Za-z0-9_.:/\\-]+", term):
+        root = re.escape(term.casefold())
+        return re.search(rf"(?<![a-z0-9]){root}(?![a-z0-9])", text.casefold()) is not None
+    return normalize_match_text(term) in normalize_match_text(text)
+
+
+def normalize_match_text(value: str) -> str:
+    return re.sub(r"\s+", " ", value.casefold()).strip()
+
+
+def dedupe_preserve_order(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        result.append(value)
+    return result
 
 
 def enrich_finance_digest_with_prices(
