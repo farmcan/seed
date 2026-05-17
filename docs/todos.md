@@ -38,7 +38,7 @@
 ## P2：创作者级知识
 
 - [x] 增加 `seed run-creator-pipeline` 第一版。
-  - 输入平台 + UP/作者名称，自动获取视频列表、批量入库、批量跑视频 pipeline。
+  - 输入平台 + UP/作者名称，按本地创作者清单或预置映射批量跑视频 pipeline。
   - 已支持 limit、start-index、失败继续、跳过已完成、成本预算上限、creator profile 聚合、agent assets 生成和 creator DAG HTML 导出。
 - [x] 为 `seed run-creator-pipeline` 增加成本预算上限。
   - 建议先做本地 budget gate：开始处理下一条视频前读取已有 cost ledger，超过预算则停止并写入 run manifest。
@@ -111,15 +111,14 @@
 - [x] 跑通真实 UP 三条视频样本。
   - 2026-05-11 用 `影视飓风` 跑通 3 条 Bilibili 视频：下载、ASR 分段、video semantics、timeline、claims、cost ledger、video DAG、creator profile、creator validation、agent assets 和 creator DAG。
   - 2026-05-12 已对同一批 3 条视频补跑 Qwen-VL visual notes，并重建 video semantics、timeline、claims、video DAG、creator profile 和 creator DAG；当前视觉证据仍是 12 帧抽样，不等于逐帧完整分析。
-- [x] 增加 Bilibili `owner_id` 入口。
-  - `fetch-creator-videos` 和 `run-creator-pipeline` 支持 `--owner-id`，可在平台用户名搜索被风控时直接用 Bilibili mid 拉取 UP 空间。
-  - 实测 `影视飓风` mid `946974` 可获取列表；`燕三嘤嘤嘤` mid `430426421` 在当前网络下仍遇到 Bilibili 352/412 风控，后续需要 cookies 或手动列表兜底。
+- [x] 明确样本来源输入为清单。
+  - `run-creator-pipeline` 与 `run-creator-batch` 优先消费本地 creator 视频清单文件，线上抓取入口不作为主链路。
 - [x] 修复 source-only 记录阻止后续下载的问题。
-  - `ingest-creator-videos --skip-existing` 只有在已有 source record 同时存在本地 `raw_path` 时才跳过；如果之前只是记录 URL，会继续下载并补齐 source record。
+  - 批量清单入口在 `--skip-existing` 下，只有在已有 source record 同时存在本地 `raw_path` 时才跳过；如果之前只是记录 URL，会继续下载并补齐 source record。
 - [x] 修复长音频 ASR 只按文件大小判断的问题。
   - DashScope 可能因音频时长拒绝请求；当前 ASR chunking 同时按文件大小和 `ffprobe` duration 判断，默认超过 300 秒会切片。
 - [x] 增加 UP 批量执行入口。
-  - 新增 `run-creator-batch`，支持一次跑多位 UP（支持可选按位绑定 `--owner-id`），用于固定样本池的回归测试。
+  - 新增 `run-creator-batch`，支持一次跑多位 UP，用于固定样本池的回归测试。
   - 当前计划默认用同一参数批量跑：`影视飓风`、`燕三嘤嘤嘤`（后者预计仍然触发 352/412，用于验证失败提示链路），以及后续补充的财经/行业样本池。
 - [x] 增加 UP 横向对比入口。
   - 新增 `compare-up-profiles`，直接读取已有 profile / manifest / ledger / validation，生成 `library/reports/*.up-comparison.html`。
@@ -182,7 +181,7 @@
   - artifact 记录 instruments、`viewpoint_events`（主对象）、兼容 recommendations、macro theses、methodology signals、risk flags 和 evidence gaps。
   - video DAG 和 creator DAG 已接入 finance signals 节点。
 - [x] 做最近 10 天财经 UP 批量 digest。
-  - 输入平台、UP 名称或 owner-id、时间窗口和 limit。
+  - 输入平台、UP 名称、时间窗口和 limit。
   - [x] `run-creator-pipeline` 已支持 `--published-after/--published-before`，可只分析发布时间落在窗口内的视频。
   - `run-creator-pipeline --domain finance` 会在窗口内批量样本后生成 `library/distilled/*.finance-digest.json`。
   - `seed build-finance-digest --owner ... --signal ...` 可对已有 signals 重建 digest。
@@ -215,6 +214,28 @@
   - 从多个 event 和 outcome 中总结 UP 的方法论：偏宏观/政策/产业/财报/估值/技术面/情绪面，是否给风险和失效条件，哪些 horizon 更稳定，哪些标的/行业经常误判。
   - 输出可以合入 `creator-profile.md` 的 finance section，也可以先生成 `*.finance-profile.json`。
 
+## P10：新闻检索、facts 蒸馏和财报解析
+
+- [x] 增加通用新闻检索 baseline。
+  - 默认 provider 使用 GDELT DOC 2.0 `artlist` JSON，命令为 `seed search-news` 和 `seed research-news`。
+  - 检索结果输出 `library/news/*.news-search.json`，保留 query、时间窗口、source URL、标题、来源域名、语言、国家和发布时间。
+- [x] 增加 facts-first 新闻蒸馏 skill。
+  - 新增 `skills/facts-distiller/SKILL.md` 和 `domain-news-lenses.md`。
+  - `seed distill-news-facts` / `seed research-news` 输出 `library/distilled/*.news-digest.json`，结构化 facts、reported claims、industry impacts、market relevance、source gaps 和 open questions。
+  - `run-video-pipeline --domain news` 会额外输出 `library/semantics/*.news-facts.json`，并进入 video DAG。
+- [x] 增加 SEC 财报解析 baseline。
+  - 默认 provider 使用 SEC EDGAR `submissions` 和 XBRL `companyfacts` JSON，ticker/CIK 映射来自 SEC `company_tickers.json`。
+  - `seed fetch-earnings` 输出 `library/earnings/*.sec-earnings.json`，保留 CIK、accession、form、filing date、report date、filing index URL 和关键 XBRL 指标。
+  - `seed parse-earnings` / `seed distill-earnings` 输出 `library/distilled/*.earnings-digest.json`。
+- [x] 增加财报视频 domain。
+  - 新增 `skills/earnings-parser/SKILL.md` 和 `domain-earnings-lenses.md`。
+  - `run-video-pipeline --domain earnings` 会额外输出 `library/semantics/*.earnings-analysis.json`，把视频里的公司、财报 claim、driver 和 source gap 拆成待 SEC 核验 artifact，并进入 video DAG。
+- [ ] 补新闻/财报 provider 的缓存与重试。
+  - 当前命令直接请求 GDELT/SEC；后续应增加 response cache、rate-limit backoff、失败重试和 source quality scoring。
+- [ ] 把新闻 facts digest 接入财经事件上下文。
+  - 目标是让财经 UP 的观点事件可以引用外部 news facts，避免 Codex 只受 UP 观点影响。
+  - 先做事实引用，不做自动交易建议。
+
 ## 已完成基础
 
 - [x] GitHub / 本地仓库初始化。
@@ -226,7 +247,7 @@
 - [x] Creator profile 聚合。
 - [x] Video DAG graph artifact。
 - [x] 单文件 HTML 无限画布，支持导入 DAG JSON、预览视频/音频/截图，支持简版、按节点展开和基于 `elkjs` 的自动分层布局。
-- [x] 创作者视频列表批量入库：`seed ingest-creator-videos` 支持选择前 N 条、跳过已入库 URL，并复用现有下载适配器。
+- [x] 创作者样本批量入库：`seed run-creator-batch` 在本地清单基础上支持选择前 N 条、跳过已入库 URL，并复用现有下载适配器。
 - [x] 长视频 ASR 分段：`seed transcribe-media` 默认在音频超过 provider 上传限制或默认时长阈值时自动切片、逐片转写、合并 transcript，并记录 `asr_chunks` 元数据。
 - [x] Timeline artifact：`seed build-timeline` 生成 `library/timelines/*.timeline.json`，包含 transcript chunk、关键帧、内容结构、广告候选和不确定性。
 - [x] 下载可靠性记录：source record 会保存 `download_provider`、`fallback_used` 和 `download_notes`；下载失败时提示平台 cookies 配置。
@@ -246,7 +267,7 @@
 - [x] 单条视频 pipeline：`seed run-video-pipeline` 串起现有分析步骤并写入 `library/runs/*.video-pipeline.yaml`。
 - [x] Pipeline 可观测性基础：`seed run-video-pipeline` 会显示 Rich step 进度表，并同步写入 `library/runs/*.video-pipeline.status.json`；manifest/status 都记录 step 耗时、artifact paths 和 cost delta。
 - [x] Pipeline live DAG：`seed run-video-pipeline` 会同步生成 `library/runs/*.video-pipeline.live.html`，用独立运行态 step graph 展示 pending/running/completed/skipped/failed，不污染最终内容分析 `video-dag.html`。
-- [x] 创作者 pipeline 收敛：`seed run-creator-pipeline` 可以获取视频列表、批量入库、逐条运行视频 pipeline，并自动串起 creator profile、agent assets 和 creator DAG。
+- [x] 创作者 pipeline 收敛：`seed run-creator-pipeline` 可以按清单批量运行视频 pipeline，并自动串起 creator profile、agent assets 和 creator DAG。
 - [x] Creator DAG 第一版：`seed build-creator-dag` 生成 UP/作者级 DAG JSON 和静态 HTML，并可从每条视频展开本地视频、音频、截图和单条 video DAG。
 - [x] 真实创作者样本：`影视飓风` 已生成 3 条 video semantics、creator profile、validation、agent asset draft 和 creator DAG。
 - [x] 书籍/笔记入口：`seed import-book-note`、`seed analyze-book-note`、`seed aggregate-topic` 支持非视频来源的基础语义产物。

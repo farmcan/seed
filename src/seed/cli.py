@@ -69,6 +69,25 @@ from seed.domains.finance import (
     run_finance_signals_extraction,
     write_finance_digest_artifact,
 )
+from seed.domains.news import (
+    build_news_search_artifact,
+    fetch_gdelt_news,
+    news_digest_output_path,
+    news_facts_output_path,
+    news_search_output_path,
+    run_news_facts_distillation,
+    run_news_facts_extraction,
+    write_news_artifact,
+)
+from seed.domains.earnings import (
+    earnings_analysis_output_path,
+    earnings_artifact_output_path,
+    earnings_digest_output_path,
+    fetch_sec_earnings_artifact,
+    run_earnings_analysis_extraction,
+    run_earnings_distillation,
+    write_earnings_artifact,
+)
 from seed.factcheck import build_claims_artifact, claims_output_path, write_claims_artifact
 from seed.graphs.video_dag import (
     build_video_dag_graph,
@@ -1225,6 +1244,10 @@ def run_video_pipeline_cmd(
         console.print(f"created video semantics at {context.semantics_path}")
     if context.finance_signals_path:
         console.print(f"created finance signals at {context.finance_signals_path}")
+    if context.news_facts_path:
+        console.print(f"created news facts at {context.news_facts_path}")
+    if context.earnings_analysis_path:
+        console.print(f"created earnings analysis at {context.earnings_analysis_path}")
     if context.cost_path:
         console.print(f"created cost report at {context.cost_path}")
     if context.cost_ledger_path:
@@ -1855,6 +1878,262 @@ def parse_ticker_map(values: list[str]) -> dict[str, str]:
     return mapping
 
 
+@app.command("search-news")
+def search_news(
+    query: Annotated[str, typer.Argument(help="News search query.")],
+    max_records: Annotated[int, typer.Option("--max-records", min=1, max=250)] = 25,
+    timespan: Annotated[str | None, typer.Option("--timespan", help="GDELT timespan, e.g. 1d, 1week.")] = "1week",
+    published_after: Annotated[datetime | None, typer.Option("--published-after")] = None,
+    published_before: Annotated[datetime | None, typer.Option("--published-before")] = None,
+    sort: Annotated[str, typer.Option("--sort")] = "datedesc",
+    root: Annotated[Path, typer.Option("--root")] = Path("library"),
+) -> None:
+    fetched = fetch_gdelt_news(
+        query=query,
+        max_records=max_records,
+        timespan=timespan,
+        published_after=published_after,
+        published_before=published_before,
+        sort=sort,
+    )
+    artifact = build_news_search_artifact(
+        query=query,
+        articles=fetched["articles"],
+        source_url=fetched["source_url"],
+        published_after=published_after,
+        published_before=published_before,
+    )
+    output_path = news_search_output_path(
+        library_root=root,
+        query=query,
+        published_after=published_after,
+        published_before=published_before,
+    )
+    write_news_artifact(output_path, artifact)
+    console.print(f"created news search artifact at {output_path}")
+    console.print(f"articles: {artifact['article_count']}")
+
+
+@app.command("distill-news-facts")
+def distill_news_facts(
+    news_artifact_path: Annotated[Path, typer.Argument(help="Path to *.news-search.json.")],
+    topic: Annotated[str | None, typer.Option("--topic")] = None,
+    focus: Annotated[str | None, typer.Option("--focus")] = None,
+    output_path: Annotated[Path | None, typer.Option("--output")] = None,
+    codex_model: Annotated[str | None, typer.Option("--codex-model")] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
+    root: Annotated[Path, typer.Option("--root")] = Path("library"),
+) -> None:
+    artifact = json.loads(news_artifact_path.read_text(encoding="utf-8"))
+    resolved_topic = topic or str(artifact.get("query") or news_artifact_path.stem)
+    output = output_path or news_digest_output_path(library_root=root, topic=resolved_topic)
+    if dry_run:
+        output = output.with_suffix(".prompt.md")
+    run_news_facts_distillation(
+        news_artifact_path=news_artifact_path,
+        output_path=output,
+        topic=resolved_topic,
+        focus=focus,
+        model=codex_model,
+        cwd=Path.cwd(),
+        dry_run=dry_run,
+    )
+    console.print(f"created {'prompt' if dry_run else 'news facts digest'} at {output}")
+
+
+@app.command("research-news")
+def research_news(
+    query: Annotated[str, typer.Argument(help="News search query.")],
+    topic: Annotated[str | None, typer.Option("--topic")] = None,
+    focus: Annotated[str | None, typer.Option("--focus")] = None,
+    max_records: Annotated[int, typer.Option("--max-records", min=1, max=250)] = 25,
+    timespan: Annotated[str | None, typer.Option("--timespan")] = "1week",
+    published_after: Annotated[datetime | None, typer.Option("--published-after")] = None,
+    published_before: Annotated[datetime | None, typer.Option("--published-before")] = None,
+    sort: Annotated[str, typer.Option("--sort")] = "datedesc",
+    codex_model: Annotated[str | None, typer.Option("--codex-model")] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
+    root: Annotated[Path, typer.Option("--root")] = Path("library"),
+) -> None:
+    fetched = fetch_gdelt_news(
+        query=query,
+        max_records=max_records,
+        timespan=timespan,
+        published_after=published_after,
+        published_before=published_before,
+        sort=sort,
+    )
+    search_artifact = build_news_search_artifact(
+        query=query,
+        articles=fetched["articles"],
+        source_url=fetched["source_url"],
+        published_after=published_after,
+        published_before=published_before,
+    )
+    search_path = news_search_output_path(
+        library_root=root,
+        query=query,
+        published_after=published_after,
+        published_before=published_before,
+    )
+    write_news_artifact(search_path, search_artifact)
+    resolved_topic = topic or query
+    digest_path = news_digest_output_path(
+        library_root=root,
+        topic=resolved_topic,
+        published_after=published_after,
+        published_before=published_before,
+    )
+    output_path = digest_path.with_suffix(".prompt.md") if dry_run else digest_path
+    run_news_facts_distillation(
+        news_artifact_path=search_path,
+        output_path=output_path,
+        topic=resolved_topic,
+        focus=focus,
+        model=codex_model,
+        cwd=Path.cwd(),
+        dry_run=dry_run,
+    )
+    console.print(f"created news search artifact at {search_path}")
+    console.print(f"created {'prompt' if dry_run else 'news facts digest'} at {output_path}")
+
+
+@app.command("extract-news-facts")
+def extract_news_facts(
+    semantics_path: Annotated[Path, typer.Argument(help="Video semantics markdown file.")],
+    title: Annotated[str | None, typer.Option("--title")] = None,
+    owner: Annotated[str | None, typer.Option("--owner")] = None,
+    platform: Annotated[str | None, typer.Option("--platform")] = None,
+    codex_model: Annotated[str | None, typer.Option("--codex-model")] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
+    root: Annotated[Path, typer.Option("--root")] = Path("library"),
+) -> None:
+    resolved_title = title or semantics_path.stem.removesuffix(".video-semantics")
+    output_path = news_facts_output_path(library_root=root, title=resolved_title)
+    if dry_run:
+        output_path = output_path.with_suffix(".prompt.md")
+    run_news_facts_extraction(
+        semantics_path=semantics_path,
+        output_path=output_path,
+        title=resolved_title,
+        owner=owner,
+        platform=platform,
+        model=codex_model,
+        cwd=Path.cwd(),
+        dry_run=dry_run,
+    )
+    console.print(f"created {'prompt' if dry_run else 'news facts'} at {output_path}")
+
+
+@app.command("fetch-earnings")
+def fetch_earnings(
+    identifier: Annotated[str, typer.Argument(help="Ticker or SEC CIK.")],
+    form: Annotated[
+        list[str] | None,
+        typer.Option("--form", help="SEC form to include, repeatable. Defaults to 10-Q, 10-K, 8-K."),
+    ] = None,
+    filing_limit: Annotated[int, typer.Option("--filing-limit", min=1, max=50)] = 10,
+    user_agent: Annotated[str | None, typer.Option("--user-agent")] = None,
+    root: Annotated[Path, typer.Option("--root")] = Path("library"),
+) -> None:
+    artifact = fetch_sec_earnings_artifact(
+        identifier=identifier,
+        forms=form,
+        filing_limit=filing_limit,
+        user_agent=user_agent,
+    )
+    output_path = earnings_artifact_output_path(library_root=root, identifier=identifier)
+    write_earnings_artifact(output_path, artifact)
+    console.print(f"created SEC earnings artifact at {output_path}")
+    console.print(f"filings: {len(artifact['recent_filings'])}")
+
+
+@app.command("distill-earnings")
+def distill_earnings(
+    earnings_artifact_path: Annotated[Path, typer.Argument(help="Path to *.sec-earnings.json.")],
+    identifier: Annotated[str | None, typer.Option("--identifier")] = None,
+    output_path: Annotated[Path | None, typer.Option("--output")] = None,
+    codex_model: Annotated[str | None, typer.Option("--codex-model")] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
+    root: Annotated[Path, typer.Option("--root")] = Path("library"),
+) -> None:
+    artifact = json.loads(earnings_artifact_path.read_text(encoding="utf-8"))
+    company = artifact.get("company") if isinstance(artifact.get("company"), dict) else {}
+    resolved_identifier = identifier or str(company.get("ticker") or company.get("cik") or earnings_artifact_path.stem)
+    output = output_path or earnings_digest_output_path(library_root=root, identifier=resolved_identifier)
+    if dry_run:
+        output = output.with_suffix(".prompt.md")
+    run_earnings_distillation(
+        earnings_artifact_path=earnings_artifact_path,
+        output_path=output,
+        model=codex_model,
+        cwd=Path.cwd(),
+        dry_run=dry_run,
+    )
+    console.print(f"created {'prompt' if dry_run else 'earnings digest'} at {output}")
+
+
+@app.command("parse-earnings")
+def parse_earnings(
+    identifier: Annotated[str, typer.Argument(help="Ticker or SEC CIK.")],
+    form: Annotated[
+        list[str] | None,
+        typer.Option("--form", help="SEC form to include, repeatable. Defaults to 10-Q, 10-K, 8-K."),
+    ] = None,
+    filing_limit: Annotated[int, typer.Option("--filing-limit", min=1, max=50)] = 10,
+    user_agent: Annotated[str | None, typer.Option("--user-agent")] = None,
+    codex_model: Annotated[str | None, typer.Option("--codex-model")] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
+    root: Annotated[Path, typer.Option("--root")] = Path("library"),
+) -> None:
+    artifact = fetch_sec_earnings_artifact(
+        identifier=identifier,
+        forms=form,
+        filing_limit=filing_limit,
+        user_agent=user_agent,
+    )
+    artifact_path = earnings_artifact_output_path(library_root=root, identifier=identifier)
+    write_earnings_artifact(artifact_path, artifact)
+    digest_path = earnings_digest_output_path(library_root=root, identifier=identifier)
+    output_path = digest_path.with_suffix(".prompt.md") if dry_run else digest_path
+    run_earnings_distillation(
+        earnings_artifact_path=artifact_path,
+        output_path=output_path,
+        model=codex_model,
+        cwd=Path.cwd(),
+        dry_run=dry_run,
+    )
+    console.print(f"created SEC earnings artifact at {artifact_path}")
+    console.print(f"created {'prompt' if dry_run else 'earnings digest'} at {output_path}")
+
+
+@app.command("extract-earnings-analysis")
+def extract_earnings_analysis(
+    semantics_path: Annotated[Path, typer.Argument(help="Video semantics markdown file.")],
+    title: Annotated[str | None, typer.Option("--title")] = None,
+    owner: Annotated[str | None, typer.Option("--owner")] = None,
+    platform: Annotated[str | None, typer.Option("--platform")] = None,
+    codex_model: Annotated[str | None, typer.Option("--codex-model")] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
+    root: Annotated[Path, typer.Option("--root")] = Path("library"),
+) -> None:
+    resolved_title = title or semantics_path.stem.removesuffix(".video-semantics")
+    output_path = earnings_analysis_output_path(library_root=root, title=resolved_title)
+    if dry_run:
+        output_path = output_path.with_suffix(".prompt.md")
+    run_earnings_analysis_extraction(
+        semantics_path=semantics_path,
+        output_path=output_path,
+        title=resolved_title,
+        owner=owner,
+        platform=platform,
+        model=codex_model,
+        cwd=Path.cwd(),
+        dry_run=dry_run,
+    )
+    console.print(f"created {'prompt' if dry_run else 'earnings analysis'} at {output_path}")
+
+
 @app.command("build-timeline")
 def build_timeline(
     title: Annotated[str, typer.Option("--title", help="Video title for the timeline artifact.")],
@@ -2139,6 +2418,8 @@ def build_video_dag(
     visual_notes: Annotated[Path | None, typer.Option("--visual-notes")] = None,
     semantics_path: Annotated[Path | None, typer.Option("--semantics")] = None,
     finance_signals: Annotated[Path | None, typer.Option("--finance-signals")] = None,
+    news_facts: Annotated[Path | None, typer.Option("--news-facts")] = None,
+    earnings_analysis: Annotated[Path | None, typer.Option("--earnings-analysis")] = None,
     timeline_path: Annotated[Path | None, typer.Option("--timeline")] = None,
     claims_path: Annotated[Path | None, typer.Option("--claims")] = None,
     cost_path: Annotated[Path | None, typer.Option("--cost")] = None,
@@ -2159,6 +2440,8 @@ def build_video_dag(
         visual_notes_path=visual_notes,
         semantics_path=semantics_path,
         finance_signals_path=finance_signals,
+        news_facts_path=news_facts,
+        earnings_analysis_path=earnings_analysis,
         timeline_path=timeline_path,
         claims_path=claims_path,
         cost_path=cost_path,
@@ -2179,6 +2462,8 @@ def build_video_dag(
         visual_notes_path=artifacts["visual_notes_path"],
         semantics_path=artifacts["semantics_path"],
         finance_signals_path=artifacts["finance_signals_path"],
+        news_facts_path=artifacts["news_facts_path"],
+        earnings_analysis_path=artifacts["earnings_analysis_path"],
         timeline_path=artifacts["timeline_path"],
         claims_path=artifacts["claims_path"],
         cost_path=artifacts["cost_path"],

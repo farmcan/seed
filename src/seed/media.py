@@ -75,6 +75,28 @@ def extract_audio(
     return audio_path
 
 
+def has_audio_stream(media_path: Path) -> bool:
+    result = subprocess.run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-select_streams",
+            "a",
+            "-show_entries",
+            "stream=index",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            str(media_path),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return False
+    return bool(result.stdout.strip())
+
+
 def audio_exceeds_upload_size(path: Path, *, max_upload_mb: int) -> bool:
     max_bytes = max_upload_mb * 1024 * 1024
     return path.stat().st_size > max_bytes

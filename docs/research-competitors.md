@@ -1,6 +1,6 @@
 # 竞品与类似项目调研
 
-调研日期：2026-05-07；画布与计费补充：2026-05-10；架构复核补充：2026-05-11；视觉笔记、核验、编排补充：2026-05-11；短视频 shot 级分析补充：2026-05-12；运行可观测性补充：2026-05-13；财经 UP 蒸馏补充：2026-05-14。
+调研日期：2026-05-07；画布与计费补充：2026-05-10；架构复核补充：2026-05-11；视觉笔记、核验、编排补充：2026-05-11；短视频 shot 级分析补充：2026-05-12；运行可观测性补充：2026-05-13；财经 UP 蒸馏补充：2026-05-14；新闻检索与财报解析补充：2026-05-17。
 
 ## 结论
 
@@ -22,10 +22,7 @@
 
 | 项目 | 现状 | 对 seed 的用途 |
 | --- | --- | --- |
-| `yt-dlp/yt-dlp` | GitHub 上约 160k stars，支持大量站点；官方支持列表包含 Bilibili、Bilibili Space Video 等。 | Bilibili/YouTube 下载和元数据抽取优先用它。 |
 | `JoeanAmier/XHS-Downloader` | GitHub 上约 11k stars，专注小红书链接提取、作品采集和下载，GPL-3.0。 | 小红书适配器候选，但应作为可选外部工具隔离。 |
-| `yt-dlp` Bilibili Space extractor | 支持 `https://space.bilibili.com/<mid>/video` 形式的 UP 空间列表，但实际请求可能触发登录或 412 风控。 | `fetch-creator-videos` 先复用它；失败时 fallback 到 Bilibili WBI API，并提示 cookies。 |
-| SocialSisterYi Bilibili API collect | 维护 Bilibili Web API 和 WBI 签名说明，包含用户投稿接口 `/x/space/wbi/arc/search`。 | Bilibili UP 视频列表 fallback 使用它的接口形态和签名算法。 |
 | `xiaohongshu-cli` / `xhs-mcp` 类项目 | 小红书搜索、用户主页、笔记详情通常依赖浏览器 cookie、A1 cookie、QR 登录或逆向 API。 | 暂不把登录态逆向实现写死到核心；先输出搜索候选，后续替换成独立 provider。 |
 | `openai/whisper` | GitHub 上约 99k stars，开源多语言 ASR。 | 本地转写基线。 |
 | `SYSTRAN/faster-whisper` | GitHub 上约 22k stars，用 CTranslate2 重新实现 Whisper。 | 更快的本地转写候选，适合批量处理视频。 |
@@ -57,6 +54,9 @@
 | `ProsusAI/finBERT` | 金融文本情绪分析 BERT，面向金融语料情绪分类。 | 可作为低成本 sentiment/stance baseline 的参考，但财经视频 recommendation 不能只看情绪，还要抽取 action、horizon、risk。 |
 | `AI4Finance-Foundation/FinRL` | 金融强化学习框架，强调 market environment、agent、application 和 train-test-trade。 | 方法论蒸馏时可借鉴“状态 -> 行动 -> 风险约束 -> 回测”的表达；UP 观点不是可执行策略，必须保留适用条件和失效条件。 |
 | Stooq daily CSV / pandas-datareader StooqDailyReader | Stooq 提供历史行情 CSV 下载，pandas-datareader 也内置 StooqDailyReader，底层使用 `https://stooq.com/q/d/l/`。 | 适合做轻量行情后验 baseline；Seed 先要求显式 ticker mapping，避免把视频里的中文标的名猜成错误代码。 |
+| GDELT DOC 2.0 API | 官方文档说明 DOC API 支持全文新闻搜索、跨语言机器翻译覆盖、`artlist` 文章列表、JSON 输出和 timeline/tone/source country 等模式。 | 新闻检索 baseline 不自建爬虫，先用 GDELT `mode=artlist&format=json` 拉取候选来源，再由 facts distiller 拆 facts、reported claims、source gaps 和行业影响机制。 |
+| SEC EDGAR data APIs | SEC 官方文档说明 `data.sec.gov` 提供无需 API key 的 JSON API，包括 company submissions 和 XBRL companyfacts，更新随 filings disseminated。 | 财报解析 baseline 使用官方 `submissions/CIK##########.json` 和 `api/xbrl/companyfacts/CIK##########.json`，保留 CIK、accession、form、period、unit 和 filing URL。 |
+| SEC ticker/CIK mapping files | SEC “Accessing EDGAR Data” 页面列出 `company_tickers.json` 和 `company_tickers_exchange.json`，用于 ticker、CIK 和 company name association。 | `parse-earnings <ticker>` 先通过 SEC mapping 解析 CIK；没有可靠映射时失败，不猜。 |
 | Prefect | Python-native workflow orchestration；官方 docs 强调 task state lifecycle、client-side orchestration、`.submit()` 并发和 `.delay()` worker 分发。 | 后续 pipeline 复杂到需要调度、重试 UI 和 worker 时再考虑；当前先把本地 run manifest 做扎实。 |
 | Dagster | 面向 data assets 的 orchestrator，强调 integrated lineage、observability、declarative model 和 testability。 | 如果 `library/` 产物变成大量数据资产和跨主题依赖，可以参考 asset model；当前项目还不到引入 Dagster 的复杂度。 |
 | Temporal Python SDK | durable workflow 平台，有 Python SDK，适合长时间运行、可靠重试和分布式任务。 | 如果后续视频批处理需要强一致重试、队列和 worker，再评估；本地 MVP 暂不需要。 |
@@ -77,7 +77,7 @@
 1. 单条视频总结已经是红海。差异化要放在“长期知识资产”和“Agent 可执行方法论”。
 2. 下载适配器是易碎层。它应该是插件，不应该污染核心数据模型。
 3. 小红书生态的非官方工具多，但稳定性和合规风险高。MVP 应先支持手动导入、URL 记录、截图/文案复制，再做下载适配器。
-4. Bilibili 可先用 yt-dlp 跑通，但要支持 owner mid、cookies、字幕、弹幕、分 P、合集和 UP 空间批处理。实测 `--owner-id` 能绕过用户名搜索失败，但不能绕过所有 UP 空间 352/412 风控。
+4. 下载适配器是易碎层，适合保持可替换；线上抓取能力应作为可选插件，不替代离线清单驱动的主流程。
 5. 真正有价值的总结不是“这条视频说了什么”，而是“这个创作者反复依赖什么判断模型、内容结构、表达套路、决策规则和禁忌”。
 6. 视频分析画布是共性问题，短期最稳是继续保留单文件 HTML：简版/展开、媒体预览和 DAG JSON 仍在本地完成，但布局不要手写，应使用 `elkjs` layered layout，并 vendor 固定版本以保证静态 HTML 离线可打开。中期如果交互复杂度继续上升，应迁移到 React Flow + ELK；如果更像白板和自由资料编排，再考虑 tldraw。
 7. Qwen-VL 计费需要作为 artifact，而不是只在日志里打印。按单条视频记录 token usage、单价、pricing source、估算金额，并允许环境变量覆盖单价，避免价格变化导致历史结果不可解释。
@@ -102,11 +102,14 @@
 26. 财经 UP 方向要作为 domain lens，而不是复制一套视频 pipeline。通用层仍负责采集、ASR、视觉、semantics、creator profile 和 DAG；财经层只补充 instruments、recommendations、macro theses、methodology signals、risk flags、evidence gaps 和后验行情 provider。
 27. VideoConviction 的关键启发是：多模态输入能帮助 ticker 抽取，但 action 和 conviction 容易被误判；Seed 的 finance signals 必须允许 `unknown`、保留证据引用和 uncertainty，不能把每次提及都当推荐。
 28. AlphaCheck 的产品启发是：用户真正关心频道级 track record，包括每个标的当时价格、当前价格、是否跑赢 benchmark、top winners/losers 和上下文理由。Seed 当前先落地 `*.finance-signals.json`，下一步再接行情 provider 和跨视频收益归因。
-29. “最近 10 天 top UP 都说了什么”不是单纯搜索问题，而是 creator list discovery + date window + 批量 video pipeline + finance signals + channel digest。Bilibili 侧仍受 352/412 风控影响，实际落地优先用 `--owner-id`、cookies 或手动 list。
+29. “最近 10 天 top UP 都说了什么”不是单纯搜索问题，而是 date window + 批量 video pipeline + finance signals + channel digest。核心样本应由清单驱动，并在失败时保留原始平台错误与人工兜底策略。
 30. 行情后验应先做可解释 baseline：显式 `标的=ticker` mapping、发布日附近收盘价、最新收盘价、可选 benchmark、source URL 和价格日期。不要在没有可靠映射时猜 ticker，也不要把涨跌幅解释成交易建议。
 31. 下一步不要继续堆 summary 字段，应把 `finance-signals.json` 升级成观点事件 ledger：先判断是否存在 recommendation，再抽 ticker/entity、action、direction、horizon、conviction、entry/exit/invalidation、timestamp evidence 和 modality evidence。
 32. VideoConviction 的 action taxonomy 可直接作为 Seed 初版参考：buy、hold、don't buy、sell、short sell；Seed 还需要兼容 watch、add、reduce、allocate、unknown，因为中文财经 UP 经常是“观察/等回调/配置/减仓”。
 33. 后验评估不能只看 latest return。event 应根据 horizon 计算 1D/5D/20D/60D/latest、benchmark relative return 和风险指标；没有 horizon 时只输出 baseline，不做命中判断。
+34. 新闻检索不要从“观点总结”开始。GDELT 适合作为开放覆盖 baseline，但结果仍是媒体报道集合；Seed 的 `news-digest` 必须先分 facts、reported claims、source gaps，再写行业影响机制。
+35. 财报解析不要优先抓网页正文。SEC `submissions` 给 filing history，`companyfacts` 给可结构化 XBRL 指标；Seed 初版先把这两类 primary data 变成稳定 artifact，HTML filing/table 解析作为后续 provider。
+36. 通用能力新增前必须保留调研记录。新闻检索、财报解析、OCR、motion、行情、fact-check 这类常见能力都应先查官方或成熟开源项目，把选型写进 `docs/research-competitors.md`，再实现最小 provider。
 
 ## Sources
 
@@ -119,11 +122,7 @@
 - Readwise YouTube videos: https://docs.readwise.io/reader/docs/faqs/videos
 - Glasp YouTube Summary: https://glasp.co/youtube-summary
 - summarize.tech: https://www.summarize.tech/
-- yt-dlp supported sites: https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md
 - XHS-Downloader: https://github.com/JoeanAmier/XHS-Downloader
-- yt-dlp Bilibili Space issue: https://github.com/yt-dlp/yt-dlp/issues/12007
-- Bilibili WBI 签名说明: https://socialsisteryi.github.io/bilibili-API-collect/docs/misc/sign/wbi.html
-- Bilibili 用户投稿接口: https://socialsisteryi.github.io/bilibili-API-collect/docs/user/space.html
 - xiaohongshu-cli: https://pypi.org/project/xiaohongshu-cli/
 - xhs-mcp-fy: https://pypi.org/project/xhs-mcp-fy/
 - Whisper: https://github.com/openai/whisper
@@ -180,3 +179,6 @@
 - FinRL: https://github.com/AI4Finance-Foundation/FinRL
 - pandas-datareader StooqDailyReader: https://pydata.github.io/pandas-datareader/devel/readers/stooq.html
 - pandas-datareader Stooq source: https://github.com/pydata/pandas-datareader/blob/master/pandas_datareader/stooq.py
+- GDELT DOC 2.0 API: https://blog.gdeltproject.org/gdelt-doc-2-0-api-debuts/
+- SEC EDGAR APIs: https://www.sec.gov/search-filings/edgar-application-programming-interfaces
+- SEC Accessing EDGAR Data: https://www.sec.gov/search-filings/edgar-search-assistance/accessing-edgar-data

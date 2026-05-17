@@ -60,10 +60,12 @@ def test_build_finance_digest_artifact_groups_signals(tmp_path):
 
     assert artifact["videos_analyzed"] == 1
     assert artifact["totals"]["recommendations"] == 1
+    assert artifact["totals"]["viewpoint_events"] == 1
     assert artifact["instruments"][0]["name"] == "AI"
     assert artifact["instruments"][0]["mentions"] == 1
     assert artifact["methodology_signals"][0]["method"] == "event catalyst"
     assert artifact["risk_flags"] == ["not financial advice"]
+    assert artifact["viewpoint_events"][0]["event_id"].startswith("one-ai-")
 
 
 def test_finance_digest_output_path_and_write(tmp_path):
@@ -105,8 +107,16 @@ def test_enrich_finance_digest_with_prices(monkeypatch):
     digest = {
         "kind": "finance_digest",
         "recommendations": [{"instrument": "AI", "video_title": "One"}],
+        "viewpoint_events": [
+            {
+                "event_id": "one-ai-1",
+                "instrument": "AI",
+                "video_title": "One",
+                "action": "watch",
+            }
+        ],
         "video_records": [{"title": "One", "published_at": "2026-05-11T00:00:00+00:00"}],
-        "totals": {"recommendations": 1},
+        "totals": {"recommendations": 1, "viewpoint_events": 1},
     }
 
     def fake_history(ticker):
@@ -128,3 +138,9 @@ def test_enrich_finance_digest_with_prices(monkeypatch):
     assert market_data["status"] == "priced"
     assert market_data["return_pct"] == 20.0
     assert enriched["totals"]["priced_recommendations"] == 1
+    assert enriched["totals"]["priced_viewpoint_events"] == 1
+    outcomes = enriched["viewpoint_events"][0]["event_outcomes"]
+    assert outcomes["status"] == "priced"
+    assert outcomes["horizons"]["1D"]["status"] == "priced"
+    assert outcomes["horizons"]["1D"]["asset_return"] == 20.0
+    assert outcomes["latest"]["status"] == "priced"

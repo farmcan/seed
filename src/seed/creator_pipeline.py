@@ -184,6 +184,12 @@ def run_creator_pipeline(options: CreatorPipelineOptions) -> tuple[dict[str, Any
                     "finance_signals_path": str(getattr(context, "finance_signals_path", None))
                     if getattr(context, "finance_signals_path", None)
                     else None,
+                    "news_facts_path": str(getattr(context, "news_facts_path", None))
+                    if getattr(context, "news_facts_path", None)
+                    else None,
+                    "earnings_analysis_path": str(getattr(context, "earnings_analysis_path", None))
+                    if getattr(context, "earnings_analysis_path", None)
+                    else None,
                     "cost_path": str(cost_path) if cost_path else None,
                     "published_at": video_metadata_by_title.get(item.title or item.url, {}).get(
                         "published_at"

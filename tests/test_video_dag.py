@@ -326,6 +326,8 @@ def test_resolve_video_dag_artifacts_by_title(tmp_path):
         "visual_notes_path": visual,
         "semantics_path": semantic,
         "finance_signals_path": finance,
+        "news_facts_path": None,
+        "earnings_analysis_path": None,
         "timeline_path": timeline,
         "claims_path": verified_claim,
         "cost_path": cost,

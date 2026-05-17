@@ -13,8 +13,7 @@ Seed 是本地优先的内容蒸馏系统，用来把授权视频、书籍、笔
 当前主链路：
 
 ```text
-fetch-creator-videos
-  -> ingest-creator-videos
+run-creator-pipeline（本地清单驱动）
   -> transcribe-media
   -> extract-frames
   -> analyze-frames
@@ -31,13 +30,18 @@ run-video-pipeline
 
 run-creator-pipeline
   -> 多条 video pipeline + budget gate + creator profile + creator DAG + agent assets
+
+run-creator-batch
+  -> 一次性跑多个 UP/作者，复用 run-creator-pipeline
+
+compare-up-profiles
+  -> 横向对比多个 UP 的 profile、validation、成本和证据覆盖
 ```
 
 ## 重要文件
 
 - CLI：`src/seed/cli.py`
-- 创作者视频列表：`src/seed/sources/creator_videos.py`
-- 创作者批量入库：`src/seed/creator_ingest.py`
+- 创作者本地清单：`library/notes/*.creator-videos.yaml`
 - 视频 pipeline：`src/seed/pipeline.py`
 - 创作者 pipeline：`src/seed/creator_pipeline.py`
 - ASR 分段转写：`src/seed/asr/chunked.py`
@@ -53,6 +57,8 @@ run-creator-pipeline
 - Markdown artifact 工具：`src/seed/markdown.py`
 - 共享分析 lens 入口：`src/seed/skill_refs.py`
 - 财经领域信号：`src/seed/domains/finance.py`
+- 新闻检索与 facts 蒸馏：`src/seed/domains/news.py`
+- 财报解析与 SEC baseline：`src/seed/domains/earnings.py`
 - 视频证据锚点：`src/seed/semantics/evidence.py`
 - Video DAG 构建：`src/seed/graphs/video_dag.py`
 - Creator DAG 构建：`src/seed/graphs/creator_dag.py`
@@ -65,7 +71,11 @@ run-creator-pipeline
   - `skills/video-semantics-analyzer/SKILL.md`
   - `skills/video-semantics-analyzer/references/video-analysis-lenses.md`
   - `skills/video-semantics-analyzer/references/domain-finance-lenses.md`
+  - `skills/video-semantics-analyzer/references/domain-news-lenses.md`
+  - `skills/video-semantics-analyzer/references/domain-earnings-lenses.md`
   - `skills/creator-profile-aggregator/SKILL.md`
+  - `skills/facts-distiller/SKILL.md`
+  - `skills/earnings-parser/SKILL.md`
 
 ## 架构规则
 
@@ -79,9 +89,9 @@ run-creator-pipeline
 - 长任务必须记录 run manifest 和 status JSON，至少包含 step、status、input、output、provider/model、started_at、finished_at、duration_seconds、artifact_paths、cost_delta、error。运行中状态写入 `library/runs/*.status.json`，供 CLI 和后续 live DAG 消费。
 - Pipeline live DAG 只展示运行态 step graph，输出 `library/runs/*.video-pipeline.live.html`；最终内容分析仍由 `library/graphs/*.video-dag.html` 承载，不要把运行态节点混入内容 DAG。
 - 平台下载逻辑只放在 `src/seed/sources/`。
-- 下载相关 source record 必须保留 `download_provider`、`fallback_used` 和 `download_notes`，方便定位 cookies、风控和 fallback 问题。
-- 创作者视频列表发现也属于 `sources/`，输出 `library/notes/*.creator-videos.yaml`，不要直接混入 ASR、视觉分析或总结逻辑；Bilibili 用户名搜索被风控时优先尝试 `--owner-id <mid>`。
-- 创作者批量入库从 `*.creator-videos.yaml` 读取 URL，复用 `download_url` 和 `save_source_record`，不要复制单链接下载逻辑；已有 source record 但没有本地 `raw_path` 时不能跳过下载。
+- 下载相关 source record 必须保留 `download_provider`、`fallback_used` 和 `download_notes`，方便定位平台错误码、风控和 fallback 问题。
+- 创作者清单由外部采集任务落盘为 `library/notes/*.creator-videos.yaml` 后进入本项目；命令层不要内置在线发现逻辑，不直接混入 ASR、视觉分析或总结逻辑。
+- 创作者批量入库从 `*.creator-videos.yaml` 读取 URL/路径，复用 `download_url` 和 `save_source_record`，已有 source record 但没有本地 `raw_path` 时不能跳过下载。
 - ASR 长音频分段在 `seed.asr.chunked`，不要在 CLI 或 provider 里重复实现切片与合并；线上 ASR provider 可能同时限制文件大小和音频时长，默认长于 300 秒要切片。
 - 短视频结构分析在 `seed.shorts`，不要把 shot detection 写进 timeline 或 visual notes；`run-video-pipeline` 会生成 short profile，并仅在 `is_short_form` 为 true 时生成 shots artifact。
 - shot detection 当前默认是 `ffmpeg-scene` baseline；后续接 PySceneDetect、TransNetV2 时必须做成 provider，不要把重依赖放进默认路径。
@@ -106,8 +116,10 @@ run-creator-pipeline
 - 给用户看的 DAG 默认优先生成静态 HTML；本地 server 只用于调试。
 - 视频分析 skills 必须复用 `video-analysis-lenses.md`，不要在 summarizer、semantics analyzer 和 creator aggregator 里各写一套互相冲突的分析框架。
 - 领域分析必须通过 domain lens 接入，例如财经方向使用 `--domain finance` 和 `domain-finance-lenses.md`；不要把财经规则硬编码到通用视频 pipeline。
-- 财经信号输出在 `library/semantics/*.finance-signals.json`，由 `seed extract-finance-signals` 或 `run-video-pipeline --domain finance` 生成；财经窗口汇总输出在 `library/distilled/*.finance-digest.json`，由 `seed build-finance-digest` 或 `run-creator-pipeline --domain finance` 生成；行情补强输出 `*.finance-digest.priced.json`，由 `seed enrich-finance-prices` 生成且必须显式传 ticker mapping。记录的是创作者观点、推荐/观察信号、风险和证据缺口，不是 Seed 的投资建议。
+- 财经信号输出在 `library/semantics/*.finance-signals.json`，由 `seed extract-finance-signals` 或 `run-video-pipeline --domain finance` 生成；财经窗口汇总输出在 `library/distilled/*.finance-digest.json`，由 `seed build-finance-digest` 或 `run-creator-pipeline --domain finance` 生成；行情补强输出 `*.finance-digest.priced.json`，由 `seed enrich-finance-prices` 生成且必须显式传 ticker mapping。记录的是创作者观点、`viewpoint_events`、兼容的 `recommendations`、风险和证据缺口，不是 Seed 的投资建议。
 - 财经相关结论必须保留发布时间、标的、动作、方向、时间窗口、证据引用和不确定性；没有 ticker 或动作时用 `unknown/null`，不要猜。
+- 新闻检索输出在 `library/news/*.news-search.json`，由 `seed search-news` 或 `seed research-news` 生成；facts 蒸馏输出在 `library/distilled/*.news-digest.json`；视频新闻事实输出在 `library/semantics/*.news-facts.json`，由 `seed extract-news-facts` 或 `run-video-pipeline --domain news` 生成。调研事实时必须先分 facts、reported claims、interpretation 和 source gaps。
+- 财报解析输出在 `library/earnings/*.sec-earnings.json`，由 `seed fetch-earnings` 或 `seed parse-earnings` 生成；财报蒸馏输出在 `library/distilled/*.earnings-digest.json`；视频财报说法输出在 `library/semantics/*.earnings-analysis.json`，由 `seed extract-earnings-analysis` 或 `run-video-pipeline --domain earnings` 生成。财报 primary source 默认是 SEC EDGAR，不猜 CIK/ticker，不输出投资建议。
 - “最近 10 天 top UP 说了什么”必须通过创作者列表、时间窗口、批量 pipeline 和 finance signals 汇总，不能只根据搜索结果或单条视频臆测。
 - 视频总结、视频语义和创作者聚合 prompt 必须注入共享 lenses；单条视频 prompt 还必须注入 `[T*]`、`[V*]`、`[F*]` 证据锚点。
 - 视频语义和 creator profile 的强结论必须带证据引用；如果证据不足，写入 Open Questions 或 Evidence Gaps，不要用模型猜测补齐。
@@ -124,11 +136,15 @@ run-creator-pipeline
 - 功能 lint：新增功能必须更新 `docs/todos.md` 的状态，长期存在的功能必须更新 `docs/architecture.md`。
 - Artifact lint：新增 `library/<dir>` 必须更新 `.gitignore`、`.gitkeep`、`src/seed/library.py`、`docs/architecture.md` 和本文件。
 - Pipeline lint：新增视频处理能力必须说明它在 pipeline 中的位置，不能只提供单步 demo。
-- Source lint：平台发现失败要保留 provider、错误码和 cookies/owner-id 建议；不要吞掉 352/412 这类风控诊断。
+- Source lint：平台下载失败要保留 provider、错误码和处理建议；不要吞掉 352/412 这类风控诊断。
 - Cost lint：新增外部模型/API/provider 调用必须记录或预留成本字段，并接入 cost ledger；批量 pipeline 必须考虑预算门槛。
 - DAG lint：新增关键 artifact 必须考虑是否需要 DAG 节点；如果节点能回到视频/音频证据，必须写入 `media_anchor` 或说明缺少时间点的原因。
 - Domain lint：新增领域方向先扩展 domain lens 和专用 artifact；通用 pipeline 只暴露 `--domain <name>`，不要为每个领域复制一套入口。
+- Research lint：新增新闻检索、财报解析、OCR、行情、fact-check、视频理解 provider、pipeline 编排等常见/通用能力时，必须先查官方文档、成熟开源项目或行业方案，把调研结论写入 `docs/research-competitors.md`，再 make plan 实现；不要闷头重造轮子。
+- Plan lint：调研后必须把实现计划拆成 provider、artifact、pipeline/DAG、CLI、docs/tests 五类影响面；已完成的一次性 plan 不长期留在 docs。
 - Finance lint：财经内容只能表达“创作者声称/暗示”，不得输出 Seed 自己的投资建议；推荐信号必须保留 evidence refs、risk flags、horizon 和 uncertainty。
+- News lint：新闻 facts digest 必须保留 source URLs、source titles、时间窗口、reported/confirmed/disputed/unclear 状态和 source gaps；行业影响只能写机制和不确定性。
+- Earnings lint：财报解析优先用 SEC/交易所/公司 IR primary source；必须保留 CIK、accession number、form、period、unit 和 filing date；没有 primary source 时只能输出待核验 claim。
 - Market data lint：行情补强不能猜 ticker；必须由 `--ticker-map 标的=ticker` 或未来可靠 mapping provider 提供，并记录 provider、source_url、价格日期和不确定状态。
 - Verification lint：涉及事实、价格、平台规则、模型价格、库选型等易变信息时，必须查官方或 primary source，并把来源写入调研或 artifact。
 - Canvas lint：不要再手写主布局算法；主路径使用 vendored 成熟布局库，手写逻辑只允许作为 fallback 或小交互 glue。遇到卡顿先做默认简版、卡片正文折叠、视口裁剪和右侧详情收起，不要降级成低信息密度图谱。
@@ -173,8 +189,10 @@ library/shots/*.motion-relations.json  短视频运动关系候选 JSON
 library/transcripts/  ASR 或人工 transcript
 library/frames/       抽帧截图和 shot 代表帧
 library/notes/        source record、creator video list、visual notes、quick summary
+library/news/         新闻检索结果
+library/earnings/     SEC 财报 facts artifact
 library/runs/         pipeline run manifest、运行态 status JSON 和 live HTML
-library/semantics/    单条视频语义、财经 finance signals
+library/semantics/    单条视频语义、财经 finance signals、新闻 facts、财报 analysis
 library/timelines/    视频时间线 JSON
 library/claims/       待核验 claim JSON
 library/costs/        单条视频 Qwen-VL 成本 JSON 和 pipeline cost ledger
@@ -205,8 +223,6 @@ git status -sb
 .venv/bin/seed run-creator-pipeline --help
 .venv/bin/seed profile-short-video --help
 .venv/bin/seed detect-shots --help
-.venv/bin/seed fetch-creator-videos --help
-.venv/bin/seed ingest-creator-videos --help
 .venv/bin/seed build-cost-ledger --help
 .venv/bin/seed build-video-dag --help
 .venv/bin/seed build-creator-dag --help
@@ -224,6 +240,12 @@ git status -sb
 .venv/bin/seed extract-finance-signals --help
 .venv/bin/seed build-finance-digest --help
 .venv/bin/seed enrich-finance-prices --help
+.venv/bin/seed search-news --help
+.venv/bin/seed research-news --help
+.venv/bin/seed distill-news-facts --help
+.venv/bin/seed fetch-earnings --help
+.venv/bin/seed parse-earnings --help
+.venv/bin/seed distill-earnings --help
 .venv/bin/seed validate-creator-profile --help
 ```
 
@@ -231,4 +253,4 @@ git status -sb
 
 - Creator profile 证据校验目前是 warning report，还没有阻断生成或自动修复。
 - HTML 画布是单文件原型，不是完整前端应用；复杂交互继续先保持单文件，但主布局必须继续依赖成熟布局库。
-- Bilibili UP 空间列表仍可能触发 352/412 风控；`--owner-id` 只能绕过用户名搜索，不能替代 cookies 或登录态。
+- 创作者样本列表来源与清单稳定性问题仍需持续校验；抓取/列表链路中的 352/412 等风控码要保留原样并给出处理建议。

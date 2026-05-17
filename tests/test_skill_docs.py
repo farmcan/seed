@@ -1,6 +1,8 @@
 from pathlib import Path
 
 from seed.domains.finance import build_finance_signals_prompt
+from seed.domains.news import build_news_semantics_prompt
+from seed.domains.earnings import build_earnings_semantics_prompt
 from seed.semantics.aggregator import build_creator_profile_prompt
 from seed.semantics.analyzer import build_video_semantics_prompt
 from seed.summarizers.codex_runner import build_summary_prompt
@@ -133,4 +135,40 @@ owner: finance-owner
     assert "Recommendation signal" in video_prompt
     assert "- Domain: finance" in profile_prompt
     assert '"recommendations"' in signals_prompt
+    assert '"viewpoint_events"' in signals_prompt
     assert "not as advice from Seed" in signals_prompt
+
+
+def test_news_and_earnings_domain_lenses_are_injected(tmp_path):
+    semantics_path = tmp_path / "domain.video-semantics.md"
+    semantics_path.write_text(
+        """---
+owner: domain-owner
+---
+
+## Main Claims
+
+- A company reported revenue growth after an industry event. [T1]
+""",
+        encoding="utf-8",
+    )
+
+    news_lenses = read_video_analysis_lenses(domains=["news"])
+    earnings_lenses = read_video_analysis_lenses(domains=["earnings"])
+    news_prompt = build_news_semantics_prompt(
+        semantics_path=semantics_path,
+        title="News Demo",
+        owner="domain-owner",
+        platform="bilibili",
+    )
+    earnings_prompt = build_earnings_semantics_prompt(
+        semantics_path=semantics_path,
+        title="Earnings Demo",
+        owner="domain-owner",
+        platform="bilibili",
+    )
+
+    assert "News Domain Lenses" in news_lenses
+    assert "Separate factual claims" in news_prompt
+    assert "Earnings Domain Lenses" in earnings_lenses
+    assert "needs_sec_verification" in earnings_prompt

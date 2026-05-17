@@ -27,6 +27,8 @@ library/              本地私有知识库，默认不提交内容
   shots/              shot boundary 和 motion relations artifact
   transcripts/        转写文本
   notes/              人工或模型整理笔记
+  news/               新闻检索结果
+  earnings/           SEC 财报事实
   semantics/          融合口播和视觉语言的视频语义
   graphs/             可视化 DAG 图谱 JSON
   distilled/          UP/作者/主题总结
@@ -36,7 +38,7 @@ library/              本地私有知识库，默认不提交内容
 
 ## 快速开始
 
-推荐优先使用两个主入口：`run-video-pipeline` 处理单条视频，`run-creator-pipeline` 处理一个 UP/作者的批量样本。其他命令主要用于调试、补跑或查看中间 artifact。
+推荐优先使用两个主入口：`run-video-pipeline` 处理单条视频，`run-creator-pipeline` 处理本地清单定义的单个创作者样本。其他命令主要用于调试、补跑或查看中间 artifact。
 
 ```bash
 cd seed
@@ -46,11 +48,13 @@ pip install -e ".[dev]"
 seed init-library
 seed run-video-pipeline "https://www.bilibili.com/video/..." --platform bilibili --owner "some-up" --authorized
 seed run-video-pipeline library/raw/short-demo.mp4 --title "short-demo" --short-form --shot-detection
-seed run-creator-pipeline "some-up" --platform bilibili --owner-id "<bilibili-mid>" --limit 3 --authorized
+seed run-creator-pipeline "some-owner" --platform bilibili --limit 3 --authorized
+seed research-news "Trump China visit" --max-records 25
+seed parse-earnings AAPL
 seed distill-note library/transcripts/example.md --owner "some-up" --topic "增长方法论"
 ```
 
-`ingest-url` 默认不下载视频，只记录来源。需要下载时显式传入 `--download`，并确保你对内容保存和分析有合法授权。下载文件会进入 `library/raw/`，同名 `.info.json` 保存平台元数据。Bilibili 优先使用 `yt-dlp`；如果网页层被 412 拦截，会回退到公开 playurl API，并用 `ffmpeg` 合成低清晰度 mp4。小红书优先使用 `yt-dlp` 内置的 `XiaoHongShu` extractor；如果公开页面拿不到格式，可以传入新鲜分享链接、`XIAOHONGSHU_COOKIES_FILE`，或显式使用 `--cookies-from-browser`。
+`ingest-url` 默认不下载视频，只记录来源。需要下载时显式传入 `--download`，并确保你对内容保存和分析有合法授权。下载文件会进入 `library/raw/`，同名 `.info.json` 保存平台元数据。下载器集中在 `src/seed/sources/`，不在 pipeline 外层重复实现抓取逻辑。
 
 ASR 默认使用 DashScope/Qwen，模型为 `qwen3-asr-flash`，需要先配置 `DASHSCOPE_API_KEY` 或 `QWEN_API_KEY`。也可以传 `--provider openai --model gpt-4o-mini-transcribe` 使用 OpenAI。转写前会用 `ffmpeg` 抽取 16 kHz 单声道 MP3，兼容 DashScope 和 OpenAI。`--prompt` 只在需要术语表或上下文偏置时显式传入。需要视觉分析时，先用 `extract-frames` 抽帧，再用 `analyze-frames --model qwen-vl-max` 生成视觉笔记；总结时传入 `--visual-notes` 合并画面信息。总结阶段通过 `codex exec` 非交互进程读取 transcript 和 `skills/video-note-summarizer/SKILL.md`，输出 Markdown 到 `library/notes/`。
 
@@ -58,7 +62,9 @@ ASR 默认使用 DashScope/Qwen，模型为 `qwen3-asr-flash`，需要先配置 
 
 60s 以内短视频会额外生成 `library/shorts/*.short-video-profile.json`、`library/shots/*.shots.json`、`library/frames/*.frame-notes.jsonl` 和 `library/shots/*.motion-relations.json`。当前 baseline 使用 `ffprobe` 判断 duration/fps/宽高比，用 `ffmpeg` scene threshold 切 shot，按 shot 代表帧生成 frame evidence，再生成 `needs_pose_or_vl` 的运动关系候选，并把这些产物接入 video DAG；后续再补逐帧 VL/OCR、PySceneDetect/TransNetV2、MediaPipe/OpenPose/YOLO pose 和 OpenCV optical flow provider。
 
-UP 主聚合阶段默认由 `run-creator-pipeline` 串起：获取视频列表、入库、逐条运行视频 pipeline、汇总 creator cost ledger、聚合 creator profile、生成 agent assets，并导出 creator DAG HTML。`aggregate-owner`、`generate-agent-assets` 和 `build-creator-dag` 仍可单独用于补跑或调试。默认至少需要 3 条同 owner 的 video semantics 才会聚合 creator profile；少量样本可用 `--min-profile-videos` 明确降级。
+创作者聚合阶段默认由 `run-creator-pipeline` 串起：读取本地视频清单、逐条运行视频 pipeline、汇总 creator cost ledger、聚合 creator profile、生成 agent assets，并导出 creator DAG HTML。`aggregate-owner`、`generate-agent-assets` 和 `build-creator-dag` 仍可单独用于补跑或调试。默认至少需要 3 条同 owner 的 video semantics 才会聚合 creator profile；少量样本可用 `--min-profile-videos` 明确降级。
+
+财经、新闻和财报是 domain 能力：`--domain finance` 生成创作者观点事件和后验行情补强入口；`--domain news` 生成事实队列；`--domain earnings` 生成财报说法队列。独立命令里，`research-news` 使用 GDELT 检索并蒸馏 facts-first digest，`parse-earnings` 使用 SEC EDGAR submissions/companyfacts 拉取财报事实并生成 digest。
 
 本地可视化原型在 `tools/video-dag-canvas.html`，可直接用浏览器打开。它提供无限画布、DAG 节点拖拽、缩放、平移、节点编辑和 JSON 导出，用于展示视频分析链路中的 source、video/audio media、frames、visual notes、timeline、semantics 子节点、creator signals、creator profile 和 agent assets。选择视频、音频或截图节点时，右侧 inspector 会直接预览本地素材。
 `build-video-dag` 会生成 `library/graphs/*.video-dag.json`，可在画布中用“导入”按钮直接加载；支持的浏览器环境也可以用 `tools/video-dag-canvas.html?graph=../library/graphs/example.video-dag.json` 自动加载。

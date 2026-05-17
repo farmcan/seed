@@ -29,6 +29,8 @@ from seed.dag_export import (
     video_dag_html_output_path,
 )
 from seed.domains.finance import finance_signals_output_path, run_finance_signals_extraction
+from seed.domains.news import news_facts_output_path, run_news_facts_extraction
+from seed.domains.earnings import earnings_analysis_output_path, run_earnings_analysis_extraction
 from seed.factcheck import build_claims_artifact, claims_output_path, write_claims_artifact
 from seed.graphs.video_dag import (
     build_video_dag_graph,
@@ -37,7 +39,7 @@ from seed.graphs.video_dag import (
     write_video_dag_graph,
 )
 from seed.library import init_library, save_source_record, slugify
-from seed.media import extract_audio
+from seed.media import extract_audio, has_audio_stream
 from seed.models import Platform, SourceRecord
 from seed.semantics.analyzer import (
     DEFAULT_VIDEO_SEMANTICS_SKILL_PATH,
@@ -132,6 +134,8 @@ class VideoPipelineContext:
     cost_ledger_path: Path | None = None
     semantics_path: Path | None = None
     finance_signals_path: Path | None = None
+    news_facts_path: Path | None = None
+    earnings_analysis_path: Path | None = None
     timeline_path: Path | None = None
     claims_path: Path | None = None
     graph_path: Path | None = None
@@ -179,6 +183,10 @@ def planned_video_pipeline_steps(options: VideoPipelineOptions) -> list[str]:
     steps.append("analyze_video_semantics")
     if options.domain == "finance":
         steps.append("extract_finance_signals")
+    if options.domain == "news":
+        steps.append("extract_news_facts")
+    if options.domain == "earnings":
+        steps.append("extract_earnings_analysis")
     steps.extend(
         [
             "build_cost_ledger",
@@ -374,6 +382,22 @@ def run_video_pipeline(options: VideoPipelineOptions) -> tuple[VideoPipelineCont
         run_step(
             "extract_finance_signals",
             lambda: _finance_signals_step(options, context),
+            inputs={"semantics_path": context.semantics_path},
+            provider="codex",
+            model=options.codex_model,
+        )
+    if options.domain == "news":
+        run_step(
+            "extract_news_facts",
+            lambda: _news_facts_step(options, context),
+            inputs={"semantics_path": context.semantics_path},
+            provider="codex",
+            model=options.codex_model,
+        )
+    if options.domain == "earnings":
+        run_step(
+            "extract_earnings_analysis",
+            lambda: _earnings_analysis_step(options, context),
             inputs={"semantics_path": context.semantics_path},
             provider="codex",
             model=options.codex_model,
@@ -619,6 +643,24 @@ def _transcribe_step(options: VideoPipelineOptions, context: VideoPipelineContex
 
     resolved_model = options.asr_model or default_model_for_provider(options.asr_provider)
     resolved_max_upload_mb = options.max_upload_mb or default_max_upload_mb_for_provider(options.asr_provider)
+    audio_path = media_path.with_suffix(".asr.mp3")
+    if not has_audio_stream(media_path):
+        fallback_text = "## No Audio Stream\n\nThis media has no embedded audio track, transcript generation was skipped."
+        write_transcript_markdown(
+            output_path,
+            text=fallback_text,
+            media_path=media_path,
+            audio_path=audio_path,
+            provider=options.asr_provider,
+            model="n/a",
+            title=context.title,
+            language=options.language,
+            chunks=[],
+        )
+        context.audio_path = None
+        context.transcript_path = output_path
+        return {"status": "skipped", "transcript_path": output_path, "reason": "no_audio_stream"}
+
     audio_path = extract_audio(media_path, options.library_root)
     text, chunks = transcribe_audio_with_optional_chunks(
         audio_path,
@@ -891,6 +933,44 @@ def _finance_signals_step(options: VideoPipelineOptions, context: VideoPipelineC
     return {"finance_signals_path": output_path}
 
 
+def _news_facts_step(options: VideoPipelineOptions, context: VideoPipelineContext) -> dict[str, Any]:
+    semantics_path = _require_path(context.semantics_path, "semantics_path")
+    output_path = news_facts_output_path(library_root=options.library_root, title=context.title)
+    if output_path.exists() and not options.force:
+        context.news_facts_path = output_path
+        return {"status": "skipped", "news_facts_path": output_path}
+    run_news_facts_extraction(
+        semantics_path=semantics_path,
+        output_path=output_path,
+        title=context.title,
+        owner=context.owner,
+        platform=context.platform,
+        model=options.codex_model,
+        cwd=Path.cwd(),
+    )
+    context.news_facts_path = output_path
+    return {"news_facts_path": output_path}
+
+
+def _earnings_analysis_step(options: VideoPipelineOptions, context: VideoPipelineContext) -> dict[str, Any]:
+    semantics_path = _require_path(context.semantics_path, "semantics_path")
+    output_path = earnings_analysis_output_path(library_root=options.library_root, title=context.title)
+    if output_path.exists() and not options.force:
+        context.earnings_analysis_path = output_path
+        return {"status": "skipped", "earnings_analysis_path": output_path}
+    run_earnings_analysis_extraction(
+        semantics_path=semantics_path,
+        output_path=output_path,
+        title=context.title,
+        owner=context.owner,
+        platform=context.platform,
+        model=options.codex_model,
+        cwd=Path.cwd(),
+    )
+    context.earnings_analysis_path = output_path
+    return {"earnings_analysis_path": output_path}
+
+
 def _timeline_step(options: VideoPipelineOptions, context: VideoPipelineContext) -> dict[str, Any]:
     output_path = timeline_output_path(
         library_root=options.library_root,
@@ -939,6 +1019,8 @@ def _dag_step(options: VideoPipelineOptions, context: VideoPipelineContext) -> d
         visual_notes_path=context.visual_notes_path,
         semantics_path=context.semantics_path,
         finance_signals_path=context.finance_signals_path,
+        news_facts_path=context.news_facts_path,
+        earnings_analysis_path=context.earnings_analysis_path,
         timeline_path=context.timeline_path,
         claims_path=context.claims_path,
         cost_path=context.cost_ledger_path or context.cost_path,
@@ -958,6 +1040,8 @@ def _dag_step(options: VideoPipelineOptions, context: VideoPipelineContext) -> d
         visual_notes_path=artifacts["visual_notes_path"],
         semantics_path=artifacts["semantics_path"],
         finance_signals_path=artifacts["finance_signals_path"],
+        news_facts_path=artifacts["news_facts_path"],
+        earnings_analysis_path=artifacts["earnings_analysis_path"],
         timeline_path=artifacts["timeline_path"],
         claims_path=artifacts["claims_path"],
         cost_path=artifacts["cost_path"],

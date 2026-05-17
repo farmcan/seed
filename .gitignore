@@ -16,6 +16,9 @@ library/shots/*
 library/frames/*
 library/transcripts/*
 library/notes/*
+library/news/*
+library/earnings/*
+library/reports/*
 library/runs/*
 library/semantics/*
 library/timelines/*

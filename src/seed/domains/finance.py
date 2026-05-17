@@ -11,6 +11,8 @@ from seed.agents.codex import run_codex_prompt
 from seed.library import init_library, slugify
 from seed.skill_refs import read_video_analysis_lenses
 
+EVENT_PRICE_HORIZONS_DAYS = [1, 5, 20, 60]
+
 
 def finance_signals_output_path(*, library_root: Path, title: str) -> Path:
     init_library(library_root)
@@ -107,7 +109,7 @@ JSON schema:
   "recommendations": [
     {{
       "instrument": string,
-      "action": "buy" | "sell" | "hold" | "watch" | "avoid" | "add" | "reduce" | "allocate" | "unknown",
+      "action": "buy" | "sell" | "hold" | "watch" | "avoid" | "add" | "reduce" | "allocate" | "don't buy" | "short sell" | "unknown",
       "direction": "bullish" | "bearish" | "neutral" | "mixed" | "unknown",
       "horizon": string | null,
       "conviction": "high" | "medium" | "low" | "unknown",
@@ -116,6 +118,32 @@ JSON schema:
       "catalysts": [string],
       "risk_controls": [string],
       "evidence_refs": [string],
+      "uncertainty": string | null
+    }}
+  ],
+  "viewpoint_events": [
+    {{
+      "event_id": string,
+      "video_title": string,
+      "published_at": string | null,
+      "instrument": string,
+      "ticker": string | null,
+      "asset_class": string | null,
+      "action": "buy" | "sell" | "hold" | "watch" | "avoid" | "add" | "reduce" | "allocate" | "don't buy" | "short sell" | "unknown",
+      "direction": "bullish" | "bearish" | "neutral" | "mixed" | "unknown",
+      "horizon": string | null,
+      "conviction": "high" | "medium" | "low" | "unknown",
+      "entry_condition": string | null,
+      "exit_or_invalidation": string | null,
+      "risk_flags": [string],
+      "evidence_refs": [string],
+      "timestamp_start": string | null,
+      "timestamp_end": string | null,
+      "modality_evidence": {{
+        "transcript_refs": [string],
+        "visual_refs": [string],
+        "frame_refs": [string]
+      }},
       "uncertainty": string | null
     }}
   ],
@@ -219,6 +247,11 @@ def build_finance_digest_artifact(
         for record in records
         for recommendation in record["recommendations"]
     ]
+    viewpoint_events = [
+        {**event, "video_title": event.get("video_title") or record["title"], "signal_path": record["signal_path"]}
+        for record in records
+        for event in record["viewpoint_events"]
+    ]
     instruments = summarize_named_items(
         [instrument for record in records for instrument in record["instruments"]],
         name_key="name",
@@ -244,11 +277,13 @@ def build_finance_digest_artifact(
         "totals": {
             "instruments": len(instruments),
             "recommendations": len(recommendations),
+            "viewpoint_events": len(viewpoint_events),
             "macro_theses": sum(len(record["macro_theses"]) for record in records),
             "methodology_signals": len(methodologies),
         },
         "instruments": instruments,
         "recommendations": recommendations,
+        "viewpoint_events": viewpoint_events,
         "macro_theses": [
             {**thesis, "video_title": record["title"], "signal_path": record["signal_path"]}
             for record in records
@@ -280,11 +315,60 @@ def build_finance_digest_record(
         "stance_summary": signals.get("stance_summary"),
         "instruments": signals.get("instruments") or [],
         "recommendations": signals.get("recommendations") or [],
+        "viewpoint_events": signals.get("viewpoint_events")
+        or build_legacy_viewpoint_events(
+            title=title,
+            recommendations=signals.get("recommendations") or [],
+            instruments=signals.get("instruments") or [],
+            published_at=metadata.get("published_at"),
+        ),
         "macro_theses": signals.get("macro_theses") or [],
         "methodology_signals": signals.get("methodology_signals") or [],
         "risk_flags": signals.get("risk_flags") or [],
         "evidence_gaps": signals.get("evidence_gaps") or [],
     }
+
+
+def build_legacy_viewpoint_events(
+    *,
+    title: str,
+    recommendations: list[dict[str, Any]],
+    instruments: list[dict[str, Any]],
+    published_at: str | None,
+) -> list[dict[str, Any]]:
+    instrument_tickers = {
+        str(item.get("name") or "").casefold(): item.get("ticker") for item in instruments
+    }
+    events: list[dict[str, Any]] = []
+    for index, recommendation in enumerate(recommendations):
+        instrument = str(recommendation.get("instrument") or "unknown").strip()
+        events.append(
+            {
+                "event_id": f"{slugify(title)}-{slugify(instrument or 'unknown')}-{index + 1}",
+                "video_title": title,
+                "published_at": published_at,
+                "instrument": instrument,
+                "ticker": instrument_tickers.get(instrument.casefold()),
+                "asset_class": None,
+                "action": recommendation.get("action") or "unknown",
+                "direction": recommendation.get("direction") or "unknown",
+                "horizon": recommendation.get("horizon"),
+                "conviction": recommendation.get("conviction") or "unknown",
+                "entry_condition": recommendation.get("rationale"),
+                "exit_or_invalidation": None,
+                "risk_flags": recommendation.get("risk_controls") or [],
+                "evidence_refs": recommendation.get("evidence_refs") or [],
+                "timestamp_start": None,
+                "timestamp_end": None,
+                "modality_evidence": {
+                    "transcript_refs": [],
+                    "visual_refs": [],
+                    "frame_refs": [],
+                },
+                "uncertainty": recommendation.get("uncertainty"),
+            }
+        )
+    return events
 
 
 def record_matches_window(
@@ -365,27 +449,80 @@ def enrich_finance_digest_with_prices(
         raise ValueError(f"Unsupported market data provider: {provider}")
     histories: dict[str, list[dict[str, Any]]] = {}
 
-    def history_for(ticker: str) -> list[dict[str, Any]]:
+    def history_for(ticker: str | None) -> list[dict[str, Any]]:
+        if not ticker:
+            return []
         normalized = ticker.strip().lower()
         if normalized not in histories:
             histories[normalized] = fetch_stooq_daily_history(normalized)
         return histories[normalized]
 
-    benchmark_history = history_for(benchmark_ticker) if benchmark_ticker else []
+    event_ticker_map = {
+        str(event.get("instrument") or "").casefold(): event.get("ticker")
+        for event in digest.get("viewpoint_events") or []
+        if event.get("instrument") and event.get("ticker")
+    }
     priced_recommendations = []
     for recommendation in digest.get("recommendations") or []:
         instrument = str(recommendation.get("instrument") or "")
-        ticker = ticker_map.get(instrument) or ticker_map.get(instrument.casefold())
+        mapped = (
+            event_ticker_map.get(instrument.casefold())
+            or ticker_map.get(instrument)
+            or ticker_map.get(instrument.casefold())
+        )
         published_at = published_at_for_recommendation(digest, recommendation)
         market_data = build_market_data_record(
-            ticker=ticker,
+            ticker=mapped,
             published_at=published_at,
-            history=history_for(ticker) if ticker else [],
+            history=history_for(mapped),
             benchmark_ticker=benchmark_ticker,
-            benchmark_history=benchmark_history,
+            benchmark_history=history_for(benchmark_ticker),
             provider=provider,
         )
-        priced_recommendations.append({**recommendation, "market_data": market_data})
+        priced_recommendations.append(
+            {
+                **recommendation,
+                "market_data": market_data,
+                "ticker": mapped,
+                "ticker_source": "event" if event_ticker_map.get(instrument.casefold()) else "mapping",
+            }
+        )
+
+    priced_viewpoint_events = []
+    for event in digest.get("viewpoint_events") or []:
+        ticker = event.get("ticker")
+        if not ticker:
+            instrument = str(event.get("instrument") or "")
+            ticker = ticker_map.get(instrument) or ticker_map.get(instrument.casefold())
+        event_ticker_source = "map"
+        if event.get("ticker"):
+            event_ticker_source = "signal"
+        elif instrument_ticker := event_ticker_map.get(str(event.get("instrument") or "").casefold()):
+            event_ticker_source = "event"
+            ticker = instrument_ticker
+        published_at = parse_datetime(event.get("published_at"))
+        if published_at is None:
+            title = event.get("video_title")
+            for record in digest.get("video_records") or []:
+                if record.get("title") == title:
+                    published_at = parse_datetime(record.get("published_at"))
+                    break
+        event_outcomes = build_market_data_outcomes(
+            ticker=ticker,
+            published_at=published_at,
+            history=history_for(ticker),
+            benchmark_ticker=benchmark_ticker,
+            benchmark_history=history_for(benchmark_ticker),
+            provider=provider,
+        )
+        priced_viewpoint_events.append(
+            {
+                **event,
+                "ticker": ticker,
+                "ticker_source": event_ticker_source if ticker else None,
+                "event_outcomes": event_outcomes,
+            }
+        )
 
     enriched = {
         **digest,
@@ -398,6 +535,7 @@ def enrich_finance_digest_with_prices(
             "not_investment_advice": True,
         },
         "recommendations": priced_recommendations,
+        "viewpoint_events": priced_viewpoint_events,
     }
     enriched["totals"] = {
         **(digest.get("totals") or {}),
@@ -406,8 +544,149 @@ def enrich_finance_digest_with_prices(
             for recommendation in priced_recommendations
             if recommendation.get("market_data", {}).get("status") == "priced"
         ),
+        "priced_viewpoint_events": sum(
+            1
+            for event in priced_viewpoint_events
+            if event.get("event_outcomes", {}).get("status") == "priced"
+        ),
     }
     return enriched
+
+
+def build_market_data_outcomes(
+    *,
+    ticker: str | None,
+    published_at: datetime | None,
+    history: list[dict[str, Any]],
+    benchmark_ticker: str | None,
+    benchmark_history: list[dict[str, Any]],
+    provider: str,
+) -> dict[str, Any]:
+    if not ticker:
+        return {"status": "missing_ticker", "provider": provider}
+    if published_at is None:
+        return {"status": "missing_published_at", "provider": provider, "ticker": ticker}
+    if not history:
+        return {"status": "no_price_history", "provider": provider, "ticker": ticker}
+
+    publish_index = select_price_index_on_or_before(history, published_at)
+    if publish_index is None:
+        return {"status": "no_price_on_or_before_publish_date", "provider": provider, "ticker": ticker}
+
+    latest_index = len(history) - 1
+    outcomes: dict[str, Any] = {}
+    for horizon_days in EVENT_PRICE_HORIZONS_DAYS:
+        outcomes[f"{horizon_days}D"] = build_horizon_price_outcome(
+            history=history,
+            benchmark_history=benchmark_history,
+            ticker=ticker,
+            horizon_days=horizon_days,
+            publish_index=publish_index,
+            benchmark_ticker=benchmark_ticker,
+            provider=provider,
+        )
+
+    latest_outcome = build_latest_price_outcome(
+        ticker=ticker,
+        history=history,
+        benchmark_ticker=benchmark_ticker,
+        benchmark_history=benchmark_history,
+        publish_index=publish_index,
+        latest_index=latest_index,
+        provider=provider,
+    )
+    return {
+        "status": "priced",
+        "provider": provider,
+        "ticker": ticker,
+        "horizons": outcomes,
+        "latest": latest_outcome,
+    }
+
+
+def build_horizon_price_outcome(
+    *,
+    history: list[dict[str, Any]],
+    benchmark_history: list[dict[str, Any]],
+    ticker: str,
+    horizon_days: int,
+    publish_index: int,
+    benchmark_ticker: str | None,
+    provider: str,
+) -> dict[str, Any]:
+    target_index = publish_index + horizon_days
+    if target_index >= len(history):
+        return {
+            "horizon_days": horizon_days,
+            "status": "insufficient_history",
+            "provider": provider,
+            "ticker": ticker,
+            "published_price_date": history[publish_index]["date"],
+        }
+
+    published = history[publish_index]
+    target = history[target_index]
+    asset_return = percent_change(float(published["close"]), float(target["close"]))
+    max_drawdown = compute_max_drawdown(history[publish_index : target_index + 1])
+    benchmark_return = None
+    relative_return = None
+    if benchmark_ticker and benchmark_history:
+        benchmark_publish_index = select_price_index_on_or_before(
+            benchmark_history,
+            datetime.fromisoformat(published["date"] + "T00:00:00+00:00"),
+        )
+        if benchmark_publish_index is not None:
+            benchmark_target_index = select_price_index_or_last(
+                benchmark_history,
+                benchmark_publish_index + horizon_days,
+            )
+            benchmark_published = benchmark_history[benchmark_publish_index]
+            benchmark_target = benchmark_history[benchmark_target_index]
+            benchmark_return = percent_change(
+                float(benchmark_published["close"]),
+                float(benchmark_target["close"]),
+            )
+            relative_return = round(asset_return - benchmark_return, 4)
+
+    return {
+        "horizon_days": horizon_days,
+        "status": "priced",
+        "provider": provider,
+        "ticker": ticker,
+        "published_price_date": published["date"],
+        "target_price_date": target["date"],
+        "trading_days": target_index - publish_index,
+        "asset_return": asset_return,
+        "max_drawdown": max_drawdown,
+        "benchmark_return": benchmark_return,
+        "relative_return": relative_return,
+        "source_url": stooq_daily_csv_url(ticker),
+    }
+
+
+def build_latest_price_outcome(
+    *,
+    ticker: str,
+    history: list[dict[str, Any]],
+    benchmark_ticker: str | None,
+    benchmark_history: list[dict[str, Any]],
+    publish_index: int,
+    latest_index: int,
+    provider: str,
+) -> dict[str, Any]:
+    published = history[publish_index]
+    latest = history[latest_index]
+    return {
+        "status": "priced",
+        "provider": provider,
+        "ticker": ticker,
+        "published_price_date": published["date"],
+        "latest_price_date": latest["date"],
+        "trading_days": latest_index - publish_index,
+        "asset_return": percent_change(float(published["close"]), float(latest["close"])),
+        "max_drawdown": compute_max_drawdown(history[publish_index : latest_index + 1]),
+        "source_url": stooq_daily_csv_url(ticker),
+    }
 
 
 def build_market_data_record(
@@ -515,6 +794,39 @@ def select_price_on_or_before(
         if datetime.fromisoformat(str(row["date"])).date() <= target
     ]
     return eligible[-1] if eligible else None
+
+
+def select_price_index_on_or_before(
+    history: list[dict[str, Any]],
+    published_at: datetime,
+) -> int | None:
+    target = ensure_utc(published_at).date()
+    latest_index: int | None = None
+    for index, row in enumerate(history):
+        row_date = datetime.fromisoformat(str(row["date"])).date()
+        if row_date <= target:
+            latest_index = index
+        else:
+            break
+    return latest_index
+
+
+def select_price_index_or_last(history: list[dict[str, Any]], index: int) -> int | None:
+    if not history or index < 0:
+        return None
+    if index < len(history):
+        return index
+    return len(history) - 1
+
+
+def compute_max_drawdown(price_rows: list[dict[str, Any]]) -> float | None:
+    if len(price_rows) <= 1:
+        return 0.0
+    start_price = float(price_rows[0]["close"])
+    if start_price == 0:
+        return 0.0
+    min_price = min(float(row["close"]) for row in price_rows)
+    return round(((min_price - start_price) / start_price) * 100, 4)
 
 
 def percent_change(start: float, end: float) -> float:

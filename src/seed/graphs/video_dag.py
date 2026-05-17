@@ -29,6 +29,8 @@ def build_video_dag_graph(
     visual_notes_path: Path | None = None,
     semantics_path: Path | None = None,
     finance_signals_path: Path | None = None,
+    news_facts_path: Path | None = None,
+    earnings_analysis_path: Path | None = None,
     timeline_path: Path | None = None,
     claims_path: Path | None = None,
     cost_path: Path | None = None,
@@ -46,6 +48,8 @@ def build_video_dag_graph(
     frame_paths = list_frame_paths(frame_dir)
     semantics_text = semantics_path.read_text(encoding="utf-8") if semantics_path and semantics_path.exists() else ""
     finance_signals = load_json_artifact(finance_signals_path)
+    news_facts = load_json_artifact(news_facts_path)
+    earnings_analysis = load_json_artifact(earnings_analysis_path)
     timeline = load_timeline(timeline_path)
     timeline_events = timeline.get("events", []) if timeline else []
     claims = load_claims(claims_path)
@@ -326,6 +330,40 @@ def build_video_dag_graph(
                 finance_signals_path,
             )
         )
+    if news_facts:
+        nodes.append(
+            node(
+                "news-facts",
+                "asset",
+                "News Facts",
+                news_facts_summary(news_facts),
+                850,
+                -560,
+                [
+                    path_metric(news_facts_path),
+                    f"{len(news_facts.get('facts') or [])} facts",
+                    f"{len(news_facts.get('open_questions') or [])} open questions",
+                ],
+                news_facts_path,
+            )
+        )
+    if earnings_analysis:
+        nodes.append(
+            node(
+                "earnings-analysis",
+                "asset",
+                "Earnings Analysis",
+                earnings_analysis_summary(earnings_analysis),
+                1180,
+                -360,
+                [
+                    path_metric(earnings_analysis_path),
+                    f"{len(earnings_analysis.get('companies') or [])} companies",
+                    f"{len(earnings_analysis.get('earnings_claims') or [])} claims",
+                ],
+                earnings_analysis_path,
+            )
+        )
 
     edges = [
         ["source", "video-media"],
@@ -369,6 +407,22 @@ def build_video_dag_graph(
                 ["finance-signals", "creator-signals"],
             ]
         )
+    if news_facts:
+        edges.extend(
+            [
+                ["semantics", "news-facts"],
+                ["news-facts", "factcheck"],
+                ["news-facts", "creator-signals"],
+            ]
+        )
+    if earnings_analysis:
+        edges.extend(
+            [
+                ["semantics", "earnings-analysis"],
+                ["earnings-analysis", "factcheck"],
+                ["earnings-analysis", "creator-signals"],
+            ]
+        )
 
     return {
         "version": 1,
@@ -391,6 +445,8 @@ def resolve_video_dag_artifacts(
     visual_notes_path: Path | None = None,
     semantics_path: Path | None = None,
     finance_signals_path: Path | None = None,
+    news_facts_path: Path | None = None,
+    earnings_analysis_path: Path | None = None,
     timeline_path: Path | None = None,
     claims_path: Path | None = None,
     cost_path: Path | None = None,
@@ -422,6 +478,22 @@ def resolve_video_dag_artifacts(
             title_slug=title_slug,
             suffixes={".json"},
             preferred_suffix=".finance-signals",
+            require_preferred=True,
+        ),
+        "news_facts_path": news_facts_path
+        or find_matching_file(
+            library_root / "semantics",
+            title_slug=title_slug,
+            suffixes={".json"},
+            preferred_suffix=".news-facts",
+            require_preferred=True,
+        ),
+        "earnings_analysis_path": earnings_analysis_path
+        or find_matching_file(
+            library_root / "semantics",
+            title_slug=title_slug,
+            suffixes={".json"},
+            preferred_suffix=".earnings-analysis",
             require_preferred=True,
         ),
         "timeline_path": timeline_path
@@ -672,12 +744,40 @@ def finance_signals_summary(signals: dict[str, Any]) -> str:
     if not signals:
         return "财经领域信号 artifact 尚未生成。它用于结构化记录标的、方向、动作、时间窗口、风险控制和证据引用；所有内容都是创作者观点，不是投资建议。"
     instruments = signals.get("instruments") or []
+    viewpoint_events = signals.get("viewpoint_events") or []
     recommendations = signals.get("recommendations") or []
     methods = signals.get("methodology_signals") or []
     stance = signals.get("stance_summary") or "no stance summary"
     return (
-        f"已提取 {len(instruments)} 个标的、{len(recommendations)} 条推荐/观察信号、"
+        f"已提取 {len(instruments)} 个标的、{len(viewpoint_events) or len(recommendations)} 条观点事件、"
+        f"{len(recommendations)} 条兼容推荐信号、"
         f"{len(methods)} 条方法论信号。立场摘要：{stance}"
+    )
+
+
+def news_facts_summary(artifact: dict[str, Any]) -> str:
+    if not artifact:
+        return "新闻事实 artifact 尚未生成。它用于把事实、reported claims、解释和来源缺口分开。"
+    facts = artifact.get("facts") or []
+    claims = artifact.get("reported_claims") or []
+    impacts = artifact.get("industry_impacts") or []
+    summary = artifact.get("summary") or "no summary"
+    return (
+        f"已提取 {len(facts)} 条事实、{len(claims)} 条 attributed claims、"
+        f"{len(impacts)} 条行业影响机制。摘要：{summary}"
+    )
+
+
+def earnings_analysis_summary(artifact: dict[str, Any]) -> str:
+    if not artifact:
+        return "财报分析 artifact 尚未生成。它用于把公司、财报 claim、驱动因素和待 SEC 核验缺口分开。"
+    companies = artifact.get("companies") or []
+    claims = artifact.get("earnings_claims") or []
+    drivers = artifact.get("drivers") or []
+    risks = artifact.get("risks") or []
+    return (
+        f"已提取 {len(companies)} 家公司、{len(claims)} 条财报 claim、"
+        f"{len(drivers)} 个驱动因素、{len(risks)} 个风险。"
     )
 
 
