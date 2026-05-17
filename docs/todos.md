@@ -236,6 +236,9 @@
 - [x] 把新闻 facts digest 接入财经事件上下文。
   - `seed enrich-finance-news` 可把一个或多个 `*.news-digest.json` 确定性挂到 `viewpoint_events[].news_context`。
   - 匹配依据是实体、ticker、标的、行业和 fact refs；只引用 facts、source URLs、industry impacts、market relevance、source gaps 和 open questions，不自动生成交易建议。
+- [x] 增加财经观点新闻事实 HTML 报告。
+  - `seed build-finance-news-report <*.finance-digest.news-context.json>` 输出 `library/reports/*.finance-news-report.html`。
+  - 报告按热点概览、UP 观点卡、视频观点事件、新闻 facts 对照、行业影响、source gaps 和 open questions 展示，方便人工快速看每天 UP 观点和事实支撑。
 
 ## 已完成基础
 

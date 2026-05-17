@@ -116,7 +116,7 @@ compare-up-profiles
 - 给用户看的 DAG 默认优先生成静态 HTML；本地 server 只用于调试。
 - 视频分析 skills 必须复用 `video-analysis-lenses.md`，不要在 summarizer、semantics analyzer 和 creator aggregator 里各写一套互相冲突的分析框架。
 - 领域分析必须通过 domain lens 接入，例如财经方向使用 `--domain finance` 和 `domain-finance-lenses.md`；不要把财经规则硬编码到通用视频 pipeline。
-- 财经信号输出在 `library/semantics/*.finance-signals.json`，由 `seed extract-finance-signals` 或 `run-video-pipeline --domain finance` 生成；财经窗口汇总输出在 `library/distilled/*.finance-digest.json`，由 `seed build-finance-digest` 或 `run-creator-pipeline --domain finance` 生成；行情补强输出 `*.finance-digest.priced.json`，由 `seed enrich-finance-prices` 生成且必须显式传 ticker mapping；新闻 facts 上下文输出 `*.finance-digest.news-context.json`，由 `seed enrich-finance-news --news-digest ...` 生成。记录的是创作者观点、`viewpoint_events`、兼容的 `recommendations`、风险、新闻事实引用和证据缺口，不是 Seed 的投资建议。
+- 财经信号输出在 `library/semantics/*.finance-signals.json`，由 `seed extract-finance-signals` 或 `run-video-pipeline --domain finance` 生成；财经窗口汇总输出在 `library/distilled/*.finance-digest.json`，由 `seed build-finance-digest` 或 `run-creator-pipeline --domain finance` 生成；行情补强输出 `*.finance-digest.priced.json`，由 `seed enrich-finance-prices` 生成且必须显式传 ticker mapping；新闻 facts 上下文输出 `*.finance-digest.news-context.json`，由 `seed enrich-finance-news --news-digest ...` 生成；人工阅读报告输出 `library/reports/*.finance-news-report.html`，由 `seed build-finance-news-report` 生成。记录的是创作者观点、`viewpoint_events`、兼容的 `recommendations`、风险、新闻事实引用和证据缺口，不是 Seed 的投资建议。
 - 财经相关结论必须保留发布时间、标的、动作、方向、时间窗口、证据引用和不确定性；没有 ticker 或动作时用 `unknown/null`，不要猜。
 - 新闻检索输出在 `library/news/*.news-search.json`，由 `seed search-news` 或 `seed research-news` 生成；facts 蒸馏输出在 `library/distilled/*.news-digest.json`；视频新闻事实输出在 `library/semantics/*.news-facts.json`，由 `seed extract-news-facts` 或 `run-video-pipeline --domain news` 生成。调研事实时必须先分 facts、reported claims、interpretation 和 source gaps。
 - 财报解析输出在 `library/earnings/*.sec-earnings.json`，由 `seed fetch-earnings` 或 `seed parse-earnings` 生成；财报蒸馏输出在 `library/distilled/*.earnings-digest.json`；视频财报说法输出在 `library/semantics/*.earnings-analysis.json`，由 `seed extract-earnings-analysis` 或 `run-video-pipeline --domain earnings` 生成。财报 primary source 默认是 SEC EDGAR，不猜 CIK/ticker，不输出投资建议。
@@ -241,6 +241,7 @@ git status -sb
 .venv/bin/seed build-finance-digest --help
 .venv/bin/seed enrich-finance-prices --help
 .venv/bin/seed enrich-finance-news --help
+.venv/bin/seed build-finance-news-report --help
 .venv/bin/seed search-news --help
 .venv/bin/seed research-news --help
 .venv/bin/seed distill-news-facts --help

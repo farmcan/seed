@@ -104,6 +104,11 @@ from seed.graphs.creator_dag import (
     find_creator_asset_paths,
     write_creator_dag_graph,
 )
+from seed.reports.finance_news import (
+    build_finance_news_report_html,
+    finance_news_report_output_path,
+    write_finance_news_report_html,
+)
 from seed.library import (
     init_library,
     save_creator_video_list,
@@ -1899,6 +1904,28 @@ def enrich_finance_news(
         f"events with context: {enriched['totals'].get('events_with_news_context', 0)}, "
         f"matches: {enriched['totals'].get('news_context_matches', 0)}"
     )
+
+
+@app.command("build-finance-news-report")
+def build_finance_news_report(
+    digest_path: Annotated[
+        Path,
+        typer.Argument(help="Path to *.finance-digest.news-context.json."),
+    ],
+    output_path: Annotated[Path | None, typer.Option("--output")] = None,
+    root: Annotated[Path, typer.Option("--root")] = Path("library"),
+) -> None:
+    digest = json.loads(digest_path.read_text(encoding="utf-8"))
+    resolved_output = output_path or finance_news_report_output_path(
+        library_root=root,
+        digest_path=digest_path,
+    )
+    html = build_finance_news_report_html(digest, digest_path=digest_path)
+    write_finance_news_report_html(resolved_output, html)
+    events = digest.get("viewpoint_events") or []
+    events_with_context = sum(1 for event in events if event.get("news_context"))
+    console.print(f"created finance news report at {resolved_output}")
+    console.print(f"events: {len(events)}, events with context: {events_with_context}")
 
 
 def parse_ticker_map(values: list[str]) -> dict[str, str]:
