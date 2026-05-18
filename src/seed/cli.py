@@ -38,11 +38,19 @@ from seed.agent_assets import (
 )
 from seed.asr.chunked import transcribe_audio_with_optional_chunks
 from seed.books import (
+    book_methods_playbook_output_path,
+    book_methods_output_path,
+    book_methods_report_output_path,
     book_note_output_path,
     book_semantics_output_path,
+    book_source_output_path,
+    run_book_methods_distillation,
     topic_profile_output_path,
+    write_book_methods_playbook_md,
+    write_book_methods_report_html,
     write_book_note,
     write_book_semantics,
+    write_book_source_artifact,
     write_topic_profile,
 )
 from seed.claim_verification import (
@@ -172,6 +180,122 @@ from seed.vision.qwen_vl_provider import DEFAULT_QWEN_VL_MODEL, analyze_frames_w
 
 app = typer.Typer(help="Personal content-to-methodology distillation toolkit.")
 console = Console()
+
+
+@app.command("import-book-source")
+def import_book_source(
+    note_path: Annotated[Path, typer.Argument(help="Markdown book note or highlights file.")],
+    author: Annotated[str, typer.Option("--author", help="Book author.")],
+    title: Annotated[str, typer.Option("--title", help="Book title.")],
+    provider: Annotated[str, typer.Option("--provider", help="Import provider name.")] = "markdown",
+    source_url: Annotated[str | None, typer.Option("--source-url", help="Optional source URL.")] = None,
+    location: Annotated[str | None, typer.Option("--location", help="Optional book/location label.")] = None,
+    tags: Annotated[str | None, typer.Option("--tags", help="Comma-separated tags.")] = None,
+    output: Annotated[Path | None, typer.Option("--output", help="Output book-source JSON path.")] = None,
+    root: Annotated[Path, typer.Option("--root", help="Knowledge library root.")] = Path("library"),
+) -> None:
+    tag_list = [tag.strip() for tag in tags.split(",") if tag.strip()] if tags else []
+    output_path = output or book_source_output_path(library_root=root, author=author, title=title)
+    path = write_book_source_artifact(
+        output_path,
+        note_path=note_path,
+        author=author,
+        title=title,
+        provider=provider,
+        source_url=source_url,
+        location=location,
+        tags=tag_list,
+    )
+    console.print(f"wrote book source artifact to {path}")
+
+
+@app.command("build-book-methods-report")
+def build_book_methods_report(
+    methods_json: Annotated[Path, typer.Argument(help="Book methods JSON from distill-book-methods.")],
+    output: Annotated[Path | None, typer.Option("--output", help="Output HTML report path.")] = None,
+    root: Annotated[Path, typer.Option("--root", help="Knowledge library root.")] = Path("library"),
+) -> None:
+    methods = json.loads(methods_json.read_text(encoding="utf-8"))
+    output_path = output or book_methods_report_output_path(
+        library_root=root,
+        author=str(methods.get("author") or methods_json.stem),
+        title=str(methods.get("title") or "book-methods"),
+        topic=methods.get("topic"),
+    )
+    path = write_book_methods_report_html(output_path, methods_path=methods_json)
+    console.print(f"wrote book methods report to {path}")
+
+
+@app.command("build-book-methods-playbook")
+def build_book_methods_playbook(
+    methods_json: Annotated[Path, typer.Argument(help="Book methods JSON from distill-book-methods.")],
+    output: Annotated[Path | None, typer.Option("--output", help="Output agent playbook Markdown path.")] = None,
+    root: Annotated[Path, typer.Option("--root", help="Knowledge library root.")] = Path("library"),
+) -> None:
+    methods = json.loads(methods_json.read_text(encoding="utf-8"))
+    output_path = output or book_methods_playbook_output_path(
+        library_root=root,
+        author=str(methods.get("author") or methods_json.stem),
+        title=str(methods.get("title") or "book-methods"),
+        topic=methods.get("topic"),
+    )
+    path = write_book_methods_playbook_md(output_path, methods_path=methods_json)
+    console.print(f"wrote book methods playbook to {path}")
+
+
+@app.command("run-book-pipeline")
+def run_book_pipeline(
+    note_path: Annotated[Path, typer.Argument(help="Markdown book note or highlights file.")],
+    author: Annotated[str, typer.Option("--author", help="Book author.")],
+    title: Annotated[str, typer.Option("--title", help="Book title.")],
+    topic: Annotated[str | None, typer.Option("--topic", help="Optional topic label.")] = None,
+    focus: Annotated[str | None, typer.Option("--focus", help="Optional distillation focus.")] = None,
+    provider: Annotated[str, typer.Option("--provider", help="Import provider name.")] = "markdown",
+    source_url: Annotated[str | None, typer.Option("--source-url", help="Optional source URL.")] = None,
+    location: Annotated[str | None, typer.Option("--location", help="Optional book/location label.")] = None,
+    tags: Annotated[str | None, typer.Option("--tags", help="Comma-separated tags.")] = None,
+    codex_model: Annotated[str | None, typer.Option("--codex-model", help="Codex model override.")] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help="Write prompt without invoking Codex.")] = False,
+    root: Annotated[Path, typer.Option("--root", help="Knowledge library root.")] = Path("library"),
+) -> None:
+    tag_list = [tag.strip() for tag in tags.split(",") if tag.strip()] if tags else []
+    source_path = write_book_source_artifact(
+        book_source_output_path(library_root=root, author=author, title=title),
+        note_path=note_path,
+        author=author,
+        title=title,
+        provider=provider,
+        source_url=source_url,
+        location=location,
+        tags=tag_list,
+    )
+    methods_path = run_book_methods_distillation(
+        note_path=note_path,
+        output_path=book_methods_output_path(library_root=root, author=author, title=title, topic=topic),
+        author=author,
+        title=title,
+        topic=topic,
+        focus=focus,
+        model=codex_model,
+        cwd=Path.cwd(),
+        dry_run=dry_run,
+    )
+    console.print(f"wrote book source artifact to {source_path}")
+    console.print(f"wrote book methods artifact to {methods_path}")
+    if dry_run:
+        console.print("dry run enabled; skipped report and playbook because methods JSON was not generated")
+        return
+
+    report_path = write_book_methods_report_html(
+        book_methods_report_output_path(library_root=root, author=author, title=title, topic=topic),
+        methods_path=methods_path,
+    )
+    playbook_path = write_book_methods_playbook_md(
+        book_methods_playbook_output_path(library_root=root, author=author, title=title, topic=topic),
+        methods_path=methods_path,
+    )
+    console.print(f"wrote book methods report to {report_path}")
+    console.print(f"wrote book methods playbook to {playbook_path}")
 
 
 @app.command("init-library")
@@ -1411,6 +1535,40 @@ def analyze_book_note(
         topic=topic,
     )
     console.print(f"created book semantics at {output_path}")
+
+
+@app.command("distill-book-methods")
+def distill_book_methods(
+    note_path: Annotated[Path, typer.Argument(help="Path to *.book-note.md or a note file.")],
+    author: Annotated[str, typer.Option("--author")],
+    title: Annotated[str, typer.Option("--title")],
+    topic: Annotated[str | None, typer.Option("--topic")] = None,
+    focus: Annotated[str | None, typer.Option("--focus")] = None,
+    output_path: Annotated[Path | None, typer.Option("--output")] = None,
+    codex_model: Annotated[str | None, typer.Option("--codex-model")] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
+    root: Annotated[Path, typer.Option("--root")] = Path("library"),
+) -> None:
+    output = output_path or book_methods_output_path(
+        library_root=root,
+        author=author,
+        title=title,
+        topic=topic,
+    )
+    if dry_run:
+        output = output.with_suffix(".prompt.md")
+    run_book_methods_distillation(
+        note_path=note_path,
+        output_path=output,
+        author=author,
+        title=title,
+        topic=topic,
+        focus=focus,
+        model=codex_model,
+        cwd=Path.cwd(),
+        dry_run=dry_run,
+    )
+    console.print(f"created {'prompt' if dry_run else 'book methods'} at {output}")
 
 
 @app.command("aggregate-topic")
