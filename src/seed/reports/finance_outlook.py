@@ -125,11 +125,24 @@ def _collect_event_text(event: dict[str, Any]) -> str:
     return " ".join(str(item) for item in fields if isinstance(item, str))
 
 
+def _as_dict(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _as_list(value: Any) -> list[Any]:
+    return value if isinstance(value, list) else []
+
+
+def _as_str(value: Any, fallback: str | None = None) -> str | None:
+    return str(value).strip() if isinstance(value, str) else fallback
+
+
 def _build_aicoding_impact_signals(
     events: list[dict[str, Any]],
     *,
     has_software_context: bool,
     has_aicoding_context: bool,
+    first_principles: dict[str, Any],
 ) -> list[str]:
     event_text = " ".join(_collect_event_text(event) for event in events).casefold()
     if (
@@ -139,10 +152,13 @@ def _build_aicoding_impact_signals(
         return []
 
     statements = [
-        "AI Coding（如 Claude Code、Cursor、Copilot 等）使部分软件开发工时和交付壁垒下降，倾向削弱传统“人力服务型”软件增速与毛利。",
-        "结构上更可能是从“交付效率提升”转向“产品化能力差异化”竞争，受益者往往是平台化、订阅化和生态闭环强的公司。",
-        "该变量需要与财报证据联动验证：人均毛利变化、项目工时占比、自动化后的人力替代率、定价与续费是否同步改善。",
+        "AI Coding（如 Claude Code、Cursor、Copilot 等）使部分软件开发工时和交付壁垒下降，倾向弱化传统“人力服务型”软件增速与毛利。",
+        "更常见的结构变化是“交付效率提升”转向“产品化能力差异化”竞争，受益者一般是平台化、订阅化、生态闭环强的公司。",
+        "该变量需要与财报证据联动验证：人均毛利、自动化后的人力占比变化、交付效率是否提升，以及定价与续费是否同步改善。",
     ]
+    fp_risk = _as_str(first_principles.get("aicoding_or_automation_risk"))
+    if fp_risk:
+        statements.append(f"财报结构化视角提示：{fp_risk}")
     return statements
 
 
@@ -150,12 +166,17 @@ def _contains_software_context(
     events: list[dict[str, Any]],
     digest: dict[str, Any],
     peer_context: dict[str, Any],
+    first_principles: dict[str, Any] | None = None,
 ) -> bool:
     chunks: list[Any] = []
     chunks.append(peer_context.get("industry"))
     chunks.append(digest.get("industry"))
     chunks.append(digest.get("sector"))
+    chunks.append(str(peer_context.get("industry") or ""))
     chunks.extend(str(item) for item in peer_context.get("peers") or [])
+    if first_principles:
+        chunks.append(_as_str(first_principles.get("core_differentiators")))
+        chunks.append(_as_str(first_principles.get("ecosystem_implications")))
     for thesis in digest.get("macro_theses") or []:
         if isinstance(thesis, dict):
             chunks.append(thesis.get("industry"))
@@ -470,6 +491,49 @@ def _asset_price_context(rows: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _build_overall_price_targets(
+    rollups: list[dict[str, Any]],
+    overall_upside: float | None,
+    overall_downside: float | None,
+) -> dict[str, Any] | None:
+    priced_rows = [
+        row
+        for row in rollups
+        if isinstance(row.get("price_context"), dict) and row["price_context"].get("status") == "priced"
+    ]
+    if not priced_rows:
+        return None
+    anchor = max(priced_rows, key=lambda row: row.get("event_count", 0))
+    price_context = anchor["price_context"]
+    latest_close = _safe_float(price_context.get("latest_close"))
+    latest_price_date = price_context.get("latest_price_date")
+    published_close = _safe_float(price_context.get("published_close"))
+    published_price_date = price_context.get("published_price_date")
+    if latest_close is None:
+        return None
+    upside_target = (
+        round(latest_close * (1 + (overall_upside / 100)), 4)
+        if overall_upside is not None
+        else None
+    )
+    downside_target = (
+        round(latest_close * (1 + (overall_downside / 100)), 4)
+        if overall_downside is not None and overall_downside < 0
+        else None
+    )
+    return {
+        "asset": anchor.get("instrument") or anchor.get("asset_id"),
+        "latest_close": latest_close,
+        "latest_price_date": latest_price_date,
+        "published_close": published_close,
+        "published_price_date": published_price_date,
+        "overall_upside_target": upside_target,
+        "overall_downside_target": downside_target,
+        "overall_upside": overall_upside,
+        "overall_downside": overall_downside,
+    }
+
+
 def _build_asset_rollup(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for event in events:
@@ -671,16 +735,20 @@ def build_finance_outlook_payload(
     rollups = _build_asset_rollup(events)
     time_coverage = _build_time_coverage(events)
     peer_context = _peer_context_from_digest(digest)
+    first_principles = _as_dict(digest.get("first_principles"))
     has_software_context = bool([item for item in rollups if item.get("is_software_sector")])
     has_aicoding_context = _contains_aicoding_context(digest) or _contains_software_context(
         events,
         digest=digest,
         peer_context=peer_context,
+        first_principles=first_principles,
     )
+    has_software_context = has_software_context or has_aicoding_context
     aicoding_signals = _build_aicoding_impact_signals(
         events,
         has_software_context=has_software_context,
         has_aicoding_context=has_aicoding_context,
+        first_principles=first_principles,
     )
 
     macro_signals: list[str] = []
@@ -714,6 +782,11 @@ def build_finance_outlook_payload(
     overall_rr = None
     if overall_upside is not None and overall_downside is not None and overall_downside < 0:
         overall_rr = round(overall_upside / abs(overall_downside), 2)
+    overall_price_targets = _build_overall_price_targets(
+        rollups=rollups,
+        overall_upside=overall_upside,
+        overall_downside=overall_downside,
+    )
 
     software_headwinds: list[str] = []
     for item in software_rollups:
@@ -776,6 +849,38 @@ def build_finance_outlook_payload(
     if aicoding_signals:
         risk_flags["AI 代码工具替代压力"] += 1
 
+    first_principles_summary = {
+        "business_model": first_principles.get("business_model"),
+        "revenue_logic": first_principles.get("revenue_logic"),
+        "core_differentiators": first_principles.get("core_differentiators"),
+        "competitors": sorted(
+            {str(item).strip() for item in _as_list(first_principles.get("competitors")) if str(item).strip()}
+        ),
+        "competitive_pressure": first_principles.get("competitive_pressure"),
+        "customer_dependency": first_principles.get("customer_dependency"),
+        "single_customer_risk": first_principles.get("single_customer_risk"),
+        "aicoding_or_automation_risk": first_principles.get("aicoding_or_automation_risk"),
+        "overseas_revenue_ratio": first_principles.get("overseas_revenue_ratio"),
+        "internationalization_progress": first_principles.get("internationalization_progress"),
+        "internationalization_notes": sorted(
+            {
+                str(item).strip()
+                for item in _as_list(first_principles.get("internationalization_notes"))
+                if str(item).strip()
+            }
+        ),
+        "ecosystem_implications": _as_dict(
+            first_principles.get("ecosystem_implications")
+        ),
+        "first_principles_uncertainties": sorted(
+            {
+                str(item).strip()
+                for item in _as_list(first_principles.get("first_principles_uncertainties"))
+                if str(item).strip()
+            }
+        ),
+    }
+
     return {
         "generated_at": datetime.now(UTC).isoformat(),
         "kind": "finance_outlook",
@@ -816,6 +921,8 @@ def build_finance_outlook_payload(
         "source_gaps": sorted(set(source_gaps)),
         "open_questions": sorted(set(open_questions)),
         "asset_rollups": rollups,
+        "overall_price_targets": overall_price_targets,
+        "first_principles": first_principles_summary,
         "methodology_signals": digest.get("methodology_signals") or [],
     }
 
@@ -845,6 +952,22 @@ def _format_price(value: float | None) -> str:
     return f"{value:,.2f}"
 
 
+def _normalize_text_line(value: Any) -> str:
+    if value is None:
+        return ""
+    text = str(value).strip()
+    return text if text else ""
+
+
+def _render_list(items: list[Any], default: str) -> str:
+    values = [
+        str(item).strip() for item in items if isinstance(item, str) and str(item).strip()
+    ]
+    if not values:
+        return default
+    return "；".join(values)
+
+
 def build_finance_outlook_report_html(payload: dict[str, Any]) -> str:
     owner = escape(str(payload.get("owner") or "Unknown"))
     platform = escape(str(payload.get("platform") or "unknown"))
@@ -862,6 +985,63 @@ def build_finance_outlook_report_html(payload: dict[str, Any]) -> str:
     actions = payload.get("actions") or {}
     directions = payload.get("directions") or {}
     rollups = payload.get("asset_rollups") or []
+    first_principles = _as_dict(payload.get("first_principles"))
+    ecosystem = _as_dict(first_principles.get("ecosystem_implications"))
+    overall_price_targets = _as_dict(payload.get("overall_price_targets"))
+    overall_upside = totals.get("overall_upside")
+    overall_downside = totals.get("overall_downside")
+    overall_rr = totals.get("overall_risk_reward")
+    overall_bullish = _format_pct(overall_upside)
+    overall_bearish = _format_pct(overall_downside)
+    overall_rr_text = _format_rr(overall_rr)
+    overall_orientation = "偏多"
+    if totals.get("direction_bias", {}).get("bearish", 0) > totals.get("direction_bias", {}).get("bullish", 0):
+        overall_orientation = "偏空"
+    elif totals.get("direction_bias", {}).get("mixed", 0) >= max(
+        totals.get("direction_bias", {}).get("bullish", 0),
+        totals.get("direction_bias", {}).get("bearish", 0),
+    ):
+        overall_orientation = "偏中性"
+
+    first_principles_rows = [
+        f"商业模式：{escape(_normalize_text_line(first_principles.get('business_model')) or '待补充')}",
+        f"营收逻辑：{escape(_normalize_text_line(first_principles.get('revenue_logic')) or '待补充')}",
+        f"核心差异化：{escape(_normalize_text_line(first_principles.get('core_differentiators')) or '待补充')}",
+        f"竞争与护城河：{escape(_normalize_text_line(first_principles.get('competitive_pressure')) or '待补充')}",
+        f"客户集中度：{escape(_normalize_text_line(first_principles.get('customer_dependency')) or '待补充')}",
+        f"AI替代风险：{escape(_normalize_text_line(first_principles.get('aicoding_or_automation_risk')) or '待补充')}",
+        f"海外营收占比：{escape(_normalize_text_line(first_principles.get('overseas_revenue_ratio')) or '待补充')}",
+        f"出海进度：{escape(_normalize_text_line(first_principles.get('internationalization_progress')) or '待补充')}",
+    ]
+    fp_competitors = _render_list([str(item) for item in first_principles.get("competitors", []) if isinstance(item, str)], "待补充")
+    fp_uncertainty = _render_list(
+        [str(item) for item in first_principles.get("first_principles_uncertainties", []) if isinstance(item, str)],
+        "待补充",
+    )
+    fp_spillover = _render_list(
+        [
+            str(item)
+            for item in _as_list(ecosystem.get("spillover_uncertainties"))
+            if isinstance(item, str)
+        ],
+        "待补充",
+    )
+    fp_tooling = _render_list(
+        [
+            str(item)
+            for item in _as_list(ecosystem.get("tooling_or_platform_playbooks"))
+            if isinstance(item, str)
+        ],
+        "待补充",
+    )
+    fp_hardware = _render_list(
+        [str(item) for item in _as_list(ecosystem.get("model_or_chip_companies_to_watch")) if isinstance(item, str)],
+        "待补充",
+    )
+    fp_implication = _normalize_text_line(ecosystem.get("model_company_implication"))
+    fp_compute = _normalize_text_line(ecosystem.get("compute_or_hardware_signal"))
+
+    fp_overview_rows = "".join(f"<li>{item}</li>" for item in first_principles_rows)
 
     peer_rows: list[str] = []
     peers = peer_context.get("peers")
@@ -1151,6 +1331,13 @@ def build_finance_outlook_report_html(payload: dict[str, Any]) -> str:
       <div class="meta">
         标的偏向：多空={escape(str(direction_bias.get('bullish', 0)))} ｜ 空头={escape(str(direction_bias.get('bearish', 0)))} ｜ 混合={escape(str(direction_bias.get('mixed', 0)))}
       </div>
+      <div class="meta">
+        结论先说：{overall_orientation}；上行情景 {overall_bullish}，下行情景 {overall_bearish}，风险收益比 {overall_rr_text}
+      </div>
+      <div class="meta">
+        价格基准：{_format_price(_safe_float(overall_price_targets.get("latest_close")))}（{overall_price_targets.get("latest_price_date") or "-" }）；
+        标的：{escape(str(overall_price_targets.get("asset") or peer_context.get("target_asset") or "待补充"))}
+      </div>
     </header>
 
     <section class="section">
@@ -1183,6 +1370,18 @@ def build_finance_outlook_report_html(payload: dict[str, Any]) -> str:
     </section>
 
     <section class="section">
+      <h2>商业本质（第一性视角）</h2>
+      <ul>
+        {fp_overview_rows}
+      </ul>
+      <div class="small muted">同业/可比列表：{escape(fp_competitors)} ｜ 不确定性：{escape(fp_uncertainty)}</div>
+      <div class="small muted">产业传导：{escape(fp_tooling)}</div>
+      <div class="small muted">硬件/算力链路：{escape(fp_compute)} ｜ 受益公司：{escape(fp_hardware)}</div>
+      <div class="small muted">模型公司含义：{escape(fp_implication or "待补充")}</div>
+      <div class="small muted">溢出不确定性：{escape(fp_spillover)} | AI Coding 复核点：{escape(_normalize_text_line(first_principles.get("aicoding_or_automation_risk")) or "待补充")}</div>
+    </section>
+
+    <section class="section">
       <h2>同类公司（事实输入）</h2>
       <ul>
         {peer_list_html}
@@ -1200,6 +1399,9 @@ def build_finance_outlook_report_html(payload: dict[str, Any]) -> str:
 
     <section class="section">
       <h2>标的级风险收益（观点级草案）</h2>
+      <div class="small muted" style="margin-bottom: 8px;">
+        情景口径：基于 priced 事件 + 事件极值收益映射到最新价（非交易建议）。
+      </div>
       <table>
         <thead>
           <tr>
@@ -1233,6 +1435,10 @@ def build_finance_outlook_report_html(payload: dict[str, Any]) -> str:
       <ul>
         {target_price_rows_html}
       </ul>
+      <div class='small muted'>
+        全局口径目标：{_format_price(_safe_float(overall_price_targets.get("overall_upside_target")))}（{_format_pct(overall_price_targets.get("overall_upside"))}）
+        / { _format_price(_safe_float(overall_price_targets.get("overall_downside_target")))}（{_format_pct(overall_price_targets.get("overall_downside"))}）
+      </div>
       <div class='small muted'>目标仅为草案：采用 latest close 与事件极值收益做场景映射；仅作风险收益讨论输入。</div>
     </section>
 
