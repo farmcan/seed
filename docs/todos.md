@@ -227,6 +227,7 @@
   - `seed build-finance-outlook-report` 从 `*.finance-digest*.json` 生成 `*.finance-outlook-report.html` 与 `*.finance-outlook.json`。
   - 报告输出标的级风险收益、上行/下行空间、利空因素、软件和 AI 行业变量与证据边界。
   - `seed distill-up-list --domain finance` 默认可自动附带生成 outlook（新增可选 `--skip-finance-outlook-reports`）。
+  - 对应 skill 规范：`skills/finance-outlook-analyzer/SKILL.md`，用于统一 `event -> outlook` 的输出结构约束和复核清单。
 
 - [ ] 增加财经方法论回测/后验评估。
   - 当前 priced digest 已有 event-level 基础价格后验，缺少系统性回测框架。

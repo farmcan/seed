@@ -82,6 +82,7 @@ run-book-pipeline
   - `skills/facts-distiller/SKILL.md`
   - `skills/earnings-parser/SKILL.md`
   - `skills/book-method-distiller/SKILL.md`
+  - `skills/finance-outlook-analyzer/SKILL.md`
 
 ## 架构规则
 
