@@ -117,6 +117,15 @@ from seed.domains.earnings import (
     run_earnings_distillation,
     write_earnings_artifact,
 )
+from seed.domains.equity_research import (
+    EQUITY_RESEARCH_ANALYZER_SKILL_PATH,
+    equity_research_note_output_path,
+    equity_research_output_path,
+    financial_statement_review_output_path,
+    run_equity_research_json_extraction,
+    run_equity_research_note_extraction,
+    run_financial_statement_review,
+)
 from seed.factcheck import build_claims_artifact, claims_output_path, write_claims_artifact
 from seed.graphs.video_dag import (
     build_video_dag_graph,
@@ -147,6 +156,11 @@ from seed.reports.finance_outlook import (
     build_finance_outlook_outputs_for_owner,
     find_owner_finance_outlook_report_paths,
     write_finance_outlook_report,
+)
+from seed.reports.equity_research import (
+    build_equity_research_report_html,
+    equity_research_report_output_path,
+    write_equity_research_report_html,
 )
 from seed.library import (
     init_library,
@@ -2717,6 +2731,11 @@ def parse_earnings(
     ] = None,
     filing_limit: Annotated[int, typer.Option("--filing-limit", min=1, max=50)] = 10,
     user_agent: Annotated[str | None, typer.Option("--user-agent")] = None,
+    review_financial_statement: Annotated[
+        bool,
+        typer.Option("--review-financial-statement/--no-review-financial-statement"),
+    ] = False,
+    financial_statement_output: Annotated[Path | None, typer.Option("--financial-statement-output")] = None,
     codex_model: Annotated[str | None, typer.Option("--codex-model")] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
     root: Annotated[Path, typer.Option("--root")] = Path("library"),
@@ -2739,8 +2758,120 @@ def parse_earnings(
         cwd=Path.cwd(),
         dry_run=dry_run,
     )
+    if review_financial_statement:
+        statement_output_path = (
+            financial_statement_output
+            or financial_statement_review_output_path(
+                library_root=root,
+                identifier=identifier,
+            )
+        )
+        if dry_run:
+            statement_output_path = statement_output_path.with_suffix(".prompt.md")
+        run_financial_statement_review(
+            sec_earnings_path=artifact_path,
+            output_path=statement_output_path,
+            identifier=identifier,
+            model=codex_model,
+            cwd=Path.cwd(),
+            dry_run=dry_run,
+        )
+        console.print(f"created {'prompt' if dry_run else 'financial statement review'} at {statement_output_path}")
     console.print(f"created SEC earnings artifact at {artifact_path}")
     console.print(f"created {'prompt' if dry_run else 'earnings digest'} at {output_path}")
+
+
+@app.command("extract-equity-research-note")
+def extract_equity_research_note(
+    report_path: Annotated[Path, typer.Argument(help="Path to raw research report markdown/text file.")],
+    report_id: Annotated[str | None, typer.Option("--report-id")] = None,
+    issuer: Annotated[str | None, typer.Option("--issuer")] = None,
+    ticker: Annotated[str | None, typer.Option("--ticker")] = None,
+    report_date: Annotated[str | None, typer.Option("--report-date")] = None,
+    output: Annotated[Path | None, typer.Option("--output")] = None,
+    skill_path: Annotated[Path, typer.Option("--skill-path")] = EQUITY_RESEARCH_ANALYZER_SKILL_PATH,
+    codex_model: Annotated[str | None, typer.Option("--codex-model")] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
+    root: Annotated[Path, typer.Option("--root")] = Path("library"),
+) -> None:
+    resolved_report_id = report_id or report_path.stem
+    output_path = output or equity_research_note_output_path(
+        library_root=root,
+        report_path=report_path,
+        report_id=resolved_report_id,
+    )
+    if dry_run:
+        output_path = output_path.with_suffix(".prompt.md")
+    run_equity_research_note_extraction(
+        report_path=report_path,
+        output_path=output_path,
+        title=resolved_report_id,
+        skill_path=skill_path,
+        issuer=issuer,
+        ticker=ticker,
+        report_date=report_date,
+        model=codex_model,
+        cwd=Path.cwd(),
+        dry_run=dry_run,
+    )
+    console.print(f"created {'prompt' if dry_run else 'research note'} at {output_path}")
+
+
+@app.command("extract-equity-research-json")
+def extract_equity_research_json(
+    report_path: Annotated[Path, typer.Argument(help="Path to source research report file.")],
+    note_path: Annotated[Path, typer.Option("--note", help="Research note markdown to convert into ledger.")],
+    report_id: Annotated[str | None, typer.Option("--report-id")] = None,
+    issuer: Annotated[str | None, typer.Option("--issuer")] = None,
+    ticker: Annotated[str | None, typer.Option("--ticker")] = None,
+    report_date: Annotated[str | None, typer.Option("--report-date")] = None,
+    output: Annotated[Path | None, typer.Option("--output")] = None,
+    skill_path: Annotated[Path, typer.Option("--skill-path")] = EQUITY_RESEARCH_ANALYZER_SKILL_PATH,
+    codex_model: Annotated[str | None, typer.Option("--codex-model")] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
+    root: Annotated[Path, typer.Option("--root")] = Path("library"),
+) -> None:
+    resolved_report_id = report_id or report_path.stem
+    output_path = output or equity_research_output_path(
+        library_root=root,
+        report_path=report_path,
+        report_id=resolved_report_id,
+    )
+    if dry_run:
+        output_path = output_path.with_suffix(".prompt.md")
+    run_equity_research_json_extraction(
+        report_path=report_path,
+        note_path=note_path,
+        output_path=output_path,
+        title=resolved_report_id,
+        skill_path=skill_path,
+        issuer=issuer,
+        ticker=ticker,
+        report_date=report_date,
+        model=codex_model,
+        cwd=Path.cwd(),
+        dry_run=dry_run,
+    )
+    console.print(f"created {'prompt' if dry_run else 'equity research ledger'} at {output_path}")
+
+
+@app.command("build-equity-research-report")
+def build_equity_research_report(
+    research_ledger_path: Annotated[Path, typer.Argument(help="Path to *.equity-research.json ledger.")],
+    output: Annotated[Path | None, typer.Option("--output")] = None,
+    root: Annotated[Path, typer.Option("--root")] = Path("library"),
+) -> None:
+    try:
+        payload = json.loads(research_ledger_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        raise typer.BadParameter(f"failed to load research ledger: {exc}") from exc
+    output_path = output or equity_research_report_output_path(
+        library_root=root,
+        ledger_path=research_ledger_path,
+    )
+    html = build_equity_research_report_html(payload, ledger_path=research_ledger_path)
+    write_equity_research_report_html(output_path, html)
+    console.print(f"created equity research report at {output_path}")
 
 
 @app.command("extract-earnings-analysis")

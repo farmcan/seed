@@ -233,11 +233,11 @@
   - 下一步才做系统性评估：按 action/direction/horizon 计算命中、超额收益、窗口收益，并汇总到 UP 方法论层。
   - 仍然只评估“创作者当时表达的观点是否被后续市场验证”，不输出交易建议。
 
-- [ ] 建立“财报 + 研报”结构化技能工作流。
-  - 先把 `skills/financial-statement-reviewer` 和 `skills/equity-research-report-analyzer` 做成可复用模板。
-  - 目标产物先从 `seed summarize-transcript` 的 `--skill-path` 入口启动，先保证离线文本到 `equity research claim ledger` 的稳定映射。
-  - 产物：`library/notes/*.research-note.md`（原始提取）与 `library/semantics/*.equity-research.json`（结构化）双层。
-  - `equity-research.json` 对齐 `viewpoint_events` schema：`claim`、`support_refs`、`evidence_level`、`conviction`、`horizon`、`exit_or_invalidation`、`risk_flags`、`open_questions`。
+- [x] 建立“财报 + 研报”结构化技能工作流。
+  - 已从 `skills/financial-statement-reviewer` 与 `skills/equity-research-report-analyzer` 形成可复用模板。
+  - 已接入 CLI：`extract-equity-research-note`（离线文本到 note）、`extract-equity-research-json`（note 到结构化 ledger）、`build-equity-research-report`（输出可阅读 HTML）。
+  - `parse-earnings` 增加 `--review-financial-statement`，可直接生成 `library/distilled/*.financial-statement-review.json`。
+  - 产物对齐 `equity-research.json` 的 `viewpoint_events` schema：`claim`、`support_refs`、`evidence_level`、`conviction`、`horizon`、`exit_or_invalidation`、`risk_flags`、`open_questions`。
   - 暂不输出 buy/sell 建议；仅输出“成立条件、失效条件、证据边界和不确定性”。
 - [x] 做一个美图（MEITU）股价分析样例。
   - 输入：美图 2025 年报/2026Q1 更新 + 行情历史（不依赖单一 provider）。
