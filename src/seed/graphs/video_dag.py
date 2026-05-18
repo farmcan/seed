@@ -28,6 +28,7 @@ def build_video_dag_graph(
     frame_dir: Path | None = None,
     visual_notes_path: Path | None = None,
     semantics_path: Path | None = None,
+    ai_practice_signals_path: Path | None = None,
     finance_signals_path: Path | None = None,
     news_facts_path: Path | None = None,
     earnings_analysis_path: Path | None = None,
@@ -47,6 +48,7 @@ def build_video_dag_graph(
     resolved_audio_path = audio_path or infer_audio_path(source_path)
     frame_paths = list_frame_paths(frame_dir)
     semantics_text = semantics_path.read_text(encoding="utf-8") if semantics_path and semantics_path.exists() else ""
+    ai_practice_signals = load_json_artifact(ai_practice_signals_path)
     finance_signals = load_json_artifact(finance_signals_path)
     news_facts = load_json_artifact(news_facts_path)
     earnings_analysis = load_json_artifact(earnings_analysis_path)
@@ -330,6 +332,23 @@ def build_video_dag_graph(
                 finance_signals_path,
             )
         )
+    if ai_practice_signals:
+        nodes.append(
+            node(
+                "ai-practice-signals",
+                "asset",
+                "AI Practice Signals",
+                ai_practice_signals_summary(ai_practice_signals),
+                850,
+                -560,
+                [
+                    path_metric(ai_practice_signals_path),
+                    f"{len(ai_practice_signals.get('practice_events') or [])} practices",
+                    f"{len(ai_practice_signals.get('capability_signals') or [])} capabilities",
+                ],
+                ai_practice_signals_path,
+            )
+        )
     if news_facts:
         nodes.append(
             node(
@@ -337,7 +356,7 @@ def build_video_dag_graph(
                 "asset",
                 "News Facts",
                 news_facts_summary(news_facts),
-                850,
+                1180 if ai_practice_signals else 850,
                 -560,
                 [
                     path_metric(news_facts_path),
@@ -407,6 +426,14 @@ def build_video_dag_graph(
                 ["finance-signals", "creator-signals"],
             ]
         )
+    if ai_practice_signals:
+        edges.extend(
+            [
+                ["semantics", "ai-practice-signals"],
+                ["ai-practice-signals", "methods"],
+                ["ai-practice-signals", "creator-signals"],
+            ]
+        )
     if news_facts:
         edges.extend(
             [
@@ -444,6 +471,7 @@ def resolve_video_dag_artifacts(
     frame_dir: Path | None = None,
     visual_notes_path: Path | None = None,
     semantics_path: Path | None = None,
+    ai_practice_signals_path: Path | None = None,
     finance_signals_path: Path | None = None,
     news_facts_path: Path | None = None,
     earnings_analysis_path: Path | None = None,
@@ -472,6 +500,14 @@ def resolve_video_dag_artifacts(
         or find_matching_file(library_root / "notes", title_slug=title_slug, suffixes={".md"}),
         "semantics_path": semantics_path
         or find_matching_file(library_root / "semantics", title_slug=title_slug, suffixes={".md"}),
+        "ai_practice_signals_path": ai_practice_signals_path
+        or find_matching_file(
+            library_root / "semantics",
+            title_slug=title_slug,
+            suffixes={".json"},
+            preferred_suffix=".ai-practice-signals",
+            require_preferred=True,
+        ),
         "finance_signals_path": finance_signals_path
         or find_matching_file(
             library_root / "semantics",
@@ -752,6 +788,22 @@ def finance_signals_summary(signals: dict[str, Any]) -> str:
         f"已提取 {len(instruments)} 个标的、{len(viewpoint_events) or len(recommendations)} 条观点事件、"
         f"{len(recommendations)} 条兼容推荐信号、"
         f"{len(methods)} 条方法论信号。立场摘要：{stance}"
+    )
+
+
+def ai_practice_signals_summary(signals: dict[str, Any]) -> str:
+    if not signals:
+        return "AI practices artifact 尚未生成。它用于结构化记录真实 AI 使用流程、时代判断、能力信号和可落地实验。"
+    practices = signals.get("practice_events") or []
+    beliefs = signals.get("belief_events") or []
+    capabilities = signals.get("capability_signals") or []
+    personal = signals.get("personal_application_candidates") or []
+    project = signals.get("project_application_candidates") or []
+    summary = signals.get("ai_usage_summary") or "no usage summary"
+    return (
+        f"已提取 {len(practices)} 个实践事件、{len(beliefs)} 个观点事件、"
+        f"{len(capabilities)} 个能力信号、{len(personal)} 个个人实验候选、"
+        f"{len(project)} 个 Seed 项目候选。摘要：{summary}"
     )
 
 

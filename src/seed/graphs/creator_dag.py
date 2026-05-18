@@ -247,6 +247,7 @@ def resolve_creator_video_artifacts(
             "source_path": None,
             "audio_path": None,
             "frame_dir": None,
+            "ai_practice_signals_path": None,
             "finance_signals_path": None,
             "video_dag_path": None,
             "video_dag_html_path": None,
@@ -274,6 +275,7 @@ def build_creator_video_media_nodes(
     source_path = artifacts.get("source_path")
     audio_path = artifacts.get("audio_path")
     frame_dir = artifacts.get("frame_dir")
+    ai_practice_signals_path = artifacts.get("ai_practice_signals_path")
     finance_signals_path = artifacts.get("finance_signals_path")
     video_dag_html_path = artifacts.get("video_dag_html_path")
     frame_paths = list_frame_paths(frame_dir)
@@ -337,6 +339,19 @@ def build_creator_video_media_nodes(
                 finance_signals_path,
             )
         )
+    if ai_practice_signals_path:
+        nodes.append(
+            node(
+                f"{video_id}-ai-practice",
+                "asset",
+                "AI Practice Signals",
+                "单条 AI 方法论视频中结构化提取的实践事件、时代判断、能力信号、个人实验和 Seed 项目反补候选。",
+                -720,
+                y + 300,
+                [path_metric(ai_practice_signals_path), "practice ledger"],
+                ai_practice_signals_path,
+            )
+        )
     edges = [
         [video_id, f"{video_id}-video"],
         [video_id, f"{video_id}-audio"],
@@ -345,4 +360,6 @@ def build_creator_video_media_nodes(
     ]
     if finance_signals_path:
         edges.append([video_id, f"{video_id}-finance"])
+    if ai_practice_signals_path:
+        edges.append([video_id, f"{video_id}-ai-practice"])
     return nodes, edges

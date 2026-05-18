@@ -28,6 +28,10 @@ from seed.dag_export import (
     relative_asset_base,
     video_dag_html_output_path,
 )
+from seed.domains.ai_practices import (
+    ai_practice_signals_output_path,
+    run_ai_practice_signals_extraction,
+)
 from seed.domains.finance import finance_signals_output_path, run_finance_signals_extraction
 from seed.domains.news import news_facts_output_path, run_news_facts_extraction
 from seed.domains.earnings import earnings_analysis_output_path, run_earnings_analysis_extraction
@@ -133,6 +137,7 @@ class VideoPipelineContext:
     cost_path: Path | None = None
     cost_ledger_path: Path | None = None
     semantics_path: Path | None = None
+    ai_practice_signals_path: Path | None = None
     finance_signals_path: Path | None = None
     news_facts_path: Path | None = None
     earnings_analysis_path: Path | None = None
@@ -181,6 +186,8 @@ def planned_video_pipeline_steps(options: VideoPipelineOptions) -> list[str]:
     if options.vision:
         steps.append("analyze_frames")
     steps.append("analyze_video_semantics")
+    if options.domain == "ai-practices":
+        steps.append("extract_ai_practice_signals")
     if options.domain == "finance":
         steps.append("extract_finance_signals")
     if options.domain == "news":
@@ -378,6 +385,14 @@ def run_video_pipeline(options: VideoPipelineOptions) -> tuple[VideoPipelineCont
         provider="codex",
         model=options.codex_model,
     )
+    if options.domain == "ai-practices":
+        run_step(
+            "extract_ai_practice_signals",
+            lambda: _ai_practice_signals_step(options, context),
+            inputs={"semantics_path": context.semantics_path},
+            provider="codex",
+            model=options.codex_model,
+        )
     if options.domain == "finance":
         run_step(
             "extract_finance_signals",
@@ -933,6 +948,28 @@ def _finance_signals_step(options: VideoPipelineOptions, context: VideoPipelineC
     return {"finance_signals_path": output_path}
 
 
+def _ai_practice_signals_step(
+    options: VideoPipelineOptions,
+    context: VideoPipelineContext,
+) -> dict[str, Any]:
+    semantics_path = _require_path(context.semantics_path, "semantics_path")
+    output_path = ai_practice_signals_output_path(library_root=options.library_root, title=context.title)
+    if output_path.exists() and not options.force:
+        context.ai_practice_signals_path = output_path
+        return {"status": "skipped", "ai_practice_signals_path": output_path}
+    run_ai_practice_signals_extraction(
+        semantics_path=semantics_path,
+        output_path=output_path,
+        title=context.title,
+        person=context.owner,
+        platform=context.platform,
+        model=options.codex_model,
+        cwd=Path.cwd(),
+    )
+    context.ai_practice_signals_path = output_path
+    return {"ai_practice_signals_path": output_path}
+
+
 def _news_facts_step(options: VideoPipelineOptions, context: VideoPipelineContext) -> dict[str, Any]:
     semantics_path = _require_path(context.semantics_path, "semantics_path")
     output_path = news_facts_output_path(library_root=options.library_root, title=context.title)
@@ -1018,6 +1055,7 @@ def _dag_step(options: VideoPipelineOptions, context: VideoPipelineContext) -> d
         frame_dir=context.frame_dir,
         visual_notes_path=context.visual_notes_path,
         semantics_path=context.semantics_path,
+        ai_practice_signals_path=context.ai_practice_signals_path,
         finance_signals_path=context.finance_signals_path,
         news_facts_path=context.news_facts_path,
         earnings_analysis_path=context.earnings_analysis_path,
@@ -1039,6 +1077,7 @@ def _dag_step(options: VideoPipelineOptions, context: VideoPipelineContext) -> d
         frame_dir=artifacts["frame_dir"],
         visual_notes_path=artifacts["visual_notes_path"],
         semantics_path=artifacts["semantics_path"],
+        ai_practice_signals_path=artifacts["ai_practice_signals_path"],
         finance_signals_path=artifacts["finance_signals_path"],
         news_facts_path=artifacts["news_facts_path"],
         earnings_analysis_path=artifacts["earnings_analysis_path"],

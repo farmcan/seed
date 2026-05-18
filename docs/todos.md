@@ -258,6 +258,24 @@
 - [x] 增加财经观点新闻事实 HTML 报告。
   - `seed build-finance-news-report <*.finance-digest.news-context.json>` 输出 `library/reports/*.finance-news-report.html`。
   - 报告按热点概览、UP 观点卡、视频观点事件、新闻 facts 对照、行业影响、source gaps 和 open questions 展示，方便人工快速看每天 UP 观点和事实支撑。
+  - `distill-up-list` 会在财经名单配置 `news_digest_paths` 时自动补生成该报告；未配置新闻 digest 时，也会为已有 `*.finance-digest.news-context.json` 重建报告。
+
+## P11：AI 方法论与个人能力账本
+
+- [x] 增加 AI practices domain lens。
+  - `--domain ai-practices` 会追加 `domain-ai-practices-lenses.md`，用于 `summarize-transcript`、`analyze-video-semantics`、`aggregate-owner`、`run-video-pipeline` 和 `run-creator-pipeline`。
+  - 领域 lens 聚焦“真实 AI 使用流程、时代判断、能力信号、工具模式、个人反补和 Seed 项目反补”，不是 AI 新闻摘要。
+- [x] 增加单条视频 AI practice signals artifact。
+  - `seed extract-ai-practice-signals <semantics.md>` 或 `seed run-video-pipeline --domain ai-practices ...` 生成 `library/semantics/*.ai-practice-signals.json`。
+  - artifact 记录 `practice_events`、`belief_events`、`capability_signals`、`tooling_patterns`、`personal_application_candidates`、`project_application_candidates`、`evidence_gaps` 和 `open_questions`。
+  - video DAG 和 creator DAG 已接入 AI practice signals 节点。
+- [x] 增加人物/窗口级 AI practice digest。
+  - `run-creator-pipeline --domain ai-practices` 会在窗口内批量样本后生成 `library/distilled/*.ai-practice-digest.json`。
+  - `seed build-ai-practice-digest --person ... --signal ...` 可对已有 signals 重建 digest。
+  - 当前 digest 先做 evidence-grounded ledger：聚合实践事件、观点事件、能力信号、工具模式、个人小实验和 Seed 项目候选。
+- [ ] 增加 AI practice 报告和个人 playbook。
+  - 下一步可从 digest 生成 `library/reports/*.ai-practice-report.html`、`library/checks/*.personal-ai-playbook.md` 和候选 `library/skills/*/SKILL.md` 草稿。
+  - 报告需要展示跨人物共识、冲突、证据强度、可执行实验、失败模式和 Seed 项目影响面。
 
 ## 已完成基础
 

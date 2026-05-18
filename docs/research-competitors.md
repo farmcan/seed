@@ -53,6 +53,9 @@
 | `AI4Finance-Foundation/FinRobot` | 金融 AI Agent 平台，组合 LLM、金融数据源、量化分析和报告生成；示例包含 FMP、SEC、yfinance 等数据源和 equity report pipeline。 | 后续财经 domain 可以把外部行情、财报、公告和估值工具作为 provider，和视频观点分离。 |
 | `ProsusAI/finBERT` | 金融文本情绪分析 BERT，面向金融语料情绪分类。 | 可作为低成本 sentiment/stance baseline 的参考，但财经视频 recommendation 不能只看情绪，还要抽取 action、horizon、risk。 |
 | `AI4Finance-Foundation/FinRL` | 金融强化学习框架，强调 market environment、agent、application 和 train-test-trade。 | 方法论蒸馏时可借鉴“状态 -> 行动 -> 风险约束 -> 回测”的表达；UP 观点不是可执行策略，必须保留适用条件和失效条件。 |
+| Anthropic Building Effective Agents | Anthropic 工程文章总结 agent/workflow 落地经验，强调组合式 workflow、透明控制流、工具使用、评估和人机协作边界。 | AI practices domain 不应只总结观点，而要抽取真实 workflow、工具链、验证方法、失败模式和 guardrails。 |
+| OpenAI Codex 文档与安全实践 | Codex 被定位为能读写代码、运行命令并在工作区内执行任务的 coding agent；OpenAI 的安全实践强调 workspace 控制、日志、权限和 review。 | Seed 的 AI 方法论账本要记录“如何委派 agent、如何 review、如何限制权限、如何验收结果”，并把这些反补到 agent skill/check。 |
+| Simon Willison Using LLMs 系列 | 长期记录 LLM 在编程、数据处理、研究、工具构建和日常工作中的真实用法与失败经验。 | 适合作为“人物方法论”样本：记录具体 task、prompt/spec、工具组合、验证方式和可复用经验，而不是只摘录抽象观点。 |
 | Stooq daily CSV / pandas-datareader StooqDailyReader | Stooq 提供历史行情 CSV 下载，pandas-datareader 也内置 StooqDailyReader，底层使用 `https://stooq.com/q/d/l/`。 | 适合做轻量行情后验 baseline；Seed 先要求显式 ticker mapping，避免把视频里的中文标的名猜成错误代码。 |
 | GDELT DOC 2.0 API | 官方文档说明 DOC API 支持全文新闻搜索、跨语言机器翻译覆盖、`artlist` 文章列表、JSON 输出和 timeline/tone/source country 等模式。 | 新闻检索 baseline 不自建爬虫，先用 GDELT `mode=artlist&format=json` 拉取候选来源，再由 facts distiller 拆 facts、reported claims、source gaps 和行业影响机制。 |
 | SEC EDGAR data APIs | SEC 官方文档说明 `data.sec.gov` 提供无需 API key 的 JSON API，包括 company submissions 和 XBRL companyfacts，更新随 filings disseminated。 | 财报解析 baseline 使用官方 `submissions/CIK##########.json` 和 `api/xbrl/companyfacts/CIK##########.json`，保留 CIK、accession、form、period、unit 和 filing URL。 |
@@ -177,6 +180,11 @@
 - FinRobot: https://github.com/AI4Finance-Foundation/FinRobot
 - FinBERT: https://github.com/ProsusAI/finBERT
 - FinRL: https://github.com/AI4Finance-Foundation/FinRL
+- Anthropic Building Effective Agents: https://www.anthropic.com/research/building-effective-agents
+- OpenAI Codex docs: https://platform.openai.com/docs/codex
+- OpenAI Running Codex safely: https://openai.com/index/running-codex-safely/
+- OpenAI Using Codex with your ChatGPT plan: https://help.openai.com/en/articles/11369540-using-codex-with-your-chatgpt-plan
+- Simon Willison Using LLMs series: https://feeds.simonwillison.net/series/using-llms/
 - pandas-datareader StooqDailyReader: https://pydata.github.io/pandas-datareader/devel/readers/stooq.html
 - pandas-datareader Stooq source: https://github.com/pydata/pandas-datareader/blob/master/pandas_datareader/stooq.py
 - GDELT DOC 2.0 API: https://blog.gdeltproject.org/gdelt-doc-2-0-api-debuts/

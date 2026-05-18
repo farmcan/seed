@@ -21,6 +21,11 @@ from seed.agent_assets import (
 )
 from seed.creator_ingest import ingest_creator_videos
 from seed.dag_export import export_video_dag_html, relative_asset_base
+from seed.domains.ai_practices import (
+    ai_practice_digest_output_path,
+    build_ai_practice_digest_artifact,
+    write_ai_practice_digest_artifact,
+)
 from seed.domains.finance import (
     build_finance_digest_artifact,
     finance_digest_output_path,
@@ -181,6 +186,9 @@ def run_creator_pipeline(options: CreatorPipelineOptions) -> tuple[dict[str, Any
                     "status": "completed",
                     "manifest_path": str(manifest_path),
                     "html_path": str(context.html_path) if context.html_path else None,
+                    "ai_practice_signals_path": str(getattr(context, "ai_practice_signals_path", None))
+                    if getattr(context, "ai_practice_signals_path", None)
+                    else None,
                     "finance_signals_path": str(getattr(context, "finance_signals_path", None))
                     if getattr(context, "finance_signals_path", None)
                     else None,
@@ -295,6 +303,16 @@ def run_creator_post_processing(
         steps.append(
             maybe_build_finance_digest(
                 owner=owner,
+                platform=platform,
+                video_runs=video_runs,
+                video_metadata_by_title=video_metadata_by_title,
+                options=options,
+            )
+        )
+    if options.domain == "ai-practices":
+        steps.append(
+            maybe_build_ai_practice_digest(
+                person=owner,
                 platform=platform,
                 video_runs=video_runs,
                 video_metadata_by_title=video_metadata_by_title,
@@ -546,6 +564,58 @@ def maybe_build_finance_digest(
             "digest_path": str(output_path),
             "videos_analyzed": artifact["videos_analyzed"],
             "recommendations": artifact["totals"]["recommendations"],
+        }
+    )
+    return step
+
+
+def maybe_build_ai_practice_digest(
+    *,
+    person: str,
+    platform: Platform,
+    video_runs: list[dict[str, Any]],
+    video_metadata_by_title: dict[str, dict[str, Any]],
+    options: CreatorPipelineOptions,
+) -> dict[str, Any]:
+    step: dict[str, Any] = {
+        "name": "build_ai_practice_digest",
+        "status": "pending",
+    }
+    signal_paths = [
+        Path(run["ai_practice_signals_path"])
+        for run in video_runs
+        if run.get("ai_practice_signals_path") and Path(run["ai_practice_signals_path"]).exists()
+    ]
+    if not signal_paths:
+        return skipped_step(step, "no AI practice signals")
+    try:
+        artifact = build_ai_practice_digest_artifact(
+            signal_paths=signal_paths,
+            person=person,
+            platform=str(platform),
+            published_after=options.published_after,
+            published_before=options.published_before,
+            video_metadata_by_title=video_metadata_by_title,
+        )
+        output_path = ai_practice_digest_output_path(
+            library_root=options.library_root,
+            person=person,
+            published_after=options.published_after,
+            published_before=options.published_before,
+        )
+        write_ai_practice_digest_artifact(output_path, artifact)
+    except Exception as error:
+        if not options.keep_going:
+            raise
+        return failed_step(step, error)
+
+    step.update(
+        {
+            "status": "completed",
+            "digest_path": str(output_path),
+            "videos_analyzed": artifact["videos_analyzed"],
+            "practice_events": artifact["totals"]["practice_events"],
+            "capability_signals": artifact["totals"]["capability_signals"],
         }
     )
     return step

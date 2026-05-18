@@ -10,6 +10,7 @@ DOMAIN_LENS_PATHS = {
     "finance": Path("skills/video-semantics-analyzer/references/domain-finance-lenses.md"),
     "news": Path("skills/video-semantics-analyzer/references/domain-news-lenses.md"),
     "earnings": Path("skills/video-semantics-analyzer/references/domain-earnings-lenses.md"),
+    "ai-practices": Path("skills/video-semantics-analyzer/references/domain-ai-practices-lenses.md"),
 }
 
 

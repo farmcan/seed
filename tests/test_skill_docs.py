@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from seed.domains.ai_practices import build_ai_practice_signals_prompt
 from seed.domains.finance import build_finance_signals_prompt
 from seed.domains.news import build_news_semantics_prompt
 from seed.domains.earnings import build_earnings_semantics_prompt
@@ -172,3 +173,48 @@ owner: domain-owner
     assert "Separate factual claims" in news_prompt
     assert "Earnings Domain Lenses" in earnings_lenses
     assert "needs_sec_verification" in earnings_prompt
+
+
+def test_ai_practices_domain_lenses_are_injected(tmp_path):
+    transcript_path = tmp_path / "ai.transcript.md"
+    transcript_path.write_text(
+        "# Transcript\n\n## Chunk 1 (00:00:01)\nI use AI agents to review code.",
+        encoding="utf-8",
+    )
+    semantics_path = tmp_path / "ai.video-semantics.md"
+    semantics_path.write_text(
+        """---
+owner: ai-owner
+---
+
+## Methods And Principles
+
+- Use AI agents to review code, then verify with tests. [T1]
+""",
+        encoding="utf-8",
+    )
+
+    lenses = read_video_analysis_lenses(domains=["ai-practices"])
+    video_prompt = build_video_semantics_prompt(
+        transcript_path=transcript_path,
+        skill_path=Path("skills/video-semantics-analyzer/SKILL.md"),
+        domain="ai-practices",
+    )
+    profile_prompt = build_creator_profile_prompt(
+        semantics_paths=[semantics_path],
+        skill_path=Path("skills/creator-profile-aggregator/SKILL.md"),
+        owner="ai-owner",
+        domain="ai-practices",
+    )
+    signals_prompt = build_ai_practice_signals_prompt(
+        semantics_path=semantics_path,
+        title="AI Demo",
+        person="ai-owner",
+        platform="youtube",
+    )
+
+    assert "AI Practices Domain Lenses" in lenses
+    assert "Practice event" in video_prompt
+    assert "- Domain: ai-practices" in profile_prompt
+    assert '"practice_events"' in signals_prompt
+    assert '"project_application_candidates"' in signals_prompt

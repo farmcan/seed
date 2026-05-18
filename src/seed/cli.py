@@ -67,6 +67,14 @@ from seed.dag_export import (
     video_dag_html_output_path,
 )
 from seed.dag_server import serve_video_dag
+from seed.domains.ai_practices import (
+    ai_practice_digest_output_path,
+    ai_practice_signals_output_path,
+    build_ai_practice_digest_artifact,
+    find_ai_practice_signal_files,
+    run_ai_practice_signals_extraction,
+    write_ai_practice_digest_artifact,
+)
 from seed.domains.finance import (
     build_finance_digest_artifact,
     enrich_finance_digest_with_news_context,
@@ -493,7 +501,7 @@ def run_creator_pipeline_cmd(
     max_filesize_mb: Annotated[int | None, typer.Option("--max-filesize-mb")] = 100,
     cookies_from_browser: Annotated[str | None, typer.Option("--cookies-from-browser")] = None,
     vision: Annotated[bool, typer.Option("--vision/--no-vision")] = True,
-    domain: Annotated[str | None, typer.Option("--domain", help="Optional domain lens, e.g. finance.")] = None,
+    domain: Annotated[str | None, typer.Option("--domain", help="Optional domain lens, e.g. finance or ai-practices.")] = None,
     force: Annotated[bool, typer.Option("--force/--reuse-existing")] = False,
     max_estimated_cost: Annotated[
         float | None,
@@ -1023,7 +1031,7 @@ def run_creator_batch_cmd(
     max_filesize_mb: Annotated[int | None, typer.Option("--max-filesize-mb")] = 100,
     cookies_from_browser: Annotated[str | None, typer.Option("--cookies-from-browser")] = None,
     vision: Annotated[bool, typer.Option("--vision/--no-vision")] = True,
-    domain: Annotated[str | None, typer.Option("--domain", help="Optional domain lens, e.g. finance.")] = None,
+    domain: Annotated[str | None, typer.Option("--domain", help="Optional domain lens, e.g. finance or ai-practices.")] = None,
     force: Annotated[bool, typer.Option("--force/--reuse-existing")] = False,
     max_estimated_cost: Annotated[
         float | None,
@@ -1388,7 +1396,7 @@ def run_video_pipeline_cmd(
     frame_mode: Annotated[str, typer.Option("--frame-mode", help="shot-keyframes, fps, or every-frame.")] = "shot-keyframes",
     frame_notes_fps: Annotated[float, typer.Option("--frame-notes-fps", min=0.1)] = 1.0,
     motion_relations: Annotated[bool, typer.Option("--motion-relations/--no-motion-relations")] = True,
-    domain: Annotated[str | None, typer.Option("--domain", help="Optional domain lens, e.g. finance.")] = None,
+    domain: Annotated[str | None, typer.Option("--domain", help="Optional domain lens, e.g. finance or ai-practices.")] = None,
     show_progress: Annotated[bool, typer.Option("--progress/--no-progress")] = True,
     codex_model: Annotated[str | None, typer.Option("--codex-model")] = None,
     root: Annotated[Path, typer.Option("--root")] = Path("library"),
@@ -1440,6 +1448,8 @@ def run_video_pipeline_cmd(
         console.print(f"created standalone video DAG HTML at {context.html_path}")
     if context.semantics_path:
         console.print(f"created video semantics at {context.semantics_path}")
+    if context.ai_practice_signals_path:
+        console.print(f"created AI practice signals at {context.ai_practice_signals_path}")
     if context.finance_signals_path:
         console.print(f"created finance signals at {context.finance_signals_path}")
     if context.news_facts_path:
@@ -1929,7 +1939,7 @@ def summarize_transcript(
     title: Annotated[str | None, typer.Option("--title")] = None,
     owner: Annotated[str | None, typer.Option("--owner")] = None,
     platform: Annotated[str | None, typer.Option("--platform")] = None,
-    domain: Annotated[str | None, typer.Option("--domain", help="Optional domain lens, e.g. finance.")] = None,
+    domain: Annotated[str | None, typer.Option("--domain", help="Optional domain lens, e.g. finance or ai-practices.")] = None,
     visual_notes: Annotated[
         Path | None,
         typer.Option("--visual-notes", help="Optional visual notes markdown from analyze-frames."),
@@ -1972,7 +1982,7 @@ def analyze_video_semantics(
     title: Annotated[str | None, typer.Option("--title")] = None,
     owner: Annotated[str | None, typer.Option("--owner")] = None,
     platform: Annotated[str | None, typer.Option("--platform")] = None,
-    domain: Annotated[str | None, typer.Option("--domain", help="Optional domain lens, e.g. finance.")] = None,
+    domain: Annotated[str | None, typer.Option("--domain", help="Optional domain lens, e.g. finance or ai-practices.")] = None,
     skill_path: Annotated[Path, typer.Option("--skill-path")] = DEFAULT_VIDEO_SEMANTICS_SKILL_PATH,
     codex_model: Annotated[str | None, typer.Option("--codex-model")] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
@@ -1999,6 +2009,76 @@ def analyze_video_semantics(
         dry_run=dry_run,
     )
     console.print(f"created {'prompt' if dry_run else 'video semantics'} at {output_path}")
+
+
+@app.command("extract-ai-practice-signals")
+def extract_ai_practice_signals(
+    semantics_path: Annotated[Path, typer.Argument(help="Video semantics markdown file.")],
+    title: Annotated[str | None, typer.Option("--title")] = None,
+    person: Annotated[str | None, typer.Option("--person")] = None,
+    platform: Annotated[str | None, typer.Option("--platform")] = None,
+    codex_model: Annotated[str | None, typer.Option("--codex-model")] = None,
+    dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
+    root: Annotated[Path, typer.Option("--root")] = Path("library"),
+) -> None:
+    resolved_title = title or semantics_path.stem.removesuffix(".video-semantics")
+    output_path = ai_practice_signals_output_path(library_root=root, title=resolved_title)
+    if dry_run:
+        output_path = output_path.with_suffix(".prompt.md")
+    run_ai_practice_signals_extraction(
+        semantics_path=semantics_path,
+        output_path=output_path,
+        title=resolved_title,
+        person=person,
+        platform=platform,
+        model=codex_model,
+        cwd=Path.cwd(),
+        dry_run=dry_run,
+    )
+    console.print(f"created {'prompt' if dry_run else 'AI practice signals'} at {output_path}")
+
+
+@app.command("build-ai-practice-digest")
+def build_ai_practice_digest(
+    person: Annotated[str, typer.Option("--person", help="Person, creator, or author.")],
+    platform: Annotated[str | None, typer.Option("--platform")] = None,
+    signal_path: Annotated[
+        list[Path] | None,
+        typer.Option("--signal", help="Explicit *.ai-practice-signals.json path. Can be repeated."),
+    ] = None,
+    published_after: Annotated[
+        datetime | None,
+        typer.Option("--published-after", help="Only include records published at or after this date."),
+    ] = None,
+    published_before: Annotated[
+        datetime | None,
+        typer.Option("--published-before", help="Only include records published before this date."),
+    ] = None,
+    root: Annotated[Path, typer.Option("--root")] = Path("library"),
+) -> None:
+    paths = signal_path or find_ai_practice_signal_files(library_root=root, person=person)
+    if not paths:
+        raise typer.BadParameter(f"No AI practice signal files found for person: {person}")
+    artifact = build_ai_practice_digest_artifact(
+        signal_paths=paths,
+        person=person,
+        platform=platform,
+        published_after=published_after,
+        published_before=published_before,
+    )
+    output_path = ai_practice_digest_output_path(
+        library_root=root,
+        person=person,
+        published_after=published_after,
+        published_before=published_before,
+    )
+    write_ai_practice_digest_artifact(output_path, artifact)
+    console.print(f"created AI practice digest at {output_path}")
+    console.print(
+        f"videos: {artifact['videos_analyzed']}, "
+        f"practices: {artifact['totals'].get('practice_events', 0)}, "
+        f"capabilities: {artifact['totals'].get('capability_signals', 0)}"
+    )
 
 
 @app.command("extract-finance-signals")
@@ -2499,7 +2579,7 @@ def verify_claims(
 def aggregate_owner(
     owner: Annotated[str, typer.Option("--owner", help="Creator, UP, or author to aggregate.")],
     platform: Annotated[str | None, typer.Option("--platform")] = None,
-    domain: Annotated[str | None, typer.Option("--domain", help="Optional domain lens, e.g. finance.")] = None,
+    domain: Annotated[str | None, typer.Option("--domain", help="Optional domain lens, e.g. finance or ai-practices.")] = None,
     semantics_dir: Annotated[
         Path | None,
         typer.Option("--semantics-dir", help="Override directory containing *.video-semantics.md."),
@@ -2709,6 +2789,7 @@ def build_video_dag(
     frame_dir: Annotated[Path | None, typer.Option("--frames")] = None,
     visual_notes: Annotated[Path | None, typer.Option("--visual-notes")] = None,
     semantics_path: Annotated[Path | None, typer.Option("--semantics")] = None,
+    ai_practice_signals: Annotated[Path | None, typer.Option("--ai-practice-signals")] = None,
     finance_signals: Annotated[Path | None, typer.Option("--finance-signals")] = None,
     news_facts: Annotated[Path | None, typer.Option("--news-facts")] = None,
     earnings_analysis: Annotated[Path | None, typer.Option("--earnings-analysis")] = None,
@@ -2731,6 +2812,7 @@ def build_video_dag(
         frame_dir=frame_dir,
         visual_notes_path=visual_notes,
         semantics_path=semantics_path,
+        ai_practice_signals_path=ai_practice_signals,
         finance_signals_path=finance_signals,
         news_facts_path=news_facts,
         earnings_analysis_path=earnings_analysis,
@@ -2753,6 +2835,7 @@ def build_video_dag(
         frame_dir=artifacts["frame_dir"],
         visual_notes_path=artifacts["visual_notes_path"],
         semantics_path=artifacts["semantics_path"],
+        ai_practice_signals_path=artifacts["ai_practice_signals_path"],
         finance_signals_path=artifacts["finance_signals_path"],
         news_facts_path=artifacts["news_facts_path"],
         earnings_analysis_path=artifacts["earnings_analysis_path"],
