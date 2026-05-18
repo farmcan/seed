@@ -149,6 +149,7 @@ run-book-pipeline
 - DAG lint：新增关键 artifact 必须考虑是否需要 DAG 节点；如果节点能回到视频/音频证据，必须写入 `media_anchor` 或说明缺少时间点的原因。
 - Domain lint：新增领域方向先扩展 domain lens 和专用 artifact；通用 pipeline 只暴露 `--domain <name>`，不要为每个领域复制一套入口。
 - Research lint：新增新闻检索、财报解析、OCR、行情、fact-check、视频理解 provider、pipeline 编排等常见/通用能力时，必须先查官方文档、成熟开源项目或行业方案，把调研结论写入 `docs/research-competitors.md`，再 make plan 实现；不要闷头重造轮子。
+- 并发执行 lint：当任务可分解时，应优先尝试并发执行（多个 subagent 或并行 Codex 路径），并在开始前给出清晰分工；并发结果回收后再收敛最终实现，避免顺序串行阻塞。
 - Plan lint：调研后必须把实现计划拆成 provider、artifact、pipeline/DAG、CLI、docs/tests 五类影响面；已完成的一次性 plan 不长期留在 docs。
 - Finance lint：财经内容只能表达“创作者声称/暗示”，不得输出 Seed 自己的投资建议；推荐信号必须保留 evidence refs、risk flags、horizon 和 uncertainty。
 - News lint：新闻 facts digest 必须保留 source URLs、source titles、时间窗口、reported/confirmed/disputed/unclear 状态和 source gaps；行业影响只能写机制和不确定性。

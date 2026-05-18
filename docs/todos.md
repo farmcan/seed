@@ -239,10 +239,11 @@
   - 产物：`library/notes/*.research-note.md`（原始提取）与 `library/semantics/*.equity-research.json`（结构化）双层。
   - `equity-research.json` 对齐 `viewpoint_events` schema：`claim`、`support_refs`、`evidence_level`、`conviction`、`horizon`、`exit_or_invalidation`、`risk_flags`、`open_questions`。
   - 暂不输出 buy/sell 建议；仅输出“成立条件、失效条件、证据边界和不确定性”。
-- [ ] 做一个美图（MEITU）股价分析样例。
+- [x] 做一个美图（MEITU）股价分析样例。
   - 输入：美图 2025 年报/2026Q1 更新 + 行情历史（不依赖单一 provider）。
   - 输出：盈利能力变化、软件板块风险因子、近期价格路径、情景化收益与下行情景、`risk / reward` 框架。
   - 先给“财务/事件证据链完整度”，不是预测价格短线。
+  - 已补齐：时间覆盖、同类公司上下文、最新价与基于 priced 事件的上/下行目标草案（非投资建议）、以及风险收益草案展示。
 
 
 ## P9：财经观点事件模型升级

@@ -127,6 +127,7 @@
 41. Readwise/Zotero/Koreader 证明 reading ingestion 的主数据不是“整本书全文”，而是 highlights、annotations、notes、location、tags 和 source metadata。Seed 初版用本地 Markdown，后续 provider 应兼容这些来源，不把某一个平台格式写死到核心。
 42. Zettelkasten/evergreen note 的启发是：书籍价值在于长期可复用的原子原则和链接，而不是一次性摘要。Seed 的 book methods 应能和 creator profile、video semantics、news facts、earnings facts、finance digest 做 cross-source hooks。
 43. 微信读书接入建议先用官方 `weread-skills` 与 `WEREAD_API_KEY` 路径；非官方 cookie 逆向仅做备份能力，不作为主链路，先避免稳定性和合规风险。接入目标是可持续把书架与书籍笔记落入 `book-source`。
+44. 美股股价展望类报告应先做“事实-观点-后验”分层：先记录标的、时间、动作、置信度与证据引用，再给出情景化区间。目标位只用于研判输入草案，不应以确定值写入或作为交易信号，必须标注不确定和替代假设。
 
 ## Sources
 

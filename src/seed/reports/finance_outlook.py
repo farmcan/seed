@@ -212,6 +212,148 @@ def _extract_matching_terms(text: str, keywords: list[str]) -> list[str]:
     return sorted({term for term in keywords if term in normalized})
 
 
+def _parse_datetime(value: Any) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed
+
+
+def _safe_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _peer_context_from_digest(digest: dict[str, Any]) -> dict[str, Any]:
+    peer_context_block = digest.get("peer_context")
+    if isinstance(peer_context_block, dict):
+        raw_peers = (
+            peer_context_block.get("peers")
+            or peer_context_block.get("peer_assets")
+            or peer_context_block.get("comparable_assets")
+            or []
+        )
+        target_asset = peer_context_block.get("target_asset")
+        target_ticker = peer_context_block.get("target_ticker")
+        industry = peer_context_block.get("industry")
+        notes = peer_context_block.get("peer_notes")
+    else:
+        raw_peers = (
+            digest.get("peer_assets")
+            or digest.get("peers")
+            or digest.get("comparable_assets")
+            or []
+        )
+        target_asset = digest.get("target_asset") or digest.get("asset") or digest.get("instrument")
+        target_ticker = digest.get("target_ticker")
+        industry = digest.get("industry")
+        notes = digest.get("peer_notes")
+
+    peers: list[dict[str, Any]] = []
+    if isinstance(raw_peers, list):
+        for item in raw_peers:
+            if isinstance(item, str):
+                peers.append({"name": item.strip()})
+            elif isinstance(item, dict):
+                name = item.get("name") or item.get("ticker") or item.get("symbol")
+                if isinstance(name, str) and name.strip():
+                    peers.append(
+                        {
+                            "name": name.strip(),
+                            "ticker": str(item.get("ticker") or "").strip() or None,
+                            "relation": item.get("relation") or item.get("type"),
+                            "note": item.get("note") or item.get("rationale"),
+                        }
+                    )
+
+    if not isinstance(notes, list):
+        notes = None
+
+    return {
+        "target_asset": target_asset,
+        "target_ticker": target_ticker,
+        "industry": industry,
+        "peers": peers,
+        "notes": notes,
+    }
+
+
+def _build_time_coverage(events: list[dict[str, Any]]) -> dict[str, Any]:
+    times: list[datetime] = []
+    for event in events:
+        published = _parse_datetime(event.get("published_at"))
+        if published is not None:
+            times.append(published)
+    if not times:
+        return {"status": "missing", "earliest": None, "latest": None}
+    times.sort()
+    return {
+        "status": "available",
+        "earliest": times[0].isoformat(),
+        "latest": times[-1].isoformat(),
+        "events_with_time": len(times),
+    }
+
+
+def _asset_price_context(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    context_rows: list[dict[str, Any]] = []
+    for row in rows:
+        outcome = row.get("event_outcomes")
+        if not isinstance(outcome, dict) or outcome.get("status") != "priced":
+            continue
+
+        latest = outcome.get("latest")
+        if not isinstance(latest, dict) or latest.get("status") != "priced":
+            continue
+
+        published_price_date = latest.get("published_price_date")
+        latest_price_date = latest.get("latest_price_date")
+        published_close = _safe_float(latest.get("published_close"))
+        latest_close = _safe_float(latest.get("latest_close"))
+        if (
+            not isinstance(published_price_date, str)
+            or not isinstance(latest_price_date, str)
+            or published_close is None
+            or latest_close is None
+        ):
+            continue
+
+        context_rows.append(
+            {
+                "published_price_date": published_price_date,
+                "latest_price_date": latest_price_date,
+                "published_close": published_close,
+                "latest_close": latest_close,
+                "published_asset_return": _safe_float(latest.get("asset_return")),
+                "max_drawdown": _safe_float(latest.get("max_drawdown")),
+            }
+        )
+
+    if not context_rows:
+        return {"status": "insufficient_price_context"}
+
+    context_rows.sort(key=lambda item: item["latest_price_date"])
+    anchor = context_rows[-1]
+    return {
+        "status": "priced",
+        "published_price_date": anchor["published_price_date"],
+        "latest_price_date": anchor["latest_price_date"],
+        "published_close": anchor["published_close"],
+        "latest_close": anchor["latest_close"],
+        "published_asset_return": anchor["published_asset_return"],
+        "max_drawdown": anchor["max_drawdown"],
+    }
+
+
 def _build_asset_rollup(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for event in events:
@@ -286,6 +428,22 @@ def _build_asset_rollup(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
         drawdowns = [item["latest_drawdown"] for item in outcome_rows if item["latest_drawdown"] is not None]
         max_drawdown = min(drawdowns) if drawdowns else None
         direction_bias = "bearish" if bearish_direction > bullish_direction else "bullish" if bullish_direction > bearish_direction else "mixed"
+        price_context = _asset_price_context(rows)
+        upside_target = None
+        downside_target = None
+        if price_context.get("status") == "priced":
+            current_price = _safe_float(price_context.get("latest_close"))
+            if current_price is not None:
+                if max_return is not None:
+                    upside_target = round(current_price * (1 + max_return / 100), 4)
+                if min_return is not None and min_return < 0:
+                    downside_target = round(current_price * (1 + min_return / 100), 4)
+        price_context["target_prices"] = {
+            "upside_pct": max_return,
+            "upside_target": upside_target,
+            "downside_pct": min_return,
+            "downside_target": downside_target,
+        }
 
         rollup = {
             "asset_id": key,
@@ -300,7 +458,9 @@ def _build_asset_rollup(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "latest_return": latest_return,
             "upside": max_return,
             "downside": min_return,
+            "target_prices": price_context.get("target_prices"),
             "max_drawdown": max_drawdown,
+            "price_context": price_context,
             "downside_pressure": downside_pressure,
             "upside_support": upside_support,
             "aigc_relevance": bool(aigc_terms),
@@ -393,6 +553,8 @@ def build_finance_outlook_payload(
 ) -> dict[str, Any]:
     events = [event for event in digest.get("viewpoint_events") or [] if isinstance(event, dict)]
     rollups = _build_asset_rollup(events)
+    time_coverage = _build_time_coverage(events)
+    peer_context = _peer_context_from_digest(digest)
 
     macro_signals: list[str] = []
     for thesis in digest.get("macro_theses") or []:
@@ -491,6 +653,8 @@ def build_finance_outlook_payload(
         "source_digest_path": str(digest_path) if digest_path is not None else None,
         "window": digest.get("window"),
         "not_investment_advice": True,
+        "time_coverage": time_coverage,
+        "peer_context": peer_context,
         "totals": {
             "events": len(events),
             "priced_events": len(priced_events),
@@ -538,6 +702,17 @@ def _format_rr(value: float | None) -> str:
     return str(value)
 
 
+def _format_time(value: Any) -> str:
+    parsed = _parse_datetime(value)
+    return parsed.strftime("%Y-%m-%d %H:%M") if parsed else "-"
+
+
+def _format_price(value: float | None) -> str:
+    if value is None:
+        return "-"
+    return f"{value:,.2f}"
+
+
 def build_finance_outlook_report_html(payload: dict[str, Any]) -> str:
     owner = escape(str(payload.get("owner") or "Unknown"))
     platform = escape(str(payload.get("platform") or "unknown"))
@@ -548,10 +723,30 @@ def build_finance_outlook_report_html(payload: dict[str, Any]) -> str:
     news_context_signals = payload.get("news_context_signals") or []
     aigc = payload.get("aigc") or {}
     direction_bias = totals.get("direction_bias") or {}
+    time_coverage = payload.get("time_coverage") or {}
+    peer_context = payload.get("peer_context") or {}
 
     actions = payload.get("actions") or {}
     directions = payload.get("directions") or {}
     rollups = payload.get("asset_rollups") or []
+
+    peer_rows: list[str] = []
+    peers = peer_context.get("peers")
+    if isinstance(peers, list):
+        for peer in peers:
+            if not isinstance(peer, dict):
+                continue
+            name = str(peer.get("name") or "").strip()
+            if not name:
+                continue
+            parts = [name]
+            if ticker := str(peer.get("ticker") or "").strip():
+                parts.append(f"ticker={ticker}")
+            if relation := str(peer.get("relation") or "").strip():
+                parts.append(relation)
+            if note := str(peer.get("note") or "").strip():
+                parts.append(note)
+            peer_rows.append("｜".join(parts))
 
     asset_rows = []
     for item in rollups:
@@ -576,12 +771,27 @@ def build_finance_outlook_report_html(payload: dict[str, Any]) -> str:
         risks = item.get("top_risks")
         risk_text = ", ".join(escape(str(risk)) for risk in risks) if risks else "待补充"
         aigc_flag = "是" if item.get("aigc_relevance") else "否"
-        scenario = (
-            f"基准：{_format_pct(item.get('latest_return'))}；"
-            f"上行空间：{_format_pct(item.get('upside'))}；"
-            f"下行空间：{_format_pct(item.get('downside'))}；"
-            f"回撤：{_format_pct(item.get('max_drawdown'))}"
-        )
+        price_context = item.get("price_context") if isinstance(item.get("price_context"), dict) else {}
+        target_prices = item.get("target_prices") if isinstance(item.get("target_prices"), dict) else {}
+        scenario_parts = [
+            f"基准：{_format_pct(item.get('latest_return'))}",
+            f"上行空间：{_format_pct(item.get('upside'))}",
+            f"下行空间：{_format_pct(item.get('downside'))}",
+            f"回撤：{_format_pct(item.get('max_drawdown'))}",
+        ]
+        latest_price = price_context.get("latest_close")
+        latest_price_date = price_context.get("latest_price_date")
+        if latest_price is not None and latest_price_date is not None:
+            scenario_parts.append(f"最新价：{_format_price(_safe_float(latest_price))}（{_format_time(latest_price_date)}）")
+        if target_prices.get("upside_target") is not None:
+            scenario_parts.append(
+                f"上行目标：{_format_price(_safe_float(target_prices.get('upside_target')))}（{_format_pct(target_prices.get('upside_pct'))}）"
+            )
+        if target_prices.get("downside_target") is not None:
+            scenario_parts.append(
+                f"下行目标：{_format_price(_safe_float(target_prices.get('downside_target')))}（{_format_pct(target_prices.get('downside_pct'))}）"
+            )
+        scenario = "；".join(scenario_parts)
         event_count = str(item.get("event_count") or 0)
         rr = _format_rr(item.get("risk_reward_ratio"))
         rr_tag = (
@@ -614,9 +824,67 @@ def build_finance_outlook_report_html(payload: dict[str, Any]) -> str:
         <td>{escape(aigc_flag)}<br>{tags}</td>
         <td>{escape(risk_text)}</td>
         <td><div class='small'>{escape(scenario)}</div></td>
-      </tr>
+        </tr>
             """
         asset_rows.append(row)
+
+    peer_list_html = "".join(
+        f"<li>{escape(item)}</li>" for item in (peer_rows or ["未提供可比较同类样本"])
+    )
+    software_headwind_rows = "".join(
+        f"<li>{escape(str(item))}</li>"
+        for item in (software_headwinds or ["暂无明显软件方向利空信号"])
+    )
+    asset_rows_html = (
+        "".join(asset_rows)
+        if asset_rows
+        else "<tr><td colspan=\"13\" class='muted'>当前 digest 无可对齐标的</td></tr>"
+    )
+    target_price_rows: list[str] = []
+    for item in rollups:
+        if not isinstance(item, dict):
+            continue
+        price_context = item.get("price_context")
+        if not isinstance(price_context, dict) or price_context.get("status") != "priced":
+            continue
+        target_prices = item.get("target_prices")
+        if not isinstance(target_prices, dict):
+            continue
+        target_price_rows.append(
+            f"<li>{escape(str(item.get('instrument') or item.get('asset_id')))}："
+            f"基准价 {_format_price(_safe_float((price_context or {}).get('latest_close')))}"
+            f"（{_format_time((price_context or {}).get('latest_price_date'))}）；"
+            f"上行目标 {_format_price(_safe_float((target_prices or {}).get('upside_target')))} "
+            f"（{_format_pct((target_prices or {}).get('upside_pct'))}）；"
+            f"下行目标 {_format_price(_safe_float((target_prices or {}).get('downside_target')))} "
+            f"（{_format_pct((target_prices or {}).get('downside_pct'))}）</li>"
+        )
+    target_price_rows_html = (
+        "".join(target_price_rows)
+        if target_price_rows
+        else "<li>暂无可估算目标价位（缺少价格锚点）</li>"
+    )
+
+    macro_rows_html = "".join(
+        f"<li>{escape(str(item))}</li>"
+        for item in (payload.get("macro_signals") or ["暂无明确行业变量"])
+    )
+    industry_rows_html = "".join(
+        f"<li>{escape(str(item))}</li>"
+        for item in (industry_outlook or ["暂无行业机制对齐"])
+    )
+    risk_flags_summary = (
+        ", ".join(escape(str(flag)) for flag in list(payload.get("risk_flags", {}).keys())[:4])
+        or "待补充"
+    )
+    aigc_production = ", ".join(
+        escape(str(item)) for item in aigc.get("production_terms", [])
+    ) or "待补充"
+    aigc_usage = ", ".join(
+        escape(str(item)) for item in aigc.get("usage_terms", [])
+    ) or "待补充"
+    aigc_assets = ", ".join(escape(str(item)) for item in aigc.get("assets", [])) or "无"
+    news_context_snippets = "; ".join(escape(str(item)) for item in news_context_signals[:8]) or "无"
 
     return f"""<!doctype html>
 <html lang='zh-CN'>
@@ -735,6 +1003,10 @@ def build_finance_outlook_report_html(payload: dict[str, Any]) -> str:
         ｜ 整体上行：{_format_pct(totals.get('overall_upside'))} ｜ 整体下行：{_format_pct(totals.get('overall_downside'))} ｜ R/R：{_format_rr(totals.get('overall_risk_reward'))}
       </div>
       <div class="meta">
+        时间覆盖：{_format_time(time_coverage.get("earliest"))} 到 {_format_time(time_coverage.get("latest"))}
+        （{time_coverage.get("events_with_time", 0)}/{totals.get("events", 0)} 条）
+      </div>
+      <div class="meta">
         标的偏向：多空={escape(str(direction_bias.get('bullish', 0)))} ｜ 空头={escape(str(direction_bias.get('bearish', 0)))} ｜ 混合={escape(str(direction_bias.get('mixed', 0)))}
       </div>
     </header>
@@ -752,25 +1024,36 @@ def build_finance_outlook_report_html(payload: dict[str, Any]) -> str:
         </div>
         <div class="card">
           <span class="muted">风险因素 Top</span>
-          <strong>{', '.join(escape(str(flag)) for flag in list(payload.get('risk_flags', {}).keys())[:4]) or '待补充'}</strong>
+          <strong>{risk_flags_summary}</strong>
         </div>
         <div class="card">
           <span class="muted">证据边界状态</span>
           <strong>{len(payload.get('source_gaps', []))} 个证据缺口</strong>
           <div class='small'>{'; '.join(escape(str(item)) for item in payload.get('open_questions', [])[:2]) or '无明显 open questions'}</div>
         </div>
+        <div class="card">
+          <span class="muted">同类公司对照</span>
+          <strong>{escape(str(peer_context.get("target_asset") or peer_context.get("target_ticker") or peer_context.get("asset") or "未标注"))}</strong>
+          <div class='small'>行业：{escape(str(peer_context.get("industry") or "待补充"))}</div>
+          <div class='small'>同业样本：{len(peer_rows)} 家</div>
+        </div>
       </div>
+    </section>
+
+    <section class="section">
+      <h2>同类公司（事实输入）</h2>
+      <ul>
+        {peer_list_html}
+      </ul>
+      <div class='small muted'>来源于 digest.peer_context，仅用于事实汇总，不作投资建议比较。</div>
     </section>
 
     <section class="section">
       <h2>当前利空与下行压力</h2>
       <ul>
-        {''.join(
-            f"<li>{escape(str(item))}</li>"
-            for item in software_headwinds or ['暂无明显软件方向利空信号']
-        )}
+        {software_headwind_rows}
       </ul>
-      <div class="small muted">优先核验：估值、增速、现金流、商业化路径与监管变化。</div>
+      <div class="small muted">核验项：估值、增速、现金流、商业化路径与监管变化。</div>
     </section>
 
     <section class="section">
@@ -794,7 +1077,7 @@ def build_finance_outlook_report_html(payload: dict[str, Any]) -> str:
           </tr>
         </thead>
         <tbody>
-          {''.join(asset_rows) if asset_rows else '<tr><td colspan="13" class="muted">当前 digest 无可对齐标的</td></tr>'}
+          {asset_rows_html}
         </tbody>
       </table>
       <div class="small muted" style="margin-top:8px;">
@@ -804,37 +1087,39 @@ def build_finance_outlook_report_html(payload: dict[str, Any]) -> str:
     </section>
 
     <section class="section">
+      <h2>目标价位草案（基于价格后验）</h2>
+      <ul>
+        {target_price_rows_html}
+      </ul>
+      <div class='small muted'>目标仅为草案：采用 latest close 与事件极值收益做场景映射；仅作风险收益讨论输入。</div>
+    </section>
+
+    <section class="section">
       <h2>AIGC / 软件行业变量</h2>
       <div class="small muted" style="margin-bottom: 8px;">
-        AIGC 生产侧：{', '.join(escape(str(item)) for item in aigc.get('production_terms', []) ) or '待补充'}
+        AIGC 生产侧：{aigc_production}
       </div>
       <div class="small muted" style="margin-bottom: 8px;">
-        AIGC 使用侧：{', '.join(escape(str(item)) for item in aigc.get('usage_terms', []) ) or '待补充'}
+        AIGC 使用侧：{aigc_usage}
       </div>
       <ul>
-        {''.join(
-            f"<li>{escape(str(item))}</li>"
-            for item in payload.get("macro_signals") or ['暂无明确行业变量']
-        )}
+        {macro_rows_html}
       </ul>
       <div class="small muted" style="margin-top: 8px;">
-        AIGC 相关标的：{', '.join(escape(str(item)) for item in aigc.get('assets', []) ) or '无'}
+        AIGC 相关标的：{aigc_assets}
       </div>
     </section>
 
     <section class="section">
       <h2>行业影响与新闻机制</h2>
       <ul>
-        {''.join(
-            f"<li>{escape(str(item))}</li>"
-            for item in industry_outlook or ['暂无行业机制对齐']
-        )}
+        {industry_rows_html}
       </ul>
       <div class="small muted" style="margin-top: 8px;">
-        新闻事实补充：{'; '.join(escape(str(item)) for item in news_context_signals[:8]) or '无'}
+        新闻事实补充：{news_context_snippets}
       </div>
       <div class="small muted" style="font-size:12px;">
-        当 AI 与软件生产链变化时，建议先看：
+        对照观察项（非投资建议）：
         工具侧可替代性、算力/带宽成本、商业模式随使用弹性变化。
       </div>
     </section>
