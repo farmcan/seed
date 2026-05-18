@@ -116,6 +116,10 @@ def test_build_finance_outlook_payload_and_html(tmp_path):
         library_root=tmp_path,
         digest_path=digest_path,
     ) == tmp_path / "distilled" / "demo.finance-outlook.json"
+    assert finance_outlook_output_path(
+        library_root=tmp_path,
+        digest_path=tmp_path / "demo.finance-outlook.json",
+    ) == tmp_path / "reports" / "demo.finance-outlook-report.html"
 
 
 def test_build_finance_outlook_outputs_for_owner(tmp_path):
@@ -143,6 +147,128 @@ def test_build_finance_outlook_outputs_for_owner(tmp_path):
     }
     assert (tmp_path / "distilled" / "demo-owner.finance-outlook.json").exists()
     assert (tmp_path / "reports" / "demo-owner.finance-outlook-report.html").exists()
+
+
+def test_build_finance_outlook_outputs_for_owner_prefers_valid_finance_digest(tmp_path):
+    (tmp_path / "distilled").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "distilled" / "demo-owner.finance-digest.priced.news-context.json").write_text(
+        json.dumps(
+            {
+                "kind": "finance_digest",
+                "owner": "demo-owner",
+                "platform": "bilibili",
+                "viewpoint_events": [
+                    {
+                        "event_id": "from-digest",
+                        "instrument": "MEITU",
+                        "action": "watch",
+                        "direction": "bullish",
+                        "event_outcomes": {
+                            "status": "priced",
+                            "latest": {"status": "priced", "asset_return": 4.0, "max_drawdown": -1.0},
+                        },
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "distilled" / "demo-owner.finance-outlook.json").write_text(
+        json.dumps(
+            {
+                "kind": "finance_outlook",
+                "owner": "demo-owner",
+                "platform": "bilibili",
+                "source_digest_path": str(tmp_path / "legacy-source.finance-digest.json"),
+                "viewpoint_events": [],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "legacy-source.finance-digest.json").write_text(
+        json.dumps(
+            {
+                "kind": "finance_digest",
+                "owner": "demo-owner",
+                "platform": "bilibili",
+                "viewpoint_events": [
+                    {
+                        "event_id": "from-legacy",
+                        "instrument": "MEITU",
+                        "action": "watch",
+                        "direction": "neutral",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    outputs = build_finance_outlook_outputs_for_owner(
+        library_root=tmp_path,
+        owner="demo-owner",
+    )
+    payload_path = tmp_path / "distilled" / "demo-owner.finance-outlook.json"
+    payload = json.loads(payload_path.read_text(encoding="utf-8"))
+    assert any(path.name.endswith(".finance-outlook.json") for path in outputs)
+    assert payload["totals"]["events"] == 1
+
+
+def test_build_finance_outlook_payload_falls_back_to_source_digest(tmp_path):
+    source_digest_path = tmp_path / "source.finance-digest.news-context.json"
+    source_digest_path.write_text(
+        json.dumps(
+            {
+                "kind": "finance_digest",
+                "owner": "demo",
+                "platform": "bilibili",
+                "viewpoint_events": [
+                    {
+                        "event_id": "source-1",
+                        "instrument": "MEITU",
+                        "action": "watch",
+                        "direction": "bullish",
+                        "event_outcomes": {
+                            "status": "priced",
+                            "latest": {"status": "priced", "asset_return": 4.0, "max_drawdown": -1.0},
+                        },
+                    },
+                ],
+                "peer_context": {
+                    "target_asset": "美图公司",
+                    "target_ticker": "MEITU",
+                    "industry": "软件",
+                },
+                "first_principles": {
+                    "business_model": "工具订阅化",
+                },
+                "open_questions": ["source q"],
+                "source_gaps": ["source gap"],
+                "methodology_signals": ["source methodology"],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    digest = {
+        "kind": "finance_digest",
+        "owner": "demo",
+        "platform": "bilibili",
+        "viewpoint_events": [],
+        "source_digest_path": str(source_digest_path),
+    }
+
+    payload = build_finance_outlook_payload(digest)
+
+    assert payload["totals"]["events"] == 1
+    assert payload["peer_context"]["target_asset"] == "美图公司"
+    assert payload["first_principles"]["business_model"] == "工具订阅化"
+    assert payload["open_questions"] == ["source q"]
+    assert payload["source_gaps"] == ["source gap"]
+    assert payload["methodology_signals"] == ["source methodology"]
 
 
 def test_finance_outlook_command_builds_payload_and_report(tmp_path):

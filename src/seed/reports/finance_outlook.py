@@ -87,6 +87,60 @@ AICODING_KEYWORDS = [
 ]
 
 
+FINANCE_OUTLOOK_DIGEST_SUFFIXES: tuple[str, ...] = (
+    ".finance-digest.priced.news-context.json",
+    ".finance-digest.news-context.json",
+    ".finance-digest.priced.json",
+    ".finance-digest.json",
+)
+
+
+def _is_finance_digest_artifact(path: Path) -> bool:
+    return path.name.endswith(FINANCE_OUTLOOK_DIGEST_SUFFIXES)
+
+
+def _select_more_valuable_digest_path(candidates: list[Path]) -> Path | None:
+    if not candidates:
+        return None
+    return sorted(
+        candidates,
+        key=lambda path: (
+            path.name.endswith(".finance-digest.news-context.json"),
+            path.name.endswith(".finance-digest.priced.json"),
+            path.stat().st_mtime,
+            path.name,
+        ),
+        reverse=True,
+    )[0]
+
+
+def _merge_nonempty_dict(
+    primary: dict[str, Any],
+    fallback: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if not fallback:
+        return primary
+    merged = dict(primary)
+    for key, value in fallback.items():
+        if key == "source_digest_path":
+            continue
+        if key not in merged or not merged[key]:
+            merged[key] = value
+    return merged
+
+
+def _first_principles_context(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    if any(value for value in value.values()):
+        return value
+    return {}
+
+
+def _should_replace_peer_context(context: dict[str, Any]) -> bool:
+    return not any(context.get(field) for field in ("target_asset", "target_ticker", "industry", "peers", "notes"))
+
+
 def _collect_event_text(event: dict[str, Any]) -> str:
     fields: list[Any] = [
         event.get("action"),
@@ -215,6 +269,8 @@ def finance_outlook_output_path(*, library_root: Path, digest_path: Path) -> Pat
         ".finance-digest.news-context.json",
         ".finance-digest.priced.json",
         ".finance-digest.json",
+        ".finance-outlook.json",
+        ".finance-outlook",
         ".json",
     ):
         if name.endswith(suffix):
@@ -233,12 +289,38 @@ def finance_outlook_payload_output_path(
         ".finance-digest.news-context.json",
         ".finance-digest.priced.json",
         ".finance-digest.json",
+        ".finance-outlook.json",
+        ".finance-outlook",
         ".json",
     ):
         if name.endswith(suffix):
             name = name.removesuffix(suffix)
             break
     return library_root / "distilled" / f"{slugify(name)}.finance-outlook.json"
+
+
+def _load_json_if_possible(path_text: str | Path | None) -> dict[str, Any] | None:
+    if not path_text:
+        return None
+    path = Path(path_text)
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def _resolve_source_digest(
+    digest: dict[str, Any],
+    *,
+    digest_path: Path | None = None,
+) -> tuple[dict[str, Any], dict[str, Any] | None, Path | None]:
+    digest_path_str = str(digest_path) if digest_path is not None else None
+    fallback = _load_json_if_possible(digest.get("source_digest_path"))
+    if not fallback or (str(digest.get("source_digest_path")) == digest_path_str):
+        return digest, None, None
+    return _merge_nonempty_dict(digest, fallback), fallback, Path(str(digest.get("source_digest_path")))
 
 
 def find_owner_finance_outlook_report_paths(
@@ -673,9 +755,30 @@ def build_finance_outlook_outputs_for_owner(
         published_after=published_after,
         published_before=published_before,
     )
-    candidates = [expected]
-    if not expected.exists():
-        candidates = sorted((library_root / "distilled").glob(f"{slugify(owner)}*.finance-digest*.json"))
+    candidates = [expected] if expected.exists() else []
+    if not candidates:
+        candidates = [
+            path
+            for path in sorted((library_root / "distilled").glob(f"{slugify(owner)}*.finance-digest*.json"))
+            if _is_finance_digest_artifact(path)
+        ]
+
+    if not candidates:
+        fallback_outlook = [
+            path
+            for path in sorted((library_root / "distilled").glob(f"{slugify(owner)}*.finance-outlook.json"))
+            if (outlook := _load_json_if_possible(path))
+            and outlook.get("source_digest_path")
+        ]
+        for path in sorted(
+            fallback_outlook,
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        ):
+            fallback_digest = _load_json_if_possible(path) or {}
+            if _load_json_if_possible(fallback_digest.get("source_digest_path")):
+                candidates = [path]
+                break
 
     if not candidates:
         return []
@@ -693,16 +796,11 @@ def build_finance_outlook_outputs_for_owner(
         if windowed:
             candidates = windowed
 
-    digest_path = sorted(
-        candidates,
-        key=lambda path: (
-            path.name.endswith(".finance-digest.news-context.json"),
-            path.name.endswith(".finance-digest.priced.json"),
-            path.stat().st_mtime,
-            path.name,
-        ),
-        reverse=True,
-    )[0]
+    digest_path = (
+        _select_more_valuable_digest_path(candidates) if candidates else None
+    )
+    if digest_path is None:
+        return []
     if not digest_path.exists():
         return []
 
@@ -731,15 +829,30 @@ def build_finance_outlook_payload(
     *,
     digest_path: Path | None = None,
 ) -> dict[str, Any]:
-    events = [event for event in digest.get("viewpoint_events") or [] if isinstance(event, dict)]
+    resolved_digest, source_digest, resolved_source_path = _resolve_source_digest(
+        digest,
+        digest_path=digest_path,
+    )
+    source_digest = source_digest or {}
+    events = [event for event in resolved_digest.get("viewpoint_events") or [] if isinstance(event, dict)]
+    if not events and source_digest.get("viewpoint_events"):
+        events = [event for event in (source_digest.get("viewpoint_events") or []) if isinstance(event, dict)]
+
+    peer_context = _peer_context_from_digest(resolved_digest)
+    if _should_replace_peer_context(peer_context):
+        source_peer_context = _peer_context_from_digest(source_digest)
+        if not _should_replace_peer_context(source_peer_context):
+            peer_context = source_peer_context
+    first_principles = _first_principles_context(resolved_digest.get("first_principles"))
+    source_first_principles = _as_dict(source_digest.get("first_principles"))
+    if not first_principles:
+        first_principles = _first_principles_context(source_first_principles)
     rollups = _build_asset_rollup(events)
     time_coverage = _build_time_coverage(events)
-    peer_context = _peer_context_from_digest(digest)
-    first_principles = _as_dict(digest.get("first_principles"))
     has_software_context = bool([item for item in rollups if item.get("is_software_sector")])
     has_aicoding_context = _contains_aicoding_context(digest) or _contains_software_context(
         events,
-        digest=digest,
+        digest=resolved_digest,
         peer_context=peer_context,
         first_principles=first_principles,
     )
@@ -752,7 +865,7 @@ def build_finance_outlook_payload(
     )
 
     macro_signals: list[str] = []
-    for thesis in digest.get("macro_theses") or []:
+    for thesis in resolved_digest.get("macro_theses") or []:
         if isinstance(thesis, dict):
             text = thesis.get("thesis")
             if isinstance(text, str) and text.strip():
@@ -798,10 +911,10 @@ def build_finance_outlook_payload(
     news_context_signals: list[str] = []
     open_questions: list[str] = []
     source_gaps: list[str] = []
-    for question in digest.get("open_questions") or digest.get("open_questions", []):
+    for question in resolved_digest.get("open_questions") or resolved_digest.get("open_questions", []):
         if isinstance(question, str) and question.strip():
             open_questions.append(question.strip())
-    for gap in digest.get("source_gaps") or digest.get("evidence_gaps") or []:
+    for gap in resolved_digest.get("source_gaps") or resolved_digest.get("evidence_gaps") or []:
         if isinstance(gap, str) and gap.strip():
             source_gaps.append(gap.strip())
 
@@ -880,14 +993,19 @@ def build_finance_outlook_payload(
             }
         ),
     }
+    methodology_signals = sorted(
+        set(_as_list(resolved_digest.get("methodology_signals")) + _as_list(source_digest.get("methodology_signals")))
+    )
 
     return {
         "generated_at": datetime.now(UTC).isoformat(),
         "kind": "finance_outlook",
-        "owner": digest.get("owner"),
-        "platform": digest.get("platform"),
-        "source_digest_path": str(digest_path) if digest_path is not None else None,
-        "window": digest.get("window"),
+        "owner": resolved_digest.get("owner"),
+        "platform": resolved_digest.get("platform"),
+        "source_digest_path": str(resolved_source_path)
+        if resolved_source_path is not None
+        else resolved_digest.get("source_digest_path"),
+        "window": resolved_digest.get("window"),
         "not_investment_advice": True,
         "time_coverage": time_coverage,
         "peer_context": peer_context,
@@ -923,7 +1041,7 @@ def build_finance_outlook_payload(
         "asset_rollups": rollups,
         "overall_price_targets": overall_price_targets,
         "first_principles": first_principles_summary,
-        "methodology_signals": digest.get("methodology_signals") or [],
+        "methodology_signals": methodology_signals,
     }
 
 
