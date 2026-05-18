@@ -139,6 +139,15 @@ from seed.reports.finance_news import (
     find_owner_finance_news_report_paths,
     write_finance_news_report_html,
 )
+from seed.reports.finance_outlook import (
+    build_finance_outlook_report_html,
+    finance_outlook_output_path,
+    finance_outlook_payload_output_path,
+    build_finance_outlook_payload,
+    build_finance_outlook_outputs_for_owner,
+    find_owner_finance_outlook_report_paths,
+    write_finance_outlook_report,
+)
 from seed.library import (
     init_library,
     save_creator_video_list,
@@ -858,6 +867,7 @@ def load_creator_batch_config(config_path: Path) -> tuple[
         ),
         "build_finance_news_reports": bool(defaults.get("build_finance_news_reports", True)),
         "max_news_contexts_per_event": int(defaults.get("max_news_contexts_per_event", 5)),
+        "build_finance_outlook_reports": bool(defaults.get("build_finance_outlook_reports", True)),
         "root": str(defaults.get("root", "library")),
     }
     return platform, owners, owner_ids, options
@@ -1042,6 +1052,11 @@ def build_up_homepage(
         artifact_links.append(f"<a href='{escape(str(digest_path))}'>{escape(digest_path.name)}</a>")
     for report_path in finance_report_paths[:4]:
         artifact_links.append(f"<a href='{escape(str(report_path))}'>{escape(report_path.name)}</a>")
+    finance_outlook_paths = find_owner_finance_outlook_report_paths(library_root=root, owner=owner)
+    for outlook_path in finance_outlook_paths[:4]:
+        artifact_links.append(
+            f"<a href='{escape(str(outlook_path))}'>{escape(outlook_path.name)}</a>"
+        )
 
     output_path.write_text(
         f"""<!doctype html>
@@ -1347,6 +1362,10 @@ def distill_up_list(
         bool,
         typer.Option("--skip-finance-news-reports", help="Do not auto-build finance news-context reports."),
     ] = False,
+    skip_finance_outlook_reports: Annotated[
+        bool,
+        typer.Option("--skip-finance-outlook-reports", help="Do not auto-build finance outlook reports."),
+    ] = False,
     dry_run: Annotated[
         bool,
         typer.Option("--dry-run", help="Only resolve owner list and options, do not run pipelines."),
@@ -1424,6 +1443,21 @@ def distill_up_list(
         for owner, paths in finance_news_paths:
             for path in paths:
                 console.print(f"created finance news artifact for {owner}: {path}")
+
+    if (
+        not skip_finance_outlook_reports
+        and bool(options.get("build_finance_outlook_reports", True))
+        and str(options.get("domain") or "") == "finance"
+    ):
+        for owner in owners:
+            outlook_paths = build_finance_outlook_outputs_for_owner(
+                library_root=library_root,
+                owner=owner,
+                published_after=options["published_after"],  # type: ignore[arg-type]
+                published_before=options["published_before"],  # type: ignore[arg-type]
+            )
+            for path in outlook_paths:
+                console.print(f"created finance outlook artifact for {owner}: {path}")
 
     if build_homepages:
         homepage_paths = [
@@ -2418,6 +2452,49 @@ def build_finance_news_report(
     events_with_context = sum(1 for event in events if event.get("news_context"))
     console.print(f"created finance news report at {resolved_output}")
     console.print(f"events: {len(events)}, events with context: {events_with_context}")
+
+
+@app.command("build-finance-outlook-report")
+def build_finance_outlook_report(
+    digest_path: Annotated[
+        Path,
+        typer.Argument(help="Path to *.finance-digest.json or *.finance-digest.news-context.json."),
+    ],
+    output: Annotated[Path | None, typer.Option("--output")] = None,
+    payload_output: Annotated[Path | None, typer.Option("--payload")] = None,
+    root: Annotated[Path, typer.Option("--root")] = Path("library"),
+) -> None:
+    digest = json.loads(digest_path.read_text(encoding="utf-8"))
+    payload = build_finance_outlook_payload(digest, digest_path=digest_path)
+    resolved_output = output or finance_outlook_output_path(
+        library_root=root,
+        digest_path=digest_path,
+    )
+    resolved_payload_output = (
+        payload_output
+        or finance_outlook_payload_output_path(
+            library_root=root,
+            digest_path=digest_path,
+        )
+    )
+    payload_path = resolved_payload_output
+    payload_path.parent.mkdir(parents=True, exist_ok=True)
+    payload_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    write_finance_outlook_report(
+        resolved_output,
+        build_finance_outlook_report_html(payload),
+    )
+    events = digest.get("viewpoint_events") or []
+    console.print(f"created finance outlook report at {resolved_output}")
+    console.print(f"created finance outlook payload at {resolved_payload_output}")
+    console.print(
+        "events: "
+        f"{len(events)}, priced events: "
+        f"{sum(1 for event in events if isinstance(event, dict) and isinstance(event.get('event_outcomes'), dict) and event['event_outcomes'].get('status') == 'priced')}"
+    )
 
 
 def parse_ticker_map(values: list[str]) -> dict[str, str]:

@@ -223,6 +223,11 @@
   - `seed enrich-finance-prices <digest.json> --ticker-map 标的=ticker` 会生成 `*.finance-digest.priced.json`。
   - 当前 provider 是可选 `stooq` 日线 CSV，记录发布日附近收盘价、最新收盘价、涨跌幅、可选 benchmark 和数据来源 URL。
   - 行情 provider 独立于视频分析；没有显式 ticker mapping 时保持 `missing_ticker`，不猜。
+- [x] 增加金融观点前瞻草案报告。
+  - `seed build-finance-outlook-report` 从 `*.finance-digest*.json` 生成 `*.finance-outlook-report.html` 与 `*.finance-outlook.json`。
+  - 报告输出标的级风险收益、上行/下行空间、利空因素、软件和 AI 行业变量与证据边界。
+  - `seed distill-up-list --domain finance` 默认可自动附带生成 outlook（新增可选 `--skip-finance-outlook-reports`）。
+
 - [ ] 增加财经方法论回测/后验评估。
   - 当前 priced digest 已有 event-level 基础价格后验，缺少系统性回测框架。
   - 下一步才做系统性评估：按 action/direction/horizon 计算命中、超额收益、窗口收益，并汇总到 UP 方法论层。
