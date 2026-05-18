@@ -1,6 +1,6 @@
 # 竞品与类似项目调研
 
-调研日期：2026-05-07；画布与计费补充：2026-05-10；架构复核补充：2026-05-11；视觉笔记、核验、编排补充：2026-05-11；短视频 shot 级分析补充：2026-05-12；运行可观测性补充：2026-05-13；财经 UP 蒸馏补充：2026-05-14；新闻检索与财报解析补充：2026-05-17；AI 方法论与 agent 工作流补充：2026-05-18；书籍/读书方法论补充：2026-05-18。
+调研日期：2026-05-07；画布与计费补充：2026-05-10；架构复核补充：2026-05-11；视觉笔记、核验、编排补充：2026-05-11；短视频 shot 级分析补充：2026-05-12；运行可观测性补充：2026-05-13；财经 UP 蒸馏补充：2026-05-14；新闻检索与财报解析补充：2026-05-17；AI 方法论与 agent 工作流补充：2026-05-18；书籍/读书方法论补充：2026-05-18；微信读书接入补充：2026-05-18。
 
 ## 结论
 
@@ -42,6 +42,7 @@
 | VCapsBench / ShotBench 等视频理解 benchmark | 近年 benchmark 开始把 camera movement、shot type、cinematic language、fine-grained caption quality 作为评估维度。 | Seed 的短视频 visual notes 应从“描述画面”升级为“shot 类型、镜头运动、主体、字幕、构图、剪辑目的、叙事功能”。 |
 | `PaddlePaddle/PaddleOCR` | GitHub 上约 77k stars，Apache-2.0；支持 100+ 语言 OCR 和文档/图像结构化。 | 短视频字幕/OCR provider 首选候选；先作为可选依赖接入，不放入默认安装，避免环境复杂度影响主链路。 |
 | `SWHL/RapidVideOCR` / `timminator/VideOCR` | 分别约 0.5k / 0.6k stars；都聚焦从视频硬字幕中提取文字，RapidVideOCR 偏 CLI，VideOCR 支持 GUI 和多语言。 | 证明“硬字幕抽取”应作为短视频一等证据，不应只依赖 ASR；可以参考其抽帧、OCR、合并相邻字幕为 SRT 的流程。 |
+| `OpenWeRead` / 微信读书技能生态 | 社区实现以微信读书官方 skill（`weread-skills`）能力为基础，核心路径是书架、metadata 与笔记/划线。 | 书籍源接入优先走官方授权链路，保留非官方兜底，但不让其主导主流水线，先确保 `book-source` 落库稳定。 |
 | `google-ai-edge/mediapipe` | GitHub 上约 35k stars，Apache-2.0；面向 live/streaming media 的跨平台 ML pipeline，常用于 pose、hand、face 等实时视觉任务。 | 人物运动关系 provider 候选：人的位置、姿态、手势、遮挡、人物与镜头/物体关系可以先用 pose/hand/face landmarks 辅助，再交给 VL 总结。 |
 | `CMU-Perceptual-Computing-Lab/openpose` | GitHub 上约 34k stars；实时多人 body/face/hand/foot keypoint detection。 | 适合后续做多人关系和肢体动作的更强 provider，但 license 和安装复杂度需要单独隔离。 |
 | `opencv/opencv` | GitHub 上约 87k stars，Apache-2.0；提供 optical flow、tracking、image processing 等基础视觉算法。 | 当前短视频默认 provider 应优先用 OpenCV/ffmpeg 做低成本 baseline，例如镜头运动、画面变化、字幕区域、运动强度，不依赖大模型。 |
@@ -125,6 +126,7 @@
 40. 读书能力应按 source-grounded 长文档合成来做，而不是新增一个“大摘要”。NotebookLM、LlamaIndex 和 LangChain 的共同点是：source/chunk 先结构化，再按问题合成；Seed 应先落 `B*` evidence blocks，再抽 stable principles、decision rules、mental models、agent checks 和 source gaps。
 41. Readwise/Zotero/Koreader 证明 reading ingestion 的主数据不是“整本书全文”，而是 highlights、annotations、notes、location、tags 和 source metadata。Seed 初版用本地 Markdown，后续 provider 应兼容这些来源，不把某一个平台格式写死到核心。
 42. Zettelkasten/evergreen note 的启发是：书籍价值在于长期可复用的原子原则和链接，而不是一次性摘要。Seed 的 book methods 应能和 creator profile、video semantics、news facts、earnings facts、finance digest 做 cross-source hooks。
+43. 微信读书接入建议先用官方 `weread-skills` 与 `WEREAD_API_KEY` 路径；非官方 cookie 逆向仅做备份能力，不作为主链路，先避免稳定性和合规风险。接入目标是可持续把书架与书籍笔记落入 `book-source`。
 
 ## Sources
 
@@ -207,6 +209,8 @@
 - LangChain summarization examples: https://langchain-doc.readthedocs.io/en/latest/modules/indexes/chain_examples/summarize.html
 - Readwise API: https://readwise.io/api_deets
 - Readwise Reader API: https://readwise.io/reader_api
+- OpenWeRead: https://github.com/Ceelog/OpenWeRead
+- 微信读书官方 Skill: https://weread.qq.com/r/weread-skills
 - Zotero Web API: https://www.zotero.org/support/dev/web_api/v3/basics
 - NotebookLM source help: https://support.google.com/notebooklm/answer/16215270
 - Obsidian Zettelkasten overview: https://obsidian.rocks/getting-started-with-zettelkasten-in-obsidian/

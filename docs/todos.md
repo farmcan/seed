@@ -65,6 +65,10 @@
   - 已新增 `seed import-book-source`，当前支持本地 Markdown 导入为 `library/notes/*.book-source.json`。
   - Artifact 统一记录 provider、source metadata、author/title、location、highlight、note、tag、source_url 和 `B*` evidence refs。
   - Provider 分层仍按本地 Markdown/CSV 优先；Readwise export、Zotero annotations、Kindle/Koreader highlights 后续做可选 provider。
+- [ ] 调研并接入微信读书（WeRead）数据源。
+  - 第一步优先官方链路：研究 `weread-skills` + `WEREAD_API_KEY`，目标先能消费书架、读书元数据、笔记/划线到 `library/notes/*.book-source.json`。
+  - 非官方 cookie / 逆向接口保留为可选备选，不做主链路，不在核心 pipeline 默认路径强依赖。
+  - 需要先明确产物约束与合规边界：是否可按书源与作者稳定抽取、是否可持续更新、是否保留时间戳与来源引用。
 - [ ] 增加分层 book distillation。
   - 目标：block/chapter methods -> book methods -> topic profile，不把整本书一次性塞进 prompt。
   - 借鉴 `map_reduce/refine/tree_summarize`，保留每层 source gaps 和冲突观点。
@@ -223,6 +227,18 @@
   - 当前 priced digest 已有 event-level 基础价格后验，缺少系统性回测框架。
   - 下一步才做系统性评估：按 action/direction/horizon 计算命中、超额收益、窗口收益，并汇总到 UP 方法论层。
   - 仍然只评估“创作者当时表达的观点是否被后续市场验证”，不输出交易建议。
+
+- [ ] 建立“财报 + 研报”结构化技能工作流。
+  - 先把 `skills/financial-statement-reviewer` 和 `skills/equity-research-report-analyzer` 做成可复用模板。
+  - 目标产物先从 `seed summarize-transcript` 的 `--skill-path` 入口启动，先保证离线文本到 `equity research claim ledger` 的稳定映射。
+  - 产物：`library/notes/*.research-note.md`（原始提取）与 `library/semantics/*.equity-research.json`（结构化）双层。
+  - `equity-research.json` 对齐 `viewpoint_events` schema：`claim`、`support_refs`、`evidence_level`、`conviction`、`horizon`、`exit_or_invalidation`、`risk_flags`、`open_questions`。
+  - 暂不输出 buy/sell 建议；仅输出“成立条件、失效条件、证据边界和不确定性”。
+- [ ] 做一个美图（MEITU）股价分析样例。
+  - 输入：美图 2025 年报/2026Q1 更新 + 行情历史（不依赖单一 provider）。
+  - 输出：盈利能力变化、软件板块风险因子、近期价格路径、情景化收益与下行情景、`risk / reward` 框架。
+  - 先给“财务/事件证据链完整度”，不是预测价格短线。
+
 
 ## P9：财经观点事件模型升级
 
