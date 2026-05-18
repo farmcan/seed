@@ -76,9 +76,13 @@ def build_equity_research_report_html(
     source_gaps = _as_list(payload.get("source_gaps"))
     open_questions = _as_list(payload.get("open_questions"))
     first_principles = _as_dict(payload.get("first_principles"))
+    ecosystem_implications = _as_dict(first_principles.get("ecosystem_implications"))
     competitors = _as_list(first_principles.get("competitors"))
     intl_notes = _as_list(first_principles.get("internationalization_notes"))
     fp_uncertainties = _as_list(first_principles.get("first_principles_uncertainties"))
+    tooling_watch = _as_list(ecosystem_implications.get("tooling_or_platform_playbooks"))
+    model_chip_watch = _as_list(ecosystem_implications.get("model_or_chip_companies_to_watch"))
+    spillover_uncertainties = _as_list(ecosystem_implications.get("spillover_uncertainties"))
 
     events_html_rows = []
     total_risk_flags = 0
@@ -275,6 +279,17 @@ def build_equity_research_report_html(
           <article class="principle-item">
             <h3>第一性不确定性</h3>
             <p>{_join_lines(fp_uncertainties)}</p>
+          </article>
+          <article class="principle-item">
+            <h3>产业传导启发（卖铲子）</h3>
+            <p>工具/平台受益线索：{_join_lines(tooling_watch)}</p>
+            <p class="sub">模型公司含义：{_render_value(ecosystem_implications.get("model_company_implication"), "待补充")}</p>
+          </article>
+          <article class="principle-item">
+            <h3>算力与硬件链条</h3>
+            <p>{_render_value(ecosystem_implications.get("compute_or_hardware_signal"), "待补充")}</p>
+            <p class="sub">可关注公司：{_join_lines(model_chip_watch)}</p>
+            <p class="sub">传导不确定性：{_join_lines(spillover_uncertainties)}</p>
           </article>
         </div>
       </div>

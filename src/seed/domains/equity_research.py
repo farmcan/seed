@@ -184,6 +184,13 @@ JSON schema:
     "overseas_revenue_ratio": string | null,
     "internationalization_progress": string | null,
     "internationalization_notes": [string],
+    "ecosystem_implications": {
+      "tooling_or_platform_playbooks": [string],
+      "model_company_implication": string | null,
+      "compute_or_hardware_signal": string | null,
+      "model_or_chip_companies_to_watch": [string],
+      "spillover_uncertainties": [string]
+    },
     "first_principles_uncertainties": [string]
   },
   "source_gaps": [string],
