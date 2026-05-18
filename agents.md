@@ -36,6 +36,9 @@ run-creator-batch
 
 compare-up-profiles
   -> 横向对比多个 UP 的 profile、validation、成本和证据覆盖
+
+run-book-pipeline
+  -> 本地 Markdown 读书笔记一键生成 book-source、book-methods、HTML report 和 agent playbook
 ```
 
 ## 重要文件
@@ -76,6 +79,7 @@ compare-up-profiles
   - `skills/creator-profile-aggregator/SKILL.md`
   - `skills/facts-distiller/SKILL.md`
   - `skills/earnings-parser/SKILL.md`
+  - `skills/book-method-distiller/SKILL.md`
 
 ## 架构规则
 
@@ -145,6 +149,8 @@ compare-up-profiles
 - Finance lint：财经内容只能表达“创作者声称/暗示”，不得输出 Seed 自己的投资建议；推荐信号必须保留 evidence refs、risk flags、horizon 和 uncertainty。
 - News lint：新闻 facts digest 必须保留 source URLs、source titles、时间窗口、reported/confirmed/disputed/unclear 状态和 source gaps；行业影响只能写机制和不确定性。
 - Earnings lint：财报解析优先用 SEC/交易所/公司 IR primary source；必须保留 CIK、accession number、form、period、unit 和 filing date；没有 primary source 时只能输出待核验 claim。
+- Book lint：书籍/读书笔记用于长期方法论参照，不直接替代事实核验或交易判断；`book_methods` 必须保留 `B*` evidence refs、适用边界、anti-patterns、source gaps 和 open questions。
+- Book source lint：读书导入先落 `library/notes/*.book-source.json`，记录 provider、source metadata、highlight/note、location、tags、source URL 和 `B*` evidence refs；Readwise、Zotero、Kindle/Koreader 等后续来源必须作为 provider 接入，不要把平台格式写死到 prompt。
 - Market data lint：行情补强不能猜 ticker；必须由 `--ticker-map 标的=ticker` 或未来可靠 mapping provider 提供，并记录 provider、source_url、价格日期和不确定状态。
 - Verification lint：涉及事实、价格、平台规则、模型价格、库选型等易变信息时，必须查官方或 primary source，并把来源写入调研或 artifact。
 - Canvas lint：不要再手写主布局算法；主路径使用 vendored 成熟布局库，手写逻辑只允许作为 fallback 或小交互 glue。遇到卡顿先做默认简版、卡片正文折叠、视口裁剪和右侧详情收起，不要降级成低信息密度图谱。
@@ -153,7 +159,9 @@ compare-up-profiles
 - Vendor lint：新增 vendored 前端库必须固定版本，并提交对应 LICENSE 或来源说明。
 - Privacy lint：不要提交 `library/` 的私有内容，除 `.gitkeep` 外都应被 ignore。
 - Review lint：从 LLM 生成的 creator skill/check 默认是 draft，不能自动视为可安装或可信资产。
-- Test lint：测试优先覆盖 pipeline、DAG/export、artifact schema、docs/skill lint 等主链路；避免为简单 path helper、薄 wrapper、常量映射和第三方库直通逻辑堆大量低价值单元测试。
+- Lint-first lint：当前项目优先把工程约束沉淀到本文件的 lint 规则里；遇到可复用的开发原则、边界、禁区或交付标准时，先考虑是否应补充 `agents.md`，再考虑写测试或另开文档。
+- Result-first lint：用户最关注可运行结果、真实样本产物和可看的报告；不要为了形式完整而大规模补单测、跑全量测试或消耗大量 token。除非用户明确要求或风险很高，默认用最小命令验证真实输出。
+- Test lint：测试只覆盖能防止主 pipeline、artifact schema、DAG/export、财经/news/earnings 关键匹配逻辑或 docs/skill lint 退化的主链路；避免为简单 path helper、薄 wrapper、HTML 渲染细节、常量映射和第三方库直通逻辑堆低价值单元测试。是否新增测试不确定时，先问用户。
 
 ## 文档规则
 
@@ -188,7 +196,7 @@ library/shots/        shot boundary JSON
 library/shots/*.motion-relations.json  短视频运动关系候选 JSON
 library/transcripts/  ASR 或人工 transcript
 library/frames/       抽帧截图和 shot 代表帧
-library/notes/        source record、creator video list、visual notes、quick summary
+library/notes/        source record、creator video list、visual notes、quick summary、book-source JSON
 library/news/         新闻检索结果
 library/earnings/     SEC 财报 facts artifact
 library/runs/         pipeline run manifest、运行态 status JSON 和 live HTML
@@ -198,20 +206,27 @@ library/claims/       待核验 claim JSON
 library/costs/        单条视频 Qwen-VL 成本 JSON 和 pipeline cost ledger
 library/graphs/       画布 DAG JSON 和静态 HTML 快照
 library/distilled/    creator profile 和方法论
+library/reports/      人工阅读报告 HTML
 library/skills/       生成的 skills
-library/checks/       生成的 checks
+library/checks/       生成的 checks 和 book methods playbook
 library/reflections/  Agent 使用方法论后的复盘记录
 ```
 
 ## 验证命令
 
-完成代码改动前至少运行：
+默认优先跑 lint 和最小真实链路验证，不默认跑全量测试：
 
 ```bash
 .venv/bin/ruff check .
-.venv/bin/pytest
-git status -sb
 ```
+
+只有在改动触及主 pipeline、artifact schema、DAG/export、财经/news/earnings 关键匹配逻辑或 docs/skill lint 时，才补对应的定向测试，例如：
+
+```bash
+.venv/bin/python -m pytest tests/test_smoke.py
+```
+
+不要为了形式完整跑全量 pytest 或新增低价值单测；如果是否需要测试不确定，先问用户。
 
 当前测试集刻意保持偏 smoke/integration，不追求每个 helper 都有单测。新增测试时优先问：它能防止主 pipeline、artifact、DAG 或文档约束退化吗？
 
@@ -231,6 +246,7 @@ git status -sb
 .venv/bin/seed verify-claims --help
 .venv/bin/seed import-book-note --help
 .venv/bin/seed analyze-book-note --help
+.venv/bin/seed distill-book-methods --help
 .venv/bin/seed aggregate-topic --help
 .venv/bin/seed generate-agent-assets --help
 .venv/bin/seed review-agent-assets --help

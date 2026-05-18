@@ -56,8 +56,26 @@
   - 保留作者、章节、页码/位置、引用边界。
 - [x] 增加 book semantics artifact。
   - 类似 video semantics，但默认没有 visual language。
+- [x] 增加 book methods 第一版。
+  - 参考 NotebookLM source-grounded summary、LlamaIndex/LangChain 长文档合成、Readwise/Zotero highlights/annotations 和 Zettelkasten/evergreen notes。
+  - `seed distill-book-methods` 把读书笔记切成 `B*` evidence blocks，输出 stable principles、decision rules、mental models、agent checks、适用边界、anti-patterns、cross-source hooks、source gaps 和 open questions。
 - [x] 支持按作者/主题聚合。
   - 复用 creator aggregation 的思路，但不绑定视频平台。
+- [x] 增加 reading source artifact。
+  - 已新增 `seed import-book-source`，当前支持本地 Markdown 导入为 `library/notes/*.book-source.json`。
+  - Artifact 统一记录 provider、source metadata、author/title、location、highlight、note、tag、source_url 和 `B*` evidence refs。
+  - Provider 分层仍按本地 Markdown/CSV 优先；Readwise export、Zotero annotations、Kindle/Koreader highlights 后续做可选 provider。
+- [ ] 增加分层 book distillation。
+  - 目标：block/chapter methods -> book methods -> topic profile，不把整本书一次性塞进 prompt。
+  - 借鉴 `map_reduce/refine/tree_summarize`，保留每层 source gaps 和冲突观点。
+- [x] 增加 book methods 报告和 playbook 输出。
+  - 新增 `seed build-book-methods-report`，输出 `library/reports/*.book-methods-report.html` 给人看。
+  - 新增 `seed build-book-methods-playbook`，输出 `library/checks/*.book-methods-playbook.md` 给 agent 使用前检查。
+- [x] 增加 book 一键 pipeline。
+  - 新增 `seed run-book-pipeline`，输入本地 Markdown 读书笔记后一次生成 `book-source.json`、`book-methods.json`、HTML 报告和 agent playbook。
+  - `--dry-run` 只生成 Codex prompt，不尝试渲染报告和 playbook。
+- [ ] 把 book methods 接入跨来源对照。
+  - 在 creator profile / finance digest / news facts / earnings digest 中引用 `cross_source_hooks`，用于判断 UP 观点是否符合长期方法论、是否需要事实核验或边界提醒。
 
 ## P4：继续调研
 
@@ -274,7 +292,8 @@
 - [x] 创作者 pipeline 收敛：`seed run-creator-pipeline` 可以按清单批量运行视频 pipeline，并自动串起 creator profile、agent assets 和 creator DAG。
 - [x] Creator DAG 第一版：`seed build-creator-dag` 生成 UP/作者级 DAG JSON 和静态 HTML，并可从每条视频展开本地视频、音频、截图和单条 video DAG。
 - [x] 真实创作者样本：`影视飓风` 已生成 3 条 video semantics、creator profile、validation、agent asset draft 和 creator DAG。
-- [x] 书籍/笔记入口：`seed import-book-note`、`seed analyze-book-note`、`seed aggregate-topic` 支持非视频来源的基础语义产物。
+- [x] 书籍/笔记入口：`seed import-book-note`、`seed analyze-book-note`、`seed distill-book-methods`、`seed aggregate-topic` 支持非视频来源的基础语义和稳定方法论产物。
+  - `seed distill-book-methods` 输出 `library/distilled/*.book-methods.json`，把读书笔记拆成 stable principles、decision rules、mental models、agent checks、适用边界、anti-patterns、source gaps 和 open questions。
 - [x] Canvas 布局离线化：`tools/vendor/elk.bundled.js` 固定 `elkjs`，导出 HTML 不再依赖 CDN。
 - [x] 视频分析 lenses：`skills/video-semantics-analyzer/references/video-analysis-lenses.md` 收敛 Fabric、BiliNote、tldw、短视频结构等参考框架。
 - [x] 视频分析证据锚点：prompt 构建统一注入共享 lenses 和 `[T*]`、`[V*]`、`[F*]` 证据引用要求，避免纯主观总结。

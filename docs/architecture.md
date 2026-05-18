@@ -68,6 +68,15 @@ seed research-news "<query>"
 seed parse-earnings <ticker-or-cik>
   -> SEC EDGAR filings/companyfacts 拉取 + 财报事实蒸馏
   -> 输出 `library/earnings/*.sec-earnings.json` 和 `library/distilled/*.earnings-digest.json`
+
+seed distill-book-methods <book-note.md> --author <author> --title <title>
+  -> 读书笔记/高亮 source-grounded 蒸馏
+  -> 输出 `library/distilled/*.book-methods.json`
+  -> 后续可和 UP profile、新闻 facts、财报 facts、财经 digest 做 cross-source hooks
+
+seed run-book-pipeline <book-note.md> --author <author> --title <title>
+  -> 本地 Markdown 读书笔记一键跑完 source artifact + methods JSON + HTML report + agent playbook
+  -> 输出 `library/notes/*.book-source.json`、`library/distilled/*.book-methods.json`、`library/reports/*.book-methods-report.html`、`library/checks/*.book-methods-playbook.md`
 ```
 
 这些命令已经是当前优先入口；其他 CLI 视为可组合 step 或调试入口。新增功能如果不能进入 pipeline、不能生成稳定 artifact、不能被 DAG 或 creator aggregation 消费，就不应作为主功能推进。
@@ -85,7 +94,7 @@ seed parse-earnings <ticker-or-cik>
 | 视觉语言 | `seed extract-frames`, `seed analyze-frames` | `src/seed/vision/` | `library/frames/*`, `library/notes/*.visual.md` |
 | 短视频结构 | `seed profile-short-video`, `seed detect-shots`, `seed build-frame-notes`, `seed build-motion-relations`, `seed run-video-pipeline` | `src/seed/shorts.py`, `src/seed/pipeline.py` | `library/shorts/*.short-video-profile.json`, `library/shots/*.shots.json`, `library/shots/*.motion-relations.json`, `library/frames/*.frame-notes.jsonl`, `library/frames/*.shots/*` |
 | 成本计量 | `seed analyze-frames`, `seed build-cost-ledger`, `seed build-video-dag` | `src/seed/costs.py`, `src/seed/graphs/video_dag.py` | `library/costs/*.cost.json`, `library/costs/*.ledger.json`, DAG cost 节点 |
-| 书籍/笔记 | `seed import-book-note`, `seed analyze-book-note`, `seed aggregate-topic` | `src/seed/books.py` | `library/notes/*.book-note.md`, `library/semantics/*.book-semantics.md`, `library/distilled/*.topic-profile.md` |
+| 书籍/笔记 | `seed import-book-note`, `seed import-book-source`, `seed analyze-book-note`, `seed distill-book-methods`, `seed build-book-methods-report`, `seed build-book-methods-playbook`, `seed run-book-pipeline`, `seed aggregate-topic` | `src/seed/books.py`, `skills/book-method-distiller/SKILL.md` | `library/notes/*.book-note.md`, `library/notes/*.book-source.json`, `library/semantics/*.book-semantics.md`, `library/distilled/*.book-methods.json`, `library/reports/*.book-methods-report.html`, `library/checks/*.book-methods-playbook.md`, `library/distilled/*.topic-profile.md` |
 | 快速总结 | `seed summarize-transcript` | `src/seed/summarizers/`, `src/seed/skill_refs.py`, `src/seed/semantics/evidence.py` | `library/notes/*.summary.md` |
 | 视频语义 | `seed analyze-video-semantics` | `src/seed/semantics/analyzer.py`, `src/seed/skill_refs.py`, `src/seed/semantics/evidence.py` | `library/semantics/*.video-semantics.md` |
 | 领域信号 | `seed extract-finance-signals`, `seed build-finance-digest`, `seed enrich-finance-prices`, `seed enrich-finance-news`, `seed build-finance-news-report`, `seed run-video-pipeline --domain finance`, `seed run-creator-pipeline --domain finance` | `src/seed/domains/finance.py`, `src/seed/reports/finance_news.py`, `src/seed/skill_refs.py` | `library/semantics/*.finance-signals.json`, `library/distilled/*.finance-digest.json`, `*.finance-digest.priced.json`, `*.finance-digest.news-context.json`, `library/reports/*.finance-news-report.html`, video DAG / creator DAG finance 节点 |
@@ -117,6 +126,7 @@ seed parse-earnings <ticker-or-cik>
 - `domains/finance.py`：财经领域信号抽取、窗口汇总、可选行情补强和新闻 facts 上下文。输入单条 `video-semantics.md`，输出 `*.finance-signals.json`，每条信号优先返回 `viewpoint_events`（主对象）；输入多条 signals，输出 `*.finance-digest.json`；显式 ticker mapping 后可用 Stooq 日线生成 `*.finance-digest.priced.json`；`seed enrich-finance-news` 可把 `*.news-digest.json` 的 facts、industry impacts 和 market relevance 挂到事件级 `news_context`，只做事实引用；`seed build-finance-news-report` 把 news-context digest 渲染成卡片式 HTML 报告。所有观点都必须标记为创作者观点，不是 Seed 投资建议。
 - `domains/news.py`：新闻检索和 facts-first 蒸馏。默认 provider 是 GDELT DOC 2.0 `artlist` JSON，检索结果写入 `library/news/*.news-search.json`；Codex 蒸馏只汇总 facts、reported claims、industry impacts、source gaps 和 open questions，输出 `*.news-digest.json`。视频 pipeline 的 `--domain news` 会从 `video-semantics.md` 生成 `*.news-facts.json`，供 DAG 和 fact-check 消费。
 - `domains/earnings.py`：财报解析和 SEC baseline。默认 provider 是 SEC EDGAR `submissions` 与 XBRL `companyfacts` JSON，ticker/CIK 映射来自 SEC `company_tickers.json`；原始事实写入 `library/earnings/*.sec-earnings.json`，Codex 蒸馏输出 `*.earnings-digest.json`。视频 pipeline 的 `--domain earnings` 会把视频里的财报说法提取成待 SEC 核验的 `*.earnings-analysis.json`。
+- `books.py`：书籍/读书笔记导入、语义化和方法论蒸馏。初版 provider 是本地 Markdown；后续 provider 扩展 Readwise/Reader export、Zotero annotations、Kindle/Koreader highlights 时必须落到统一 `book-source` artifact，而不是把某个平台格式写进 prompt。长书处理采用 evidence blocks -> chapter/book methods -> topic profile 的分层合成，借鉴 NotebookLM source grounding、LlamaIndex/LangChain map-reduce/refine/tree summarize、Readwise/Zotero annotations 和 Zettelkasten literature/permanent notes。
 - `semantics/evidence.py`：从 transcript chunk、visual notes 和 keyframe metadata 生成 `T*`、`V*`、`F*` 证据锚点，供总结、视频语义和创作者聚合引用。
 - `summarizers/`：单条 transcript 的轻量总结，适合作为人工快速预览；prompt 必须注入共享 lenses 和证据锚点。
 - `semantics/analyzer.py`：单条视频语义融合，输入 transcript 和 visual notes，输出 `library/semantics/*.video-semantics.md`；强结论要引用 transcript、visual notes 或 keyframe 证据 ID。
@@ -144,6 +154,7 @@ seed parse-earnings <ticker-or-cik>
 - `skills/video-semantics-analyzer/references/domain-earnings-lenses.md`：财报领域 lens，强调 SEC/公司 IR primary source、metric period/unit/form/accession 和 source gap；只在 `--domain earnings` 时注入。
 - `skills/facts-distiller/SKILL.md`：检索结果 facts-first 蒸馏 skill，用于 `distill-news-facts` 和 `research-news`。
 - `skills/earnings-parser/SKILL.md`：SEC 财报事实解析 skill，用于 `distill-earnings` 和 `parse-earnings`。
+- `skills/book-method-distiller/SKILL.md`：书籍/读书笔记方法论蒸馏 skill，用于 `distill-book-methods`；输出必须保留 `B*` evidence refs、适用边界、anti-patterns、source gaps、open questions 和 cross-source hooks。
 - `skills/video-note-summarizer/SKILL.md`：面向 transcript-first 的快速笔记，复用共享 lenses，输出给人看的 Markdown。
 - `skills/video-semantics-analyzer/SKILL.md`：面向长期聚合的单条视频语义，严格区分 verbal evidence、visual evidence、timeline evidence 和 inference。
 - `skills/creator-profile-aggregator/SKILL.md`：面向跨视频聚合，强结论需要重复证据；单视频信号必须标记 provisional。
@@ -172,6 +183,7 @@ prompt 构建时会自动注入：
 - `library/notes/*.summary.md`：快速摘要，不作为长期聚合主数据。
 - `library/notes/*.creator-videos.yaml`：创作者本地清单，驱动批量分析、聚合与 creator DAG 入口。
 - `library/notes/*.book-note.md`：手动导入的书籍/笔记。
+- `library/notes/*.book-source.json`：书籍/读书高亮统一 source artifact，记录 provider、source metadata、highlight/note、location、tags、source URL 和 `B*` evidence refs；当前 provider 是本地 Markdown，后续兼容 Readwise/Zotero/Kindle/Koreader。
 - `library/reports/*.up-comparison.html`：UP 横向对比报告。
 - `library/runs/`：pipeline run manifest，记录 step 状态、输入输出、错误、provider/model 和耗时。
 - `library/runs/*.video-pipeline.status.json`：pipeline 运行态快照，面向 CLI 进度表和后续 live DAG 轮询；包含 pending/running/completed/skipped/failed 状态、当前 step、耗时、artifact paths 和 cost delta。
@@ -188,6 +200,9 @@ prompt 构建时会自动注入：
 - `library/graphs/*.video-dag.html`：嵌入 graph JSON 的静态画布快照，本地打开即可查看；媒体文件仍按相对路径读取 `library/`。
 - `library/graphs/*.creator-dag.json` 和 `*.creator-dag.html`：UP/作者级画布。
 - `library/distilled/*.topic-profile.md`：跨书籍/笔记/视频的主题聚合草稿。
+- `library/distilled/*.book-methods.json`：读书笔记的方法论蒸馏结果，记录 stable principles、decision rules、mental models、agent checks、适用边界、anti-patterns、source gaps 和 open questions；用于给 UP/新闻/财报分析提供长期方法论参照。
+- `library/reports/*.book-methods-report.html`：面向人工阅读的读书方法论卡片报告，展示原则、规则、模型、agent checks、cross-source hooks、source gaps 和 open questions。
+- `library/checks/*.book-methods-playbook.md`：面向 agent 使用前检查的读书方法论 playbook，默认 draft，必须保留 evidence refs 和 source gaps。
 - `library/distilled/*.creator-profile.md`：创作者级聚合画像。
 - `library/distilled/*.finance-digest.json`：财经 domain 的 UP/窗口级汇总，聚合多条 finance signals 的标的、推荐/观察、宏观 thesis、方法论信号、风险和证据缺口；不包含行情后验时只能作为观点汇总。
 - `library/distilled/*.finance-digest.priced.json`：在 finance digest 基础上追加 event-level 价格后验，包含 1D/5D/20D/60D/latest horizon、asset/benchmark/relative return、max drawdown、交易日对齐和 ticker mapping 来源；不做交易建议。
