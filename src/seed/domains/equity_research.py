@@ -125,6 +125,8 @@ Return only valid JSON. Do not wrap it in Markdown.
 
 This ledger tracks only creator/analyst claims, evidence refs and uncertainty, and is not a trading signal.
 
+Do not infer missing numbers or exact ratios. For missing data, use null/[]/空字符串，不要猜测缺失指标。
+
 Metadata:
 - Report id: {title or report_path.stem}
 - Issuer: {issuer or "unknown"}
@@ -170,6 +172,20 @@ JSON schema:
       "uncertainty": string | null
     }
   ],
+  "first_principles": {
+    "business_model": string | null,
+    "revenue_logic": string | null,
+    "core_differentiators": string | null,
+    "competitors": [string],
+    "competitive_pressure": string | null,
+    "customer_dependency": string | null,
+    "single_customer_risk": string | null,
+    "aicoding_or_automation_risk": string | null,
+    "overseas_revenue_ratio": string | null,
+    "internationalization_progress": string | null,
+    "internationalization_notes": [string],
+    "first_principles_uncertainties": [string]
+  },
   "source_gaps": [string],
   "open_questions": [string],
   "notes_summary": string

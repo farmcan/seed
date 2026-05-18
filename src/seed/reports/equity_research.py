@@ -28,6 +28,10 @@ def text(value: Any) -> str:
     return str(value)
 
 
+def _as_dict(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
 def _as_list(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
@@ -38,6 +42,17 @@ def _list_html(values: list[str], *, limit: int = 12) -> str:
     if not values:
         return "<li>暂无</li>"
     return "".join(f"<li>{escape(item)}</li>" for item in values[:limit])
+
+
+def _render_value(value: Any, fallback: str = "待补充") -> str:
+    rendered = text(value).strip()
+    return escape(rendered) if rendered else escape(fallback)
+
+
+def _join_lines(values: list[str], *, max_items: int = 6) -> str:
+    if not values:
+        return "暂无"
+    return "；".join(escape(item) for item in values[:max_items])
 
 
 def build_equity_research_report_html(
@@ -60,6 +75,10 @@ def build_equity_research_report_html(
     notes_summary = text(payload.get("notes_summary") or "未填写")
     source_gaps = _as_list(payload.get("source_gaps"))
     open_questions = _as_list(payload.get("open_questions"))
+    first_principles = _as_dict(payload.get("first_principles"))
+    competitors = _as_list(first_principles.get("competitors"))
+    intl_notes = _as_list(first_principles.get("internationalization_notes"))
+    fp_uncertainties = _as_list(first_principles.get("first_principles_uncertainties"))
 
     events_html_rows = []
     total_risk_flags = 0
@@ -175,6 +194,25 @@ def build_equity_research_report_html(
       .items {{ margin: 8px 0 0; padding-left: 20px; }}
       .meta {{ color: var(--muted); font-size: 13px; margin-bottom: 10px; }}
       .event {{ border: 1px solid var(--line); border-radius: 8px; padding: 14px; margin-bottom: 10px; background: #fff; }}
+      .principle-grid {{
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+      }}
+      .principle-item {{
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 10px;
+        background: #fafcfc;
+      }}
+      .principle-item h3 {{
+        margin: 0 0 6px;
+        font-size: 15px;
+      }}
+      .principle-item .sub {{
+        color: var(--muted);
+        margin-top: 4px;
+      }}
       .grid {{
         display: grid;
         grid-template-columns: 1fr 1fr;
@@ -186,6 +224,7 @@ def build_equity_research_report_html(
       .disclaimer {{ color: var(--amber); font-size: 13px; }}
       @media (max-width: 820px) {{
         .summary {{ grid-template-columns: 1fr 1fr; }}
+        .principle-grid {{ grid-template-columns: 1fr; }}
         .grid {{ grid-template-columns: 1fr; }}
       }}
     </style>
@@ -202,6 +241,41 @@ def build_equity_research_report_html(
           <div class="stat"><strong>{total_risk_flags}</strong>风险信号</div>
           <div class="stat"><strong>{len(_as_list(payload.get('open_questions')))}</strong>未决问题</div>
           <div class="stat"><strong>{'是' if not_investment_advice else '否'}</strong>输出约束</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>第一性原理（商业结构）</h2>
+        <div class="principle-grid">
+          <article class="principle-item">
+            <h3>核心商业模式</h3>
+            <p>{_render_value(first_principles.get("business_model"))}</p>
+            <p class="sub">营收逻辑：{_render_value(first_principles.get("revenue_logic"), "待补充")}</p>
+          </article>
+          <article class="principle-item">
+            <h3>竞争格局与护城河</h3>
+            <p>{_render_value(first_principles.get("core_differentiators"))}</p>
+            <p class="sub">竞争对手：{_join_lines(competitors)}；压力信号：{_render_value(first_principles.get("competitive_pressure"))}</p>
+          </article>
+          <article class="principle-item">
+            <h3>客户依赖</h3>
+            <p>客户集中度：{_render_value(first_principles.get("customer_dependency"))}</p>
+            <p class="sub">大客户风险：{_render_value(first_principles.get("single_customer_risk"))}</p>
+          </article>
+          <article class="principle-item">
+            <h3>AI / 自动化替代风险</h3>
+            <p>{_render_value(first_principles.get("aicoding_or_automation_risk"))}</p>
+          </article>
+          <article class="principle-item">
+            <h3>出海与海外营收</h3>
+            <p>海外营收占比：{_render_value(first_principles.get("overseas_revenue_ratio"))}</p>
+            <p class="sub">出海进度：{_render_value(first_principles.get("internationalization_progress"))}</p>
+            <p class="sub">说明：{_join_lines(intl_notes)}</p>
+          </article>
+          <article class="principle-item">
+            <h3>第一性不确定性</h3>
+            <p>{_join_lines(fp_uncertainties)}</p>
+          </article>
         </div>
       </div>
 

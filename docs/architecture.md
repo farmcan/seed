@@ -250,7 +250,7 @@ prompt 构建时会自动注入：
 - `library/semantics/*.news-facts.json`：新闻 domain 的视频事实队列，记录 stated facts、reported claims、interpretations、industry impacts、source gaps 和 open questions；进入 video DAG。
 - `library/semantics/*.earnings-analysis.json`：财报 domain 的视频说法队列，记录 companies、earnings claims、drivers、risks 和待 SEC 核验缺口；进入 video DAG。
 - `library/semantics/*.book-semantics.md`：书籍/笔记语义，默认没有 visual language。
-- `library/semantics/*.equity-research.json`：研报观点 ledger，记录 `viewpoint_events`、`notes_summary`、`source_gaps`、`open_questions`，以及风险与失效条件；进入财报 outlook 报告链路，不默认进入 video/creator DAG。
+- `library/semantics/*.equity-research.json`：研报观点 ledger，记录 `viewpoint_events`、`first_principles`（商业模式/营收逻辑/竞争与护城河/客户依赖/AI 替代风险/海外进度）、`notes_summary`、`source_gaps`、`open_questions`，以及风险与失效条件；进入财报 outlook 报告链路，不默认进入 video/creator DAG。
 - `library/timelines/*.timeline.json`：视频时间线事件，包含 transcript chunk、keyframe、内容结构、广告候选和不确定性。
 - `library/claims/*.claims.json`：待核验 claim 队列，状态至少从 `unverified` 开始。
 - `library/claims/*.verified.json`：外部核验后的 claim 状态、来源、分阶段证据和 verdict；自动判断支持 `supported`、`contradicted`、`unclear`、`unverified`，但没有外部证据时不得升级状态。

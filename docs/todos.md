@@ -238,6 +238,7 @@
   - 已接入 CLI：`extract-equity-research-note`（离线文本到 note）、`extract-equity-research-json`（note 到结构化 ledger）、`build-equity-research-report`（输出可阅读 HTML）。
   - `parse-earnings` 增加 `--review-financial-statement`，可直接生成 `library/distilled/*.financial-statement-review.json`。
   - 产物对齐 `equity-research.json` 的 `viewpoint_events` schema：`claim`、`support_refs`、`evidence_level`、`conviction`、`horizon`、`exit_or_invalidation`、`risk_flags`、`open_questions`。
+  - 新增 `first_principles` 字段，补充第一性商业分析结构：商业模式、营收逻辑、竞争格局与护城河、客户依赖、AI 替代风险、海外营收与出海进度、核心不确定性。对应 HTML 报告新增“第一性原理（商业结构）”版块，用于做美图等标的的上行/下行情景前置判断。
   - 暂不输出 buy/sell 建议；仅输出“成立条件、失效条件、证据边界和不确定性”。
 - [x] 做一个美图（MEITU）股价分析样例。
   - 输入：美图 2025 年报/2026Q1 更新 + 行情历史（不依赖单一 provider）。
