@@ -96,6 +96,11 @@ def test_build_finance_outlook_payload_and_html(tmp_path):
     assert payload["time_coverage"]["status"] == "available"
     assert payload["time_coverage"]["events_with_time"] == 2
     assert payload["peer_context"]["target_ticker"] == "DEMO"
+    assert payload["scenarios"]["status"] == "ok"
+    assert payload["scenarios"]["base_case"]["status"] == "observed"
+    assert payload["scenarios"]["base_case"]["event_count"] == 2
+    assert payload["scenarios"]["upside_case"]["event_count"] >= 1
+    assert payload["scenarios"]["downside_case"]["event_count"] >= 1
     assert payload["asset_rollups"][0]["target_prices"]["upside_target"] is not None
     assert payload["asset_rollups"][1]["target_prices"]["downside_target"] is not None
     assert "AI Coding（如 Claude Code、Cursor、Copilot 等）" in " ".join(payload["aicoding_signals"])
@@ -107,6 +112,10 @@ def test_build_finance_outlook_payload_and_html(tmp_path):
     assert "AI Coding 结构性变量（软件护城河）" in html
     assert "目标价位草案（基于价格后验）" in html
     assert "上行目标" in html
+    assert "情景锚点（事件级）" in html
+    assert "基准情景" in html
+    assert "上行情景" in html
+    assert "下行情景" in html
     assert payload["asset_rollups"][0]["asset_id"] == "AI"
     assert finance_outlook_output_path(
         library_root=tmp_path,

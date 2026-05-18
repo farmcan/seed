@@ -398,6 +398,221 @@ def _extract_event_outcome_metrics(event: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _as_list_of_str(value: Any) -> list[str]:
+    return [str(item).strip() for item in value if isinstance(item, str) and str(item).strip()]
+
+
+def _collect_evidence_refs(event: dict[str, Any]) -> list[str]:
+    refs = event.get("evidence_refs")
+    if not isinstance(refs, list):
+        return []
+    return sorted({item.strip() for item in refs if isinstance(item, str) and item.strip()})
+
+
+def _build_event_profile(event: dict[str, Any]) -> dict[str, Any]:
+    outcome = _extract_event_outcome_metrics(event)
+    entry_condition = _as_str(event.get("entry_condition"))
+    exit_condition = _as_str(event.get("exit_or_invalidation"))
+    if not exit_condition:
+        exit_condition = _as_str(event.get("exit_condition"))
+    if not exit_condition:
+        exit_condition = _as_str(event.get("invalidation"))
+    return {
+        "event_id": _as_str(event.get("event_id")) or "unknown",
+        "published_at": _as_str(event.get("published_at")),
+        "action": _as_str(event.get("action")) or "unknown",
+        "direction": _as_str(event.get("direction")) or "unknown",
+        "conviction": _as_str(event.get("conviction")) or "unknown",
+        "asset_return": outcome.get("latest_return"),
+        "upside_return": outcome.get("upside"),
+        "downside_return": outcome.get("downside"),
+        "uncertainty": _as_str(event.get("uncertainty")),
+        "entry_condition": entry_condition,
+        "exit_or_invalidation": exit_condition,
+        "risk_flags": _as_list_of_str(event.get("risk_flags") or []),
+        "evidence_refs": _collect_evidence_refs(event),
+    }
+
+
+def _normalize_direction_for_scenarios(direction: str | None) -> str:
+    value = str(direction or "").strip().casefold()
+    if value in {"bullish", "上涨", "看涨", "利多", "positive", "long"}:
+        return "bullish"
+    if value in {"bearish", "下跌", "看跌", "利空", "negative", "short", "reduce", "exit"}:
+        return "bearish"
+    return "neutral"
+
+
+def _event_is_bullish_candidate(profile: dict[str, Any], outcome: dict[str, Any]) -> bool:
+    if _normalize_direction_for_scenarios(profile.get("direction") ) == "bullish":
+        return True
+    action = str(profile.get("action") or "").strip().casefold()
+    if action in {"buy", "add", "allocate", "watch"}:
+        return True
+    return isinstance(outcome.get("upside"), (int, float))
+
+
+def _event_is_bearish_candidate(profile: dict[str, Any], outcome: dict[str, Any]) -> bool:
+    if _normalize_direction_for_scenarios(profile.get("direction")) == "bearish":
+        return True
+    action = str(profile.get("action") or "").strip().casefold()
+    if action in {"sell", "reduce", "avoid", "short sell"}:
+        return True
+    downside = outcome.get("downside")
+    return isinstance(downside, (int, float)) and downside < 0
+
+
+def _build_scenario_block(
+    *,
+    label: str,
+    candidates: list[tuple[dict[str, Any], dict[str, Any]]],
+    anchor_price: float | None,
+    direction: str,
+) -> dict[str, Any]:
+    event_count = len(candidates)
+    if not candidates:
+        return {
+            "scenario": label,
+            "status": "insufficient",
+            "direction": direction,
+            "event_count": 0,
+            "returns": None,
+            "target_price": None,
+            "confidence": 0,
+            "evidence_refs": [],
+            "triggers": [],
+            "validation_points": [],
+        }
+
+    returns = [outcome.get("latest_return") for _, outcome in candidates if outcome.get("latest_return") is not None]
+    upside_values = [outcome.get("upside") for _, outcome in candidates if outcome.get("upside") is not None]
+    downside_values = [outcome.get("downside") for _, outcome in candidates if outcome.get("downside") is not None]
+    confidences = [_conviction_weight(profile.get("conviction")) for profile, _ in candidates]
+
+    return_pct = None
+    if direction == "upside" and upside_values:
+        return_pct = max(float(value) for value in upside_values if isinstance(value, (int, float)))
+    elif direction == "downside" and downside_values:
+        return_pct = min(float(value) for value in downside_values if isinstance(value, (int, float)))
+    elif direction == "base" and returns:
+        return_pct = mean(float(value) for value in returns if isinstance(value, (int, float)))
+
+    if direction == "downside" and return_pct is not None and return_pct > 0:
+        return_pct = None
+    target = _safe_float(return_pct) if return_pct is not None and anchor_price is not None else None
+    target_price = round(anchor_price * (1 + target / 100), 4) if target is not None and anchor_price is not None else None
+
+    evidence_refs: list[str] = []
+    triggers: list[str] = []
+    validation_points: list[str] = []
+
+    for profile, outcome in candidates:
+        evidence_refs.extend(profile.get("evidence_refs") or [])
+        entry_condition = _as_str(profile.get("entry_condition"))
+        if entry_condition:
+            event_id = _as_str(profile.get("event_id")) or "unknown"
+            triggers.append(f"{event_id}: {entry_condition}")
+        event_direction = str(profile.get("direction") or "unknown").strip()
+        action = str(profile.get("action") or "unknown").strip()
+        if outcome.get("status") == "priced":
+            validation_points.append(f"{event_direction}/{action} 有价格后验")
+        uncertainty = _as_str(profile.get("uncertainty"))
+        if uncertainty:
+            validation_points.append(f"{_as_str(profile.get('event_id'))}: {uncertainty}")
+
+    evidence_refs = sorted({item.strip() for item in evidence_refs if item})
+    triggers = sorted({item.strip() for item in triggers if item.strip()})
+    validation_points = sorted({item.strip() for item in validation_points if item.strip()})
+
+    return {
+        "scenario": label,
+        "status": "observed",
+        "direction": direction,
+        "event_count": event_count,
+        "returns": return_pct,
+        "target_price": target_price,
+        "confidence": round(mean(confidences), 2) if confidences else 0,
+        "evidence_refs": evidence_refs,
+        "triggers": triggers[:6],
+        "validation_points": validation_points[:6],
+    }
+
+
+def _build_outlook_scenarios(
+    events: list[dict[str, Any]],
+    rollups: list[dict[str, Any]],
+    overall_price_targets: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if not events:
+        return {
+            "status": "insufficient_events",
+            "anchor_price": None,
+            "base_case": None,
+            "upside_case": None,
+            "downside_case": None,
+            "notes": ["未检测到可用于情景建模的事件"],
+        }
+
+    profiles = []
+    for event in events:
+        if not isinstance(event, dict):
+            continue
+        profile = _build_event_profile(event)
+        outcome = _extract_event_outcome_metrics(event)
+        profiles.append((profile, outcome))
+
+    anchor_price = _safe_float((overall_price_targets or {}).get("latest_close")) if overall_price_targets else None
+    if anchor_price is None and rollups:
+        price_candidates = [
+            _safe_float(item.get("price_context", {}).get("latest_close"))
+            for item in rollups
+            if isinstance(item.get("price_context"), dict)
+            and isinstance(item["price_context"].get("latest_close"), (int, float))
+        ]
+        if price_candidates:
+            anchor_price = max(price_candidates)
+
+    base_candidates = [(profile, outcome) for profile, outcome in profiles]
+    upside_candidates = [
+        (profile, outcome)
+        for profile, outcome in profiles
+        if _event_is_bullish_candidate(profile, outcome)
+    ]
+    downside_candidates = [
+        (profile, outcome)
+        for profile, outcome in profiles
+        if _event_is_bearish_candidate(profile, outcome)
+    ]
+
+    return {
+        "status": "ok" if profiles else "insufficient",
+        "anchor_price": anchor_price,
+        "event_count": len(profiles),
+        "base_case": _build_scenario_block(
+            label="base",
+            candidates=base_candidates,
+            anchor_price=anchor_price,
+            direction="base",
+        ),
+        "upside_case": _build_scenario_block(
+            label="upside",
+            candidates=upside_candidates,
+            anchor_price=anchor_price,
+            direction="upside",
+        ),
+        "downside_case": _build_scenario_block(
+            label="downside",
+            candidates=downside_candidates,
+            anchor_price=anchor_price,
+            direction="downside",
+        ),
+        "notes": [
+            "场景基于创作者观点事件与已有价格后验，不构成投资建议。",
+            "方向/触发条件以 event 中 entry_condition / exit_or_invalidation 为主，若缺失则标记不充分。",
+        ],
+    }
+
+
 def _collect_text_tokens(event: dict[str, Any]) -> list[str]:
     fields = [
         event.get("action"),
@@ -634,6 +849,7 @@ def _build_asset_rollup(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
         name = names[0] if names else key
         direction_counter = Counter(str(event.get("direction") or "unknown") for event in rows)
         action_counter = Counter(str(event.get("action") or "unknown") for event in rows)
+        event_profiles = [_build_event_profile(event) for event in rows]
         risk_counter = Counter(
             str(flag)
             for event in rows
@@ -658,6 +874,7 @@ def _build_asset_rollup(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
             bool(event.get("evidence_refs")) for event in rows
             if isinstance(event.get("evidence_refs"), list)
         ]
+        evidence_refs = sorted({item for profile in event_profiles for item in profile.get("evidence_refs", []) if isinstance(item, str) and item})
         evidence_ratio = (
             sum(1 for has_evidence in evidence_flags if has_evidence) / len(evidence_flags)
             if evidence_flags
@@ -733,6 +950,8 @@ def _build_asset_rollup(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "software_terms": software_terms,
             "top_risks": [name for name, _ in risk_counter.most_common(4)],
             "direction_bias": direction_bias,
+            "supporting_events": event_profiles[:8],
+            "evidence_refs": evidence_refs,
         }
         rollups.append(rollup)
 
@@ -900,6 +1119,11 @@ def build_finance_outlook_payload(
         overall_upside=overall_upside,
         overall_downside=overall_downside,
     )
+    scenarios = _build_outlook_scenarios(
+        events=events,
+        rollups=rollups,
+        overall_price_targets=overall_price_targets,
+    )
 
     software_headwinds: list[str] = []
     for item in software_rollups:
@@ -1040,6 +1264,7 @@ def build_finance_outlook_payload(
         "open_questions": sorted(set(open_questions)),
         "asset_rollups": rollups,
         "overall_price_targets": overall_price_targets,
+        "scenarios": scenarios,
         "first_principles": first_principles_summary,
         "methodology_signals": methodology_signals,
     }
@@ -1077,6 +1302,43 @@ def _normalize_text_line(value: Any) -> str:
     return text if text else ""
 
 
+def _format_scenario(scenario: dict[str, Any], fallback_title: str) -> str:
+    if not scenario:
+        return f"<div class='card'><span class='muted'>{fallback_title}</span><strong>待补充</strong></div>"
+    status = str(scenario.get("status") or "insufficient")
+    if status != "observed":
+        notes = scenario.get("notes")
+        if isinstance(notes, list):
+            note_text = "；".join(escape(str(item).strip()) for item in notes if str(item).strip())
+        else:
+            note_text = escape(str(notes or "尚未形成可追踪情景"))
+        return (
+            f"<div class='card'><span class='muted'>{fallback_title}</span>"
+            f"<strong>事件不足</strong>"
+            f"<div class='small muted'>{note_text}</div></div>"
+        )
+    returns = _format_pct(_safe_float(scenario.get("returns")))
+    confidence = _format_pct((_safe_float(scenario.get("confidence")) or 0) * 100)
+    evidence = scenario.get("evidence_refs") or []
+    evidence_text = "，".join(escape(str(item)) for item in evidence[:4]) if evidence else "无"
+    triggers = scenario.get("triggers") or []
+    trigger_text = "；".join(escape(str(item)) for item in triggers[:3]) if triggers else "无明确触发条件"
+    validation_points = scenario.get("validation_points") or []
+    validation_text = (
+        "；".join(escape(str(item)) for item in validation_points[:3])
+        if validation_points
+        else "无"
+    )
+    return (
+        f"<div class='card'><span class='muted'>{fallback_title}</span>"
+        f"<strong>{returns}</strong>（目标价 {_format_price(_safe_float(scenario.get('target_price')))}）<br>"
+        f"<span class='small'>置信度 {confidence} ｜ 事件数 {scenario.get('event_count', 0)}</span>"
+        f"<div class='small muted'>触发条件：{trigger_text}</div>"
+        f"<div class='small muted'>可验要点：{validation_text}</div>"
+        f"<div class='small muted'>证据：{evidence_text}</div></div>"
+    )
+
+
 def _render_list(items: list[Any], default: str) -> str:
     values = [
         str(item).strip() for item in items if isinstance(item, str) and str(item).strip()
@@ -1095,6 +1357,10 @@ def build_finance_outlook_report_html(payload: dict[str, Any]) -> str:
     software_headwinds = payload.get("software_headwinds") or []
     news_context_signals = payload.get("news_context_signals") or []
     aigc = payload.get("aigc") or {}
+    scenarios = _as_dict(payload.get("scenarios"))
+    base_case = _as_dict(scenarios.get("base_case"))
+    upside_case = _as_dict(scenarios.get("upside_case"))
+    downside_case = _as_dict(scenarios.get("downside_case"))
     aicoding_signals = payload.get("aicoding_signals") or []
     direction_bias = totals.get("direction_bias") or {}
     time_coverage = payload.get("time_coverage") or {}
@@ -1319,6 +1585,12 @@ def build_finance_outlook_report_html(payload: dict[str, Any]) -> str:
     ) or "待补充"
     aigc_assets = ", ".join(escape(str(item)) for item in aigc.get("assets", [])) or "无"
     news_context_snippets = "; ".join(escape(str(item)) for item in news_context_signals[:8]) or "无"
+    scenario_notes = scenarios.get("notes")
+    scenario_notes_text = (
+        "；".join(str(item).strip() for item in scenario_notes)
+        if isinstance(scenario_notes, list)
+        else str(scenario_notes or "待补充")
+    )
     aicoding_guardrails = [
         "1）优先核验：AI Coding 相关事件是否已落入已披露财报/公告（新增研发效率、外包与人力占比变化）。",
         "2）若出现“人均毛利下滑+新增人力成本下降未提升续费率”，说明替代压力真实。",
@@ -1427,6 +1699,17 @@ def build_finance_outlook_report_html(payload: dict[str, Any]) -> str:
         display: none;
       }}
     }}
+    .scenario-grid {{
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }}
+    .scenario-grid .card {{
+      border-left: 3px solid #d9e4ea;
+    }}
+    @media (max-width: 1024px) {{
+      .scenario-grid {{ grid-template-columns: 1fr; }}
+    }}
   </style>
 </head>
 <body>
@@ -1453,10 +1736,27 @@ def build_finance_outlook_report_html(payload: dict[str, Any]) -> str:
         结论先说：{overall_orientation}；上行情景 {overall_bullish}，下行情景 {overall_bearish}，风险收益比 {overall_rr_text}
       </div>
       <div class="meta">
+        情景锚点：基准价 {_format_price(_safe_float(scenarios.get("anchor_price")))}；
+        基准情景 {_format_pct(_safe_float((base_case or {}).get("returns")))} -> {_format_price(_safe_float((base_case or {}).get("target_price")))}；
+        上行情景 {_format_pct(_safe_float((upside_case or {}).get("returns")))} -> {_format_price(_safe_float((upside_case or {}).get("target_price")))}；
+        下行情景 {_format_pct(_safe_float((downside_case or {}).get("returns")))} -> {_format_price(_safe_float((downside_case or {}).get("target_price")))}
+      </div>
+      <div class="meta">
         价格基准：{_format_price(_safe_float(overall_price_targets.get("latest_close")))}（{overall_price_targets.get("latest_price_date") or "-" }）；
         标的：{escape(str(overall_price_targets.get("asset") or peer_context.get("target_asset") or "待补充"))}
       </div>
     </header>
+
+    <section class="section">
+      <h2>情景锚点（事件级）</h2>
+      <div class="scenario-grid">
+        {_format_scenario(base_case, "基准情景")}
+        {_format_scenario(upside_case, "上行情景")}
+        {_format_scenario(downside_case, "下行情景")}
+      </div>
+      <div class="small muted" style="margin-top:8px;">场景为事件与价格后验汇总结果，仅用于风险收益边界，不构成投资建议。</div>
+      <div class="small muted">场景依据：{escape(scenario_notes_text)}</div>
+    </section>
 
     <section class="section">
       <h2>全局情景</h2>
