@@ -1,11 +1,22 @@
+import json
+
 from seed.books import (
+    book_author_homepage_output_path,
+    book_author_profile_output_path,
+    book_homepage_output_path,
     book_layers_output_path,
+    book_methods_output_path,
     book_note_output_path,
     book_semantics_output_path,
+    build_book_author_profile_artifact,
     build_book_layer_artifact,
     build_book_methods_prompt,
     extract_key_points,
+    find_author_book_method_paths,
     topic_profile_output_path,
+    write_book_author_homepage_html,
+    write_book_author_profile_artifact,
+    write_book_homepage_html,
     write_book_layer_artifact,
     write_book_note,
     write_book_source_artifact,
@@ -20,6 +31,15 @@ def test_book_output_paths(tmp_path):
     )
     assert book_semantics_output_path(library_root=tmp_path, author="Author", title="My Book") == (
         tmp_path / "semantics" / "author-my-book.book-semantics.md"
+    )
+    assert book_homepage_output_path(library_root=tmp_path, author="Author", title="My Book") == (
+        tmp_path / "reports" / "author-my-book.book-homepage.html"
+    )
+    assert book_author_profile_output_path(library_root=tmp_path, author="Author") == (
+        tmp_path / "distilled" / "author.book-author-profile.json"
+    )
+    assert book_author_homepage_output_path(library_root=tmp_path, author="Author") == (
+        tmp_path / "reports" / "author.book-author-homepage.html"
     )
     assert book_layers_output_path(library_root=tmp_path, author="Author", title="My Book") == (
         tmp_path / "distilled" / "author-my-book.book-layers.json"
@@ -129,3 +149,93 @@ def test_write_book_source_artifact_keeps_heading_path(tmp_path):
     text = output.read_text(encoding="utf-8")
     assert '"chapter": "Chapter"' in text
     assert '"heading_path": [' in text
+
+
+def sample_methods(author: str, title: str, topic: str | None = None) -> dict:
+    return {
+        "version": 1,
+        "kind": "book_methods",
+        "author": author,
+        "title": title,
+        "topic": topic,
+        "generated_at": "2026-05-18T00:00:00+00:00",
+        "summary": f"{title} summary",
+        "stable_principles": [
+            {
+                "principle": "Check the boundary",
+                "why_it_matters": "It keeps the method honest.",
+                "evidence_refs": ["B1"],
+            }
+        ],
+        "decision_rules": [
+            {
+                "rule": "Use the method only when inputs are visible.",
+                "when_to_use": "Before applying a framework.",
+                "evidence_refs": ["B2"],
+            }
+        ],
+        "mental_models": [{"model": "Boundary map", "explanation": "Track fit and limits.", "evidence_refs": ["B3"]}],
+        "agent_checks": [{"check": "Is the boundary explicit?", "purpose": "Avoid overreach.", "evidence_refs": ["B1"]}],
+        "cross_source_hooks": [
+            {
+                "hook": "Compare claims against boundary conditions.",
+                "how_to_use": "Use when reviewing UP/video claims.",
+                "evidence_refs": ["B2"],
+            }
+        ],
+        "source_gaps": ["Need page locations."],
+        "open_questions": ["Does this transfer to videos?"],
+    }
+
+
+def write_methods(path, data):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    return path
+
+
+def test_write_book_homepage_html(tmp_path):
+    source = tmp_path / "book-source.json"
+    layers = tmp_path / "book-layers.json"
+    methods = tmp_path / "book-methods.json"
+    source.write_text('{"entries": [{"evidence_id": "B1"}], "source_gaps": ["missing page"]}', encoding="utf-8")
+    layers.write_text(
+        '{"blocks": [{"ref": "B1"}], "sections": [{"title": "Chapter", "evidence_refs": ["B1"], "block_count": 1, "summary_candidate": "A section.", "method_candidates": []}]}',
+        encoding="utf-8",
+    )
+    write_methods(methods, sample_methods("Author", "Book", "Decision"))
+
+    output = write_book_homepage_html(
+        tmp_path / "book-homepage.html",
+        author="Author",
+        title="Book",
+        topic="Decision",
+        source_path=source,
+        layers_path=layers,
+        methods_path=methods,
+    )
+
+    html = output.read_text(encoding="utf-8")
+    assert "Book Homepage" in html
+    assert "Check the boundary" in html
+    assert "book-source" in html
+    assert "Chapter" in html
+
+
+def test_book_author_profile_and_homepage(tmp_path):
+    first = book_methods_output_path(library_root=tmp_path, author="Author", title="First")
+    second = book_methods_output_path(library_root=tmp_path, author="Author", title="Second")
+    write_methods(first, sample_methods("Author", "First", "Decision"))
+    write_methods(second, sample_methods("Author", "Second", "Decision"))
+
+    found = find_author_book_method_paths(library_root=tmp_path, author="Author", topic="Decision")
+    profile = build_book_author_profile_artifact(author="Author", methods_paths=found, topic="Decision")
+    profile_path = write_book_author_profile_artifact(tmp_path / "author-profile.json", profile)
+    homepage = write_book_author_homepage_html(tmp_path / "author-homepage.html", profile_path=profile_path)
+
+    assert len(profile["books"]) == 2
+    assert profile["recurring_principles"][0]["principle"] == "Check the boundary"
+    html = homepage.read_text(encoding="utf-8")
+    assert "Book Author Homepage" in html
+    assert "First" in html
+    assert "Second" in html

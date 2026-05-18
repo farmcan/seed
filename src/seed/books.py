@@ -41,6 +41,40 @@ def book_methods_output_path(
     return library_root / "distilled" / f"{slugify(author)}-{slugify(title)}{suffix}.book-methods.json"
 
 
+def book_homepage_output_path(
+    *,
+    library_root: Path,
+    author: str,
+    title: str,
+    topic: str | None = None,
+) -> Path:
+    init_library(library_root)
+    suffix = f".{slugify(topic)}" if topic else ""
+    return library_root / "reports" / f"{slugify(author)}-{slugify(title)}{suffix}.book-homepage.html"
+
+
+def book_author_profile_output_path(
+    *,
+    library_root: Path,
+    author: str,
+    topic: str | None = None,
+) -> Path:
+    init_library(library_root)
+    suffix = f".{slugify(topic)}" if topic else ""
+    return library_root / "distilled" / f"{slugify(author)}{suffix}.book-author-profile.json"
+
+
+def book_author_homepage_output_path(
+    *,
+    library_root: Path,
+    author: str,
+    topic: str | None = None,
+) -> Path:
+    init_library(library_root)
+    suffix = f".{slugify(topic)}" if topic else ""
+    return library_root / "reports" / f"{slugify(author)}{suffix}.book-author-homepage.html"
+
+
 def book_layers_output_path(
     *,
     library_root: Path,
@@ -674,6 +708,232 @@ def write_book_methods_playbook_md(output_path: Path, *, methods_path: Path) -> 
     return output_path
 
 
+def write_book_homepage_html(
+    output_path: Path,
+    *,
+    author: str,
+    title: str,
+    topic: str | None = None,
+    source_path: Path | None = None,
+    layers_path: Path | None = None,
+    methods_path: Path | None = None,
+    report_path: Path | None = None,
+    playbook_path: Path | None = None,
+) -> Path:
+    source = read_json_artifact(source_path)
+    layers = read_json_artifact(layers_path)
+    methods = read_json_artifact(methods_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(
+        build_book_homepage_html(
+            author=author,
+            title=title,
+            topic=topic or methods.get("topic"),
+            source=source,
+            layers=layers,
+            methods=methods,
+            asset_paths={
+                "book-source": source_path,
+                "book-layers": layers_path,
+                "book-methods": methods_path,
+                "methods-report": report_path,
+                "agent-playbook": playbook_path,
+            },
+        ),
+        encoding="utf-8",
+    )
+    return output_path
+
+
+def build_book_homepage_html(
+    *,
+    author: str,
+    title: str,
+    topic: object,
+    source: dict,
+    layers: dict,
+    methods: dict,
+    asset_paths: dict[str, Path | None],
+) -> str:
+    entries = source.get("entries") if isinstance(source.get("entries"), list) else []
+    blocks = layers.get("blocks") if isinstance(layers.get("blocks"), list) else []
+    sections = layers.get("sections") if isinstance(layers.get("sections"), list) else []
+    source_gaps = _string_list(source.get("source_gaps")) + _string_list(layers.get("source_gaps")) + _string_list(methods.get("source_gaps"))
+    metrics = [
+        ("B* blocks", len(blocks) or len(entries)),
+        ("Sections", len(sections)),
+        ("Principles", len(_as_list(methods.get("stable_principles")))),
+        ("Rules", len(_as_list(methods.get("decision_rules")))),
+        ("Agent checks", len(_as_list(methods.get("agent_checks")))),
+        ("Hooks", len(_as_list(methods.get("cross_source_hooks")))),
+    ]
+    return f"""<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{escape(title)} book homepage</title>
+  {book_homepage_styles()}
+</head>
+<body>
+  <main>
+    <section class="topline">
+      <div>
+        <div class="eyebrow">Book Homepage</div>
+        <h1>{escape(title)}</h1>
+        <p class="lede">{escape(str(methods.get("summary") or "Source-grounded methods, section evidence, and agent-ready checks for this book."))}</p>
+      </div>
+      <div class="meta">
+        <span>{escape(author)}</span>
+        <span>{escape(str(topic or "general methodology"))}</span>
+        <span>{escape(str(methods.get("generated_at") or layers.get("generated_at") or ""))}</span>
+      </div>
+    </section>
+    {metric_grid(metrics)}
+    <section class="band">
+      <h2>Asset Links</h2>
+      <div class="link-grid">{asset_links(asset_paths)}</div>
+    </section>
+    <section class="band">
+      <h2>Layer Map</h2>
+      <div class="grid">{section_cards(sections)}</div>
+    </section>
+    {_cards_section("Stable Principles", methods.get("stable_principles"), "principle", "why_it_matters")}
+    {_cards_section("Decision Rules", methods.get("decision_rules"), "rule", "when_to_use")}
+    {_cards_section("Agent Checks", methods.get("agent_checks"), "check", "purpose")}
+    {_cards_section("Cross-source Hooks", methods.get("cross_source_hooks"), "hook", "how_to_use")}
+    {_list_section("Source Gaps", source_gaps)}
+    {_list_section("Open Questions", methods.get("open_questions"))}
+  </main>
+</body>
+</html>
+"""
+
+
+def build_book_author_profile_artifact(
+    *,
+    author: str,
+    methods_paths: list[Path],
+    topic: str | None = None,
+) -> dict[str, object]:
+    books = []
+    principles = []
+    rules = []
+    models = []
+    hooks = []
+    source_gaps = []
+    open_questions = []
+    topics: dict[str, int] = {}
+    for path in methods_paths:
+        methods = read_json_artifact(path)
+        if not methods:
+            continue
+        book_topic = methods.get("topic") or "general methodology"
+        topics[str(book_topic)] = topics.get(str(book_topic), 0) + 1
+        book = {
+            "title": methods.get("title") or path.stem,
+            "author": methods.get("author") or author,
+            "topic": methods.get("topic"),
+            "book_methods_path": str(path),
+            "book_layers_path": str(infer_book_layers_path(path)) if infer_book_layers_path(path).exists() else None,
+            "stable_principles_count": len(_as_list(methods.get("stable_principles"))),
+            "decision_rules_count": len(_as_list(methods.get("decision_rules"))),
+            "agent_checks_count": len(_as_list(methods.get("agent_checks"))),
+            "cross_source_hooks_count": len(_as_list(methods.get("cross_source_hooks"))),
+            "summary": methods.get("summary"),
+        }
+        books.append(book)
+        principles.extend(with_book_context(methods.get("stable_principles"), book, "principle"))
+        rules.extend(with_book_context(methods.get("decision_rules"), book, "rule"))
+        models.extend(with_book_context(methods.get("mental_models"), book, "model"))
+        hooks.extend(with_book_context(methods.get("cross_source_hooks"), book, "hook"))
+        source_gaps.extend(prefixed_items(_string_list(methods.get("source_gaps")), book))
+        open_questions.extend(prefixed_items(_string_list(methods.get("open_questions")), book))
+
+    return {
+        "version": 1,
+        "kind": "book_author_profile",
+        "author": author,
+        "topic": topic,
+        "generated_at": datetime.now(UTC).isoformat(),
+        "books": books,
+        "topic_map": [{"topic": name, "book_count": count} for name, count in sorted(topics.items())],
+        "recurring_principles": recurring_items(principles, "principle"),
+        "principles": principles,
+        "decision_rules": rules,
+        "mental_models": models,
+        "cross_source_hooks": hooks,
+        "source_gaps": source_gaps,
+        "open_questions": open_questions,
+        "profile_status": "deterministic_aggregation",
+        "source_gaps_note": "This profile aggregates existing book-methods artifacts; it is not yet an LLM-synthesized author interpretation.",
+    }
+
+
+def write_book_author_profile_artifact(output_path: Path, artifact: dict[str, object]) -> Path:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(artifact, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return output_path
+
+
+def write_book_author_homepage_html(output_path: Path, *, profile_path: Path) -> Path:
+    profile = json.loads(profile_path.read_text(encoding="utf-8"))
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(build_book_author_homepage_html(profile, profile_path=profile_path), encoding="utf-8")
+    return output_path
+
+
+def build_book_author_homepage_html(profile: dict, *, profile_path: Path) -> str:
+    author = str(profile.get("author") or "Unknown author")
+    topic = profile.get("topic") or "all topics"
+    books = _as_list(profile.get("books"))
+    metrics = [
+        ("Books", len(books)),
+        ("Principles", len(_as_list(profile.get("principles")))),
+        ("Rules", len(_as_list(profile.get("decision_rules")))),
+        ("Models", len(_as_list(profile.get("mental_models")))),
+        ("Hooks", len(_as_list(profile.get("cross_source_hooks")))),
+        ("Recurring", len(_as_list(profile.get("recurring_principles")))),
+    ]
+    return f"""<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{escape(author)} book author homepage</title>
+  {book_homepage_styles()}
+</head>
+<body>
+  <main>
+    <section class="topline">
+      <div>
+        <div class="eyebrow">Book Author Homepage</div>
+        <h1>{escape(author)}</h1>
+        <p class="lede">多本书/笔记的确定性聚合视图，用来观察作者反复出现的方法、规则、模型和跨来源对照钩子。</p>
+      </div>
+      <div class="meta">
+        <span>{escape(str(topic))}</span>
+        <span>{escape(str(profile.get("profile_status") or "deterministic"))}</span>
+        <span>{escape(str(profile_path))}</span>
+      </div>
+    </section>
+    {metric_grid(metrics)}
+    <section class="band">
+      <h2>Books</h2>
+      <div class="grid">{author_book_cards(books)}</div>
+    </section>
+    {_cards_section("Recurring Principles", profile.get("recurring_principles"), "principle", "summary")}
+    {_cards_section("Decision Rules", profile.get("decision_rules"), "rule", "when_to_use")}
+    {_cards_section("Mental Models", profile.get("mental_models"), "model", "explanation")}
+    {_cards_section("Cross-source Hooks", profile.get("cross_source_hooks"), "hook", "how_to_use")}
+    {_list_section("Source Gaps", profile.get("source_gaps"))}
+    {_list_section("Open Questions", profile.get("open_questions"))}
+  </main>
+</body>
+</html>
+"""
+
+
 def build_book_methods_report_html(methods: dict, *, methods_path: Path) -> str:
     title = str(methods.get("title") or "Untitled")
     author = str(methods.get("author") or "Unknown author")
@@ -837,6 +1097,222 @@ def build_book_methods_playbook_markdown(methods: dict, *, methods_path: Path) -
     lines.extend(["", "## Open questions", ""])
     lines.extend(f"- {question}" for question in _string_list(methods.get("open_questions")) or ["No open questions listed."])
     return "\n".join(lines) + "\n"
+
+
+def read_json_artifact(path: Path | None) -> dict:
+    if not path or not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def infer_book_layers_path(methods_path: Path) -> Path:
+    return methods_path.with_name(methods_path.name.replace(".book-methods.json", ".book-layers.json"))
+
+
+def find_author_book_method_paths(*, library_root: Path, author: str, topic: str | None = None) -> list[Path]:
+    init_library(library_root)
+    paths = sorted((library_root / "distilled").glob(f"{slugify(author)}-*.book-methods.json"))
+    matched = []
+    for path in paths:
+        data = read_json_artifact(path)
+        if data.get("author") and str(data.get("author")) != author:
+            continue
+        if topic is not None and data.get("topic") != topic:
+            continue
+        matched.append(path)
+    return matched
+
+
+def with_book_context(items: object, book: dict[str, object], label_key: str) -> list[dict[str, object]]:
+    values = []
+    for item in _as_list(items):
+        updated = dict(item)
+        updated["book_title"] = book.get("title")
+        updated["book_topic"] = book.get("topic")
+        updated["book_methods_path"] = book.get("book_methods_path")
+        if label_key in updated and "summary" not in updated:
+            updated["summary"] = updated.get(label_key)
+        values.append(updated)
+    return values
+
+
+def prefixed_items(items: list[str], book: dict[str, object]) -> list[str]:
+    title = str(book.get("title") or "Untitled")
+    return [f"{title}: {item}" for item in items]
+
+
+def recurring_items(items: list[dict[str, object]], key: str) -> list[dict[str, object]]:
+    grouped: dict[str, list[dict[str, object]]] = {}
+    for item in items:
+        label = str(item.get(key) or "").strip()
+        if not label:
+            continue
+        normalized = " ".join(label.lower().split())
+        grouped.setdefault(normalized, []).append(item)
+    recurring = []
+    for group in grouped.values():
+        if len(group) < 2:
+            continue
+        first = group[0]
+        recurring.append(
+            {
+                key: first.get(key),
+                "summary": f"Appears in {len(group)} book-method entries.",
+                "book_titles": sorted({str(item.get("book_title")) for item in group if item.get("book_title")}),
+                "evidence_refs": sorted(
+                    {
+                        ref
+                        for item in group
+                        for ref in _string_list(item.get("evidence_refs"))
+                    }
+                ),
+            }
+        )
+    return recurring
+
+
+def metric_grid(metrics: list[tuple[str, object]]) -> str:
+    cards = "".join(
+        f'<div class="metric"><strong>{escape(str(value))}</strong><span>{escape(label)}</span></div>'
+        for label, value in metrics
+    )
+    return f'<section class="metrics">{cards}</section>'
+
+
+def asset_links(paths: dict[str, Path | None]) -> str:
+    links = []
+    for label, path in paths.items():
+        if path and path.exists():
+            links.append(f'<a class="asset" href="{escape(str(path))}"><strong>{escape(label)}</strong><span>{escape(path.name)}</span></a>')
+        else:
+            links.append(f'<div class="asset missing"><strong>{escape(label)}</strong><span>missing</span></div>')
+    return "".join(links)
+
+
+def section_cards(sections: object) -> str:
+    values = _as_list(sections)
+    if not values:
+        return '<article class="card"><h3>No section layer</h3><p>Add Markdown headings to improve book layering.</p></article>'
+    cards = []
+    for section in values:
+        refs = "".join(f'<span class="ref">{escape(ref)}</span>' for ref in _string_list(section.get("evidence_refs"))[:8])
+        candidates = _as_list(section.get("method_candidates"))
+        cards.append(
+            "<article class=\"card\">"
+            f"<h3>{escape(str(section.get('title') or section.get('section_id') or 'Section'))}</h3>"
+            f"<p>{escape(str(section.get('summary_candidate') or ''))}</p>"
+            f"<p class=\"muted\">{len(candidates)} method candidates · {section.get('block_count') or 0} blocks</p>"
+            f"<div class=\"refs\">{refs}</div>"
+            "</article>"
+        )
+    return "".join(cards)
+
+
+def author_book_cards(books: object) -> str:
+    values = _as_list(books)
+    if not values:
+        return '<article class="card"><h3>No books found</h3><p>Run book pipelines or pass book-methods paths first.</p></article>'
+    cards = []
+    for book in values:
+        methods_path = book.get("book_methods_path")
+        layers_path = book.get("book_layers_path")
+        cards.append(
+            "<article class=\"card\">"
+            f"<h3>{escape(str(book.get('title') or 'Untitled'))}</h3>"
+            f"<p>{escape(str(book.get('summary') or 'No summary provided.'))}</p>"
+            "<ul>"
+            f"<li>Topic: {escape(str(book.get('topic') or 'general methodology'))}</li>"
+            f"<li>Principles: {escape(str(book.get('stable_principles_count') or 0))}</li>"
+            f"<li>Rules: {escape(str(book.get('decision_rules_count') or 0))}</li>"
+            f"<li>Hooks: {escape(str(book.get('cross_source_hooks_count') or 0))}</li>"
+            "</ul>"
+            f"{path_link('methods', methods_path)}{path_link('layers', layers_path)}"
+            "</article>"
+        )
+    return "".join(cards)
+
+
+def path_link(label: str, path: object) -> str:
+    if not path:
+        return ""
+    text = str(path)
+    return f'<p><a href="{escape(text)}">{escape(label)}: {escape(Path(text).name)}</a></p>'
+
+
+def book_homepage_styles() -> str:
+    return """<style>
+    :root {
+      --ink: #17211f;
+      --muted: #62706a;
+      --line: #d7e0dc;
+      --panel: #ffffff;
+      --soft: #eef5f2;
+      --accent: #1e6b68;
+      --accent-2: #9a4f2d;
+      --bg: #f6f8f7;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--bg);
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    main { width: min(1180px, calc(100vw - 32px)); margin: 0 auto; padding: 32px 0 56px; }
+    .topline {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(240px, 340px);
+      gap: 22px;
+      align-items: end;
+      padding-bottom: 22px;
+      border-bottom: 1px solid var(--line);
+    }
+    .eyebrow { color: var(--accent); font-size: 12px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; }
+    h1 { margin: 8px 0; font-size: clamp(34px, 5vw, 64px); line-height: 0.96; letter-spacing: 0; }
+    h2 { margin: 0 0 14px; font-size: 22px; }
+    h3 { margin: 0 0 8px; font-size: 17px; }
+    .lede { color: var(--muted); max-width: 780px; line-height: 1.6; }
+    .meta { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+    .meta span, .pill {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 999px;
+      padding: 7px 10px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin: 20px 0; }
+    .metric, .card, .asset {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      box-shadow: 0 12px 32px rgba(33, 45, 42, 0.06);
+    }
+    .metric { padding: 16px; }
+    .metric strong { display: block; font-size: 28px; color: var(--accent); }
+    .metric span, .muted { color: var(--muted); }
+    .band, section { margin-top: 24px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+    .card { padding: 18px; }
+    .card p { color: var(--muted); line-height: 1.55; }
+    .link-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; }
+    .asset { display: block; padding: 14px; text-decoration: none; color: var(--ink); }
+    .asset span { display: block; margin-top: 4px; color: var(--muted); font-size: 13px; word-break: break-word; }
+    .asset.missing { opacity: 0.55; }
+    .refs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+    .ref { background: var(--soft); color: var(--accent); border-radius: 999px; padding: 4px 8px; font-size: 12px; }
+    a { color: var(--accent); }
+    li { margin: 5px 0; }
+    @media (max-width: 760px) {
+      main { width: min(100vw - 20px, 1180px); padding-top: 20px; }
+      .topline { grid-template-columns: 1fr; }
+      .meta { justify-content: flex-start; }
+    }
+  </style>"""
 
 
 def _cards_section(title: str, items: object, title_key: str, body_key: str) -> str:

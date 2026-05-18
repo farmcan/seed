@@ -78,8 +78,16 @@ seed distill-book-methods <book-note.md> --author <author> --title <title>
   -> 后续可和 UP profile、新闻 facts、财报 facts、财经 digest 做 cross-source hooks
 
 seed run-book-pipeline <book-note.md> --author <author> --title <title>
-  -> 本地 Markdown 读书笔记一键跑完 source artifact + layered plan + methods JSON + HTML report + agent playbook
-  -> 输出 `library/notes/*.book-source.json`、`library/distilled/*.book-layers.json`、`library/distilled/*.book-methods.json`、`library/reports/*.book-methods-report.html`、`library/checks/*.book-methods-playbook.md`
+  -> 本地 Markdown 读书笔记一键跑完 source artifact + layered plan + methods JSON + HTML report + agent playbook + book homepage
+  -> 输出 `library/notes/*.book-source.json`、`library/distilled/*.book-layers.json`、`library/distilled/*.book-methods.json`、`library/reports/*.book-methods-report.html`、`library/reports/*.book-homepage.html`、`library/checks/*.book-methods-playbook.md`
+
+seed build-book-author-profile --author <author>
+  -> 读取同一作者的多本 `*.book-methods.json`
+  -> 输出 deterministic `*.book-author-profile.json`
+
+seed build-book-author-homepage --author <author>
+  -> 基于 author profile 输出作者级书籍方法论主页
+  -> 展示 books、topic map、recurring principles、rules、models、cross-source hooks 和 gaps
 ```
 
 这些命令已经是当前优先入口；其他 CLI 视为可组合 step 或调试入口。新增功能如果不能进入 pipeline、不能生成稳定 artifact、不能被 DAG 或 creator aggregation 消费，就不应作为主功能推进。
@@ -99,7 +107,7 @@ seed run-book-pipeline <book-note.md> --author <author> --title <title>
 | Artifact and cost ledger | 让每次运行可恢复、可审计、可估算成本 | step inputs/outputs、provider usage、artifact paths | `library/runs/*.yaml`, `*.status.json`, `library/costs/*.cost.json`, `*.ledger.json` | `pipeline.py`, `creator_pipeline.py`, `costs.py` | CLI progress、live DAG、budget gate、debug/replay | live DAG 只展示运行态 step graph | 作为成本账本主数据 | step 必须幂等；失败可续跑；provider/model、duration、artifact_paths、cost_delta 不丢 |
 | DAG and report surfaces | 把本地证据和聚合结果变成可浏览入口 | graph JSON、creator profile、domain digest、manifest | video DAG HTML、creator DAG HTML、UP homepage、comparison/report HTML | `graphs/*`, `dag_export.py`, `reports/*`, `cli.py` | 人工 review、调试、方法论选择 | 是主要可视化面 | 不新增模型成本，除非报告生成调用 LLM | 默认静态 HTML；主布局用 vendored ELK；不给用户看低信息密度降级图 |
 | Agent assets and reflection loop | 把稳定方法论转成可用但需 review 的 Agent skills/checks，并用复盘反哺 | creator profile、domain digest、manual review、reflection log | draft skills、checks、review manifest、reflection、revision suggestions | `agent_assets.py`, `reflections.py` | Agent 运行前后、人类 review、后续 profile 修订 | skills/checks 可作为 asset 节点 | 生成若调用 LLM 要记录或预留 | 生成物默认 draft；必须 review 后再安装/长期使用；reflection 只追加 |
-| Book/note methodology | 把书籍、高亮和长笔记变成 source-grounded 方法论参照 | 本地 Markdown/笔记、章节/位置、主题 | book note、book semantics、book layers、book methods、topic profile | `books.py`, `skills/book-method-distiller/` | topic profile、creator/profile 对照、agent assets | 后续可进入主题/方法论 DAG | LLM 成本记录或预留 | 保留 `B*` evidence refs、章节/section layer、适用边界、anti-patterns、source gaps，不替代事实核验 |
+| Book/note methodology | 把书籍、高亮和长笔记变成 source-grounded 方法论参照 | 本地 Markdown/笔记、章节/位置、主题 | book note、book semantics、book layers、book methods、book homepage、book author profile/homepage、topic profile | `books.py`, `skills/book-method-distiller/` | topic profile、creator/profile 对照、agent assets、人工阅读入口 | 后续可进入主题/方法论 DAG | LLM 成本记录或预留 | 保留 `B*` evidence refs、章节/section layer、适用边界、anti-patterns、source gaps；作者级 profile 当前是确定性聚合，不替代事实核验 |
 
 ### 能力归属原则
 
@@ -133,7 +141,7 @@ seed run-book-pipeline <book-note.md> --author <author> --title <title>
 | 视觉语言 | `seed extract-frames`, `seed analyze-frames` | `src/seed/vision/` | `library/frames/*`, `library/notes/*.visual.md` |
 | 短视频结构 | `seed profile-short-video`, `seed detect-shots`, `seed build-frame-notes`, `seed build-motion-relations`, `seed run-video-pipeline` | `src/seed/shorts.py`, `src/seed/pipeline.py` | `library/shorts/*.short-video-profile.json`, `library/shots/*.shots.json`, `library/shots/*.motion-relations.json`, `library/frames/*.frame-notes.jsonl`, `library/frames/*.shots/*` |
 | 成本计量 | `seed analyze-frames`, `seed build-cost-ledger`, `seed build-video-dag` | `src/seed/costs.py`, `src/seed/graphs/video_dag.py` | `library/costs/*.cost.json`, `library/costs/*.ledger.json`, DAG cost 节点 |
-| 书籍/笔记 | `seed import-book-note`, `seed import-book-source`, `seed analyze-book-note`, `seed distill-book-methods`, `seed build-book-methods-report`, `seed build-book-methods-playbook`, `seed run-book-pipeline`, `seed aggregate-topic` | `src/seed/books.py`, `skills/book-method-distiller/SKILL.md` | `library/notes/*.book-note.md`, `library/notes/*.book-source.json`, `library/semantics/*.book-semantics.md`, `library/distilled/*.book-layers.json`, `library/distilled/*.book-methods.json`, `library/reports/*.book-methods-report.html`, `library/checks/*.book-methods-playbook.md`, `library/distilled/*.topic-profile.md` |
+| 书籍/笔记 | `seed import-book-note`, `seed import-book-source`, `seed analyze-book-note`, `seed distill-book-methods`, `seed build-book-methods-report`, `seed build-book-methods-playbook`, `seed build-book-homepage`, `seed build-book-author-profile`, `seed build-book-author-homepage`, `seed run-book-pipeline`, `seed aggregate-topic` | `src/seed/books.py`, `skills/book-method-distiller/SKILL.md` | `library/notes/*.book-note.md`, `library/notes/*.book-source.json`, `library/semantics/*.book-semantics.md`, `library/distilled/*.book-layers.json`, `library/distilled/*.book-methods.json`, `library/distilled/*.book-author-profile.json`, `library/reports/*.book-methods-report.html`, `library/reports/*.book-homepage.html`, `library/reports/*.book-author-homepage.html`, `library/checks/*.book-methods-playbook.md`, `library/distilled/*.topic-profile.md` |
 | 快速总结 | `seed summarize-transcript` | `src/seed/summarizers/`, `src/seed/skill_refs.py`, `src/seed/semantics/evidence.py` | `library/notes/*.summary.md` |
 | 视频语义 | `seed analyze-video-semantics` | `src/seed/semantics/analyzer.py`, `src/seed/skill_refs.py`, `src/seed/semantics/evidence.py` | `library/semantics/*.video-semantics.md` |
 | AI 方法论信号 | `seed extract-ai-practice-signals`, `seed build-ai-practice-digest`, `seed run-video-pipeline --domain ai-practices`, `seed run-creator-pipeline --domain ai-practices` | `src/seed/domains/ai_practices.py`, `src/seed/skill_refs.py` | `library/semantics/*.ai-practice-signals.json`, `library/distilled/*.ai-practice-digest.json`, video DAG / creator DAG AI practice 节点 |
@@ -167,7 +175,7 @@ seed run-book-pipeline <book-note.md> --author <author> --title <title>
 - `domains/finance.py`：财经领域信号抽取、窗口汇总、可选行情补强和新闻 facts 上下文。输入单条 `video-semantics.md`，输出 `*.finance-signals.json`，每条信号优先返回 `viewpoint_events`（主对象）；输入多条 signals，输出 `*.finance-digest.json`；显式 ticker mapping 后可用 Stooq 日线生成 `*.finance-digest.priced.json`；`seed enrich-finance-news` 可把 `*.news-digest.json` 的 facts、industry impacts 和 market relevance 挂到事件级 `news_context`，只做事实引用；`seed build-finance-news-report` 把 news-context digest 渲染成卡片式 HTML 报告；`seed distill-up-list` 在财经名单配置 `news_digest_paths` 时会自动补生成 news-context digest 和报告，并把它们链接进 UP 主页。所有观点都必须标记为创作者观点，不是 Seed 投资建议。
 - `domains/news.py`：新闻检索和 facts-first 蒸馏。默认 provider 是 GDELT DOC 2.0 `artlist` JSON，检索结果写入 `library/news/*.news-search.json`；Codex 蒸馏只汇总 facts、reported claims、industry impacts、source gaps 和 open questions，输出 `*.news-digest.json`。视频 pipeline 的 `--domain news` 会从 `video-semantics.md` 生成 `*.news-facts.json`，供 DAG 和 fact-check 消费。
 - `domains/earnings.py`：财报解析和 SEC baseline。默认 provider 是 SEC EDGAR `submissions` 与 XBRL `companyfacts` JSON，ticker/CIK 映射来自 SEC `company_tickers.json`；原始事实写入 `library/earnings/*.sec-earnings.json`，Codex 蒸馏输出 `*.earnings-digest.json`。视频 pipeline 的 `--domain earnings` 会把视频里的财报说法提取成待 SEC 核验的 `*.earnings-analysis.json`。
-- `books.py`：书籍/读书笔记导入、语义化和方法论蒸馏。初版 provider 是本地 Markdown；后续 provider 扩展 Readwise/Reader export、Zotero annotations、Kindle/Koreader highlights 时必须落到统一 `book-source` artifact，而不是把某个平台格式写进 prompt。当前会先生成 deterministic `book-layers.json`，按 Markdown heading 把 `B*` evidence blocks 归入 section/chapter 候选，并把 layer plan 注入 book methods prompt；长书处理继续向 evidence blocks -> section methods -> book methods -> topic profile 的分层合成演进，借鉴 NotebookLM source grounding、LlamaIndex/LangChain map-reduce/refine/tree summarize、Readwise/Zotero annotations 和 Zettelkasten literature/permanent notes。
+- `books.py`：书籍/读书笔记导入、语义化、方法论蒸馏、单书主页和作者级聚合。初版 provider 是本地 Markdown；后续 provider 扩展 Readwise/Reader export、Zotero annotations、Kindle/Koreader highlights 时必须落到统一 `book-source` artifact，而不是把某个平台格式写进 prompt。当前会先生成 deterministic `book-layers.json`，按 Markdown heading 把 `B*` evidence blocks 归入 section/chapter 候选，并把 layer plan 注入 book methods prompt；`book-homepage.html` 是单本书资产入口，`book-author-profile.json` / `book-author-homepage.html` 是多本书确定性聚合入口；长书处理继续向 evidence blocks -> section methods -> book methods -> author/topic profile 的分层合成演进，借鉴 NotebookLM source grounding、LlamaIndex/LangChain map-reduce/refine/tree summarize、Readwise/Zotero annotations 和 Zettelkasten literature/permanent notes。
 - `semantics/evidence.py`：从 transcript chunk、visual notes 和 keyframe metadata 生成 `T*`、`V*`、`F*` 证据锚点，供总结、视频语义和创作者聚合引用。
 - `summarizers/`：单条 transcript 的轻量总结，适合作为人工快速预览；prompt 必须注入共享 lenses 和证据锚点。
 - `semantics/analyzer.py`：单条视频语义融合，输入 transcript 和 visual notes，输出 `library/semantics/*.video-semantics.md`；强结论要引用 transcript、visual notes 或 keyframe 证据 ID。
@@ -246,6 +254,9 @@ prompt 构建时会自动注入：
 - `library/distilled/*.book-layers.json`：读书笔记的分层 evidence plan，记录 `B*` blocks、Markdown heading path、section/chapter 候选、section-level method candidates、book-level distillation strategy 和 source gaps；由 `distill-book-methods` 和 `run-book-pipeline` 生成，并注入 book methods prompt。
 - `library/distilled/*.book-methods.json`：读书笔记的方法论蒸馏结果，记录 stable principles、decision rules、mental models、agent checks、适用边界、anti-patterns、source gaps 和 open questions；用于给 UP/新闻/财报分析提供长期方法论参照。
 - `library/reports/*.book-methods-report.html`：面向人工阅读的读书方法论卡片报告，展示原则、规则、模型、agent checks、cross-source hooks、source gaps 和 open questions。
+- `library/reports/*.book-homepage.html`：单本书资产主页，汇总 source、layers、methods、report、playbook、section map、principles、rules、agent checks、cross-source hooks 和 source gaps；由 `build-book-homepage` 或 `run-book-pipeline` 生成。
+- `library/distilled/*.book-author-profile.json`：作者级多书确定性聚合，记录 books、topic map、recurring principles、rules、models、cross-source hooks、source gaps 和 open questions；当前不调用 LLM，后续可作为作者方法论蒸馏输入。
+- `library/reports/*.book-author-homepage.html`：作者级书籍方法论主页，消费 `book-author-profile.json`，用于按作者浏览多本书的稳定原则和对照钩子。
 - `library/checks/*.book-methods-playbook.md`：面向 agent 使用前检查的读书方法论 playbook，默认 draft，必须保留 evidence refs 和 source gaps。
 - `library/distilled/*.creator-profile.md`：创作者级聚合画像。
 - `library/distilled/*.ai-practice-digest.json`：AI 方法论 domain 的人物/窗口级汇总，聚合多条 signals 的 practice events、belief events、capability signals、tooling patterns、个人反补候选、Seed 项目反补候选、evidence gaps 和 open questions。

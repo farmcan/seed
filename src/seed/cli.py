@@ -38,6 +38,9 @@ from seed.agent_assets import (
 )
 from seed.asr.chunked import transcribe_audio_with_optional_chunks
 from seed.books import (
+    book_author_homepage_output_path,
+    book_author_profile_output_path,
+    book_homepage_output_path,
     book_layers_output_path,
     book_methods_playbook_output_path,
     book_methods_output_path,
@@ -46,10 +49,15 @@ from seed.books import (
     book_semantics_output_path,
     book_source_output_path,
     run_book_methods_distillation,
+    build_book_author_profile_artifact,
     build_book_layer_artifact,
+    find_author_book_method_paths,
     topic_profile_output_path,
     write_book_methods_playbook_md,
     write_book_methods_report_html,
+    write_book_author_homepage_html,
+    write_book_author_profile_artifact,
+    write_book_homepage_html,
     write_book_layer_artifact,
     write_book_note,
     write_book_semantics,
@@ -259,6 +267,78 @@ def build_book_methods_playbook(
     console.print(f"wrote book methods playbook to {path}")
 
 
+@app.command("build-book-homepage")
+def build_book_homepage_cmd(
+    author: Annotated[str, typer.Option("--author", help="Book author.")],
+    title: Annotated[str, typer.Option("--title", help="Book title.")],
+    topic: Annotated[str | None, typer.Option("--topic", help="Optional topic label.")] = None,
+    source_path: Annotated[Path | None, typer.Option("--source", help="Optional book-source JSON path.")] = None,
+    layers_path: Annotated[Path | None, typer.Option("--layers", help="Optional book-layers JSON path.")] = None,
+    methods_path: Annotated[Path | None, typer.Option("--methods", help="Optional book-methods JSON path.")] = None,
+    report_path: Annotated[Path | None, typer.Option("--report", help="Optional book methods report HTML path.")] = None,
+    playbook_path: Annotated[Path | None, typer.Option("--playbook", help="Optional agent playbook path.")] = None,
+    output: Annotated[Path | None, typer.Option("--output", help="Output book homepage HTML path.")] = None,
+    root: Annotated[Path, typer.Option("--root", help="Knowledge library root.")] = Path("library"),
+) -> None:
+    output_path = output or book_homepage_output_path(library_root=root, author=author, title=title, topic=topic)
+    path = write_book_homepage_html(
+        output_path,
+        author=author,
+        title=title,
+        topic=topic,
+        source_path=source_path or book_source_output_path(library_root=root, author=author, title=title),
+        layers_path=layers_path or book_layers_output_path(library_root=root, author=author, title=title, topic=topic),
+        methods_path=methods_path or book_methods_output_path(library_root=root, author=author, title=title, topic=topic),
+        report_path=report_path or book_methods_report_output_path(library_root=root, author=author, title=title, topic=topic),
+        playbook_path=playbook_path or book_methods_playbook_output_path(library_root=root, author=author, title=title, topic=topic),
+    )
+    console.print(f"wrote book homepage to {path}")
+
+
+@app.command("build-book-author-profile")
+def build_book_author_profile_cmd(
+    author: Annotated[str, typer.Option("--author", help="Book author.")],
+    book_methods: Annotated[
+        list[Path] | None,
+        typer.Option("--book-methods", help="Book methods JSON path. Can be provided multiple times."),
+    ] = None,
+    topic: Annotated[str | None, typer.Option("--topic", help="Optional topic filter.")] = None,
+    output: Annotated[Path | None, typer.Option("--output", help="Output author profile JSON path.")] = None,
+    root: Annotated[Path, typer.Option("--root", help="Knowledge library root.")] = Path("library"),
+) -> None:
+    methods_paths = book_methods or find_author_book_method_paths(library_root=root, author=author, topic=topic)
+    if not methods_paths:
+        raise typer.BadParameter("No book methods found. Pass --book-methods or run book pipelines first.")
+    output_path = output or book_author_profile_output_path(library_root=root, author=author, topic=topic)
+    artifact = build_book_author_profile_artifact(author=author, methods_paths=methods_paths, topic=topic)
+    path = write_book_author_profile_artifact(output_path, artifact)
+    console.print(f"wrote book author profile to {path}")
+
+
+@app.command("build-book-author-homepage")
+def build_book_author_homepage_cmd(
+    author: Annotated[str, typer.Option("--author", help="Book author.")],
+    profile_path: Annotated[Path | None, typer.Option("--profile", help="Optional book-author-profile JSON path.")] = None,
+    book_methods: Annotated[
+        list[Path] | None,
+        typer.Option("--book-methods", help="Book methods JSON path. Can be provided multiple times."),
+    ] = None,
+    topic: Annotated[str | None, typer.Option("--topic", help="Optional topic filter.")] = None,
+    output: Annotated[Path | None, typer.Option("--output", help="Output author homepage HTML path.")] = None,
+    root: Annotated[Path, typer.Option("--root", help="Knowledge library root.")] = Path("library"),
+) -> None:
+    resolved_profile = profile_path or book_author_profile_output_path(library_root=root, author=author, topic=topic)
+    if not resolved_profile.exists():
+        methods_paths = book_methods or find_author_book_method_paths(library_root=root, author=author, topic=topic)
+        if not methods_paths:
+            raise typer.BadParameter("No book author profile or book methods found.")
+        artifact = build_book_author_profile_artifact(author=author, methods_paths=methods_paths, topic=topic)
+        write_book_author_profile_artifact(resolved_profile, artifact)
+    output_path = output or book_author_homepage_output_path(library_root=root, author=author, topic=topic)
+    path = write_book_author_homepage_html(output_path, profile_path=resolved_profile)
+    console.print(f"wrote book author homepage to {path}")
+
+
 @app.command("run-book-pipeline")
 def run_book_pipeline(
     note_path: Annotated[Path, typer.Argument(help="Markdown book note or highlights file.")],
@@ -318,8 +398,20 @@ def run_book_pipeline(
         book_methods_playbook_output_path(library_root=root, author=author, title=title, topic=topic),
         methods_path=methods_path,
     )
+    homepage_path = write_book_homepage_html(
+        book_homepage_output_path(library_root=root, author=author, title=title, topic=topic),
+        author=author,
+        title=title,
+        topic=topic,
+        source_path=source_path,
+        layers_path=layers_path,
+        methods_path=methods_path,
+        report_path=report_path,
+        playbook_path=playbook_path,
+    )
     console.print(f"wrote book methods report to {report_path}")
     console.print(f"wrote book methods playbook to {playbook_path}")
+    console.print(f"wrote book homepage to {homepage_path}")
 
 
 @app.command("init-library")

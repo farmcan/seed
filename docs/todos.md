@@ -73,8 +73,13 @@
 - [x] 增加 book methods 报告和 playbook 输出。
   - 新增 `seed build-book-methods-report`，输出 `library/reports/*.book-methods-report.html` 给人看。
   - 新增 `seed build-book-methods-playbook`，输出 `library/checks/*.book-methods-playbook.md` 给 agent 使用前检查。
+- [x] 增加 book homepage 和作者级聚合入口。
+  - 新增 `seed build-book-homepage`，消费 book-source、book-layers、book-methods、report 和 playbook，输出 `library/reports/*.book-homepage.html`。
+  - 新增 `seed build-book-author-profile`，对同一作者多本 `*.book-methods.json` 做确定性聚合，输出 `library/distilled/*.book-author-profile.json`。
+  - 新增 `seed build-book-author-homepage`，消费 author profile 输出 `library/reports/*.book-author-homepage.html`。
+  - 当前作者 profile 是 deterministic aggregation，不是 LLM 作者思想综合；后续再做多阶段作者级蒸馏。
 - [x] 增加 book 一键 pipeline。
-  - 新增 `seed run-book-pipeline`，输入本地 Markdown 读书笔记后一次生成 `book-source.json`、`book-layers.json`、`book-methods.json`、HTML 报告和 agent playbook。
+  - 新增 `seed run-book-pipeline`，输入本地 Markdown 读书笔记后一次生成 `book-source.json`、`book-layers.json`、`book-methods.json`、HTML 报告、book homepage 和 agent playbook。
   - `--dry-run` 只生成 Codex prompt，不尝试渲染报告和 playbook。
 - [ ] 把 book methods 接入跨来源对照。
   - 在 creator profile / finance digest / news facts / earnings digest 中引用 `cross_source_hooks`，用于判断 UP 观点是否符合长期方法论、是否需要事实核验或边界提醒。
@@ -316,7 +321,7 @@
 - [x] 创作者 pipeline 收敛：`seed run-creator-pipeline` 可以按清单批量运行视频 pipeline，并自动串起 creator profile、agent assets 和 creator DAG。
 - [x] Creator DAG 第一版：`seed build-creator-dag` 生成 UP/作者级 DAG JSON 和静态 HTML，并可从每条视频展开本地视频、音频、截图和单条 video DAG。
 - [x] 真实创作者样本：`影视飓风` 已生成 3 条 video semantics、creator profile、validation、agent asset draft 和 creator DAG。
-- [x] 书籍/笔记入口：`seed import-book-note`、`seed analyze-book-note`、`seed distill-book-methods`、`seed aggregate-topic` 支持非视频来源的基础语义和稳定方法论产物。
+- [x] 书籍/笔记入口：`seed import-book-note`、`seed analyze-book-note`、`seed distill-book-methods`、`seed build-book-homepage`、`seed build-book-author-profile`、`seed build-book-author-homepage`、`seed aggregate-topic` 支持非视频来源的基础语义、单书主页、作者级聚合和稳定方法论产物。
   - `seed distill-book-methods` 输出 `library/distilled/*.book-methods.json`，把读书笔记拆成 stable principles、decision rules、mental models、agent checks、适用边界、anti-patterns、source gaps 和 open questions。
 - [x] Canvas 布局离线化：`tools/vendor/elk.bundled.js` 固定 `elkjs`，导出 HTML 不再依赖 CDN。
 - [x] 视频分析 lenses：`skills/video-semantics-analyzer/references/video-analysis-lenses.md` 收敛 Fabric、BiliNote、tldw、短视频结构等参考框架。
