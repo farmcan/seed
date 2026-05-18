@@ -38,6 +38,7 @@ from seed.agent_assets import (
 )
 from seed.asr.chunked import transcribe_audio_with_optional_chunks
 from seed.books import (
+    book_layers_output_path,
     book_methods_playbook_output_path,
     book_methods_output_path,
     book_methods_report_output_path,
@@ -45,9 +46,11 @@ from seed.books import (
     book_semantics_output_path,
     book_source_output_path,
     run_book_methods_distillation,
+    build_book_layer_artifact,
     topic_profile_output_path,
     write_book_methods_playbook_md,
     write_book_methods_report_html,
+    write_book_layer_artifact,
     write_book_note,
     write_book_semantics,
     write_book_source_artifact,
@@ -161,6 +164,8 @@ from seed.semantics.validation import (
 from seed.sources.creator_videos import fetch_creator_video_list
 from seed.sources.yt_dlp_adapter import download_url
 from seed.shorts import (
+    DEFAULT_FRAME_MOTION_PROVIDER,
+    DEFAULT_OCR_PROVIDER,
     DEFAULT_SCENE_THRESHOLD,
     DEFAULT_SHORT_MAX_SECONDS,
     build_frame_notes,
@@ -280,9 +285,16 @@ def run_book_pipeline(
         location=location,
         tags=tag_list,
     )
+    layers_path = write_book_layer_artifact(
+        book_layers_output_path(library_root=root, author=author, title=title, topic=topic),
+        build_book_layer_artifact(note_path=note_path, author=author, title=title, topic=topic),
+    )
+    methods_output_path = book_methods_output_path(library_root=root, author=author, title=title, topic=topic)
+    if dry_run:
+        methods_output_path = methods_output_path.with_suffix(".prompt.md")
     methods_path = run_book_methods_distillation(
         note_path=note_path,
-        output_path=book_methods_output_path(library_root=root, author=author, title=title, topic=topic),
+        output_path=methods_output_path,
         author=author,
         title=title,
         topic=topic,
@@ -292,7 +304,8 @@ def run_book_pipeline(
         dry_run=dry_run,
     )
     console.print(f"wrote book source artifact to {source_path}")
-    console.print(f"wrote book methods artifact to {methods_path}")
+    console.print(f"wrote book layers artifact to {layers_path}")
+    console.print(f"wrote {'book methods prompt' if dry_run else 'book methods artifact'} to {methods_path}")
     if dry_run:
         console.print("dry run enabled; skipped report and playbook because methods JSON was not generated")
         return
@@ -1395,6 +1408,22 @@ def run_video_pipeline_cmd(
     frame_notes: Annotated[bool, typer.Option("--frame-notes/--no-frame-notes")] = True,
     frame_mode: Annotated[str, typer.Option("--frame-mode", help="shot-keyframes, fps, or every-frame.")] = "shot-keyframes",
     frame_notes_fps: Annotated[float, typer.Option("--frame-notes-fps", min=0.1)] = 1.0,
+    ocr_provider: Annotated[
+        str,
+        typer.Option("--ocr-provider", help="Optional frame-note OCR enrichment provider: none or sidecar-json."),
+    ] = DEFAULT_OCR_PROVIDER,
+    ocr_path: Annotated[
+        Path | None,
+        typer.Option("--ocr-path", help="OCR sidecar JSON with text segments for --ocr-provider sidecar-json."),
+    ] = None,
+    ocr_match_tolerance_seconds: Annotated[float, typer.Option("--ocr-match-tolerance-seconds", min=0.0)] = 0.5,
+    frame_motion_provider: Annotated[
+        str,
+        typer.Option(
+            "--frame-motion-provider",
+            help="Optional frame-difference enrichment provider: none or ffmpeg-diff.",
+        ),
+    ] = DEFAULT_FRAME_MOTION_PROVIDER,
     motion_relations: Annotated[bool, typer.Option("--motion-relations/--no-motion-relations")] = True,
     domain: Annotated[str | None, typer.Option("--domain", help="Optional domain lens, e.g. finance or ai-practices.")] = None,
     show_progress: Annotated[bool, typer.Option("--progress/--no-progress")] = True,
@@ -1429,6 +1458,10 @@ def run_video_pipeline_cmd(
         frame_notes=frame_notes,
         frame_mode=frame_mode,
         frame_notes_fps=frame_notes_fps,
+        ocr_provider=ocr_provider,
+        ocr_path=ocr_path,
+        ocr_match_tolerance_seconds=ocr_match_tolerance_seconds,
+        frame_motion_provider=frame_motion_provider,
         motion_relations=motion_relations,
         domain=domain,
         codex_model=codex_model,
@@ -1479,14 +1512,21 @@ def run_video_pipeline_with_live_progress(options: VideoPipelineOptions):
         event_type = event.get("event")
         if event_type == "run_started":
             planned_steps = [str(step) for step in event.get("planned_steps", [])]
+            estimates = event.get("step_estimates")
+            estimates = estimates if isinstance(estimates, dict) else {}
             rows.clear()
             for step in planned_steps:
+                estimate = estimates.get(step, {}) if isinstance(estimates.get(step), dict) else {}
                 rows[step] = {
                     "step": step,
                     "status": "pending",
                     "duration_seconds": None,
+                    "estimated_duration_seconds": estimate.get("estimated_duration_seconds"),
+                    "historical_sample_count": estimate.get("historical_sample_count"),
+                    "remaining_estimated_seconds": estimate.get("estimated_duration_seconds"),
                     "artifact_paths": [],
                     "cost_delta": None,
+                    "message": "pending",
                 }
         elif event_type in {"step_started", "step_finished"}:
             step = event.get("step")
@@ -1504,16 +1544,20 @@ def build_pipeline_progress_table(rows: dict[str, dict[str, object]], planned_st
     table.add_column("Step", no_wrap=True)
     table.add_column("Status", no_wrap=True)
     table.add_column("Duration", justify="right", no_wrap=True)
+    table.add_column("ETA", justify="right", no_wrap=True)
     table.add_column("Artifacts")
     table.add_column("Cost")
+    table.add_column("Message")
     for step in planned_steps:
         row = rows.get(step, {"step": step, "status": "pending"})
         table.add_row(
             step,
             status_label(str(row.get("status") or "pending")),
             format_duration(row.get("duration_seconds")),
+            format_eta(row),
             format_artifacts(row.get("artifact_paths")),
             format_cost(row.get("cost_delta")),
+            format_message(row.get("message") or row.get("error")),
         )
     return table
 
@@ -1538,6 +1582,19 @@ def format_duration(value: object) -> str:
         return "-"
 
 
+def format_eta(row: dict[str, object]) -> str:
+    if row.get("status") == "running":
+        remaining = row.get("remaining_estimated_seconds")
+        if remaining is not None:
+            return f"~{format_duration(remaining)}"
+    estimate = row.get("estimated_duration_seconds")
+    if estimate is None:
+        return "-"
+    samples = row.get("historical_sample_count")
+    suffix = f"/{samples}x" if samples else ""
+    return f"~{format_duration(estimate)}{suffix}"
+
+
 def format_artifacts(value: object) -> str:
     if not isinstance(value, list) or not value:
         return ""
@@ -1553,6 +1610,13 @@ def format_cost(value: object) -> str:
     if not isinstance(totals, dict) or not totals:
         return ""
     return ", ".join(f"{amount} {currency}" for currency, amount in totals.items())
+
+
+def format_message(value: object) -> str:
+    if value is None:
+        return ""
+    text = str(value)
+    return text if len(text) <= 80 else text[:77] + "..."
 
 
 @app.command("distill-note")
@@ -1626,6 +1690,10 @@ def distill_book_methods(
     dry_run: Annotated[bool, typer.Option("--dry-run")] = False,
     root: Annotated[Path, typer.Option("--root")] = Path("library"),
 ) -> None:
+    layers_path = write_book_layer_artifact(
+        book_layers_output_path(library_root=root, author=author, title=title, topic=topic),
+        build_book_layer_artifact(note_path=note_path, author=author, title=title, topic=topic),
+    )
     output = output_path or book_methods_output_path(
         library_root=root,
         author=author,
@@ -1645,6 +1713,7 @@ def distill_book_methods(
         cwd=Path.cwd(),
         dry_run=dry_run,
     )
+    console.print(f"created book layers at {layers_path}")
     console.print(f"created {'prompt' if dry_run else 'book methods'} at {output}")
 
 
@@ -1794,6 +1863,22 @@ def build_frame_notes_cmd(
     shots_path_arg: Annotated[Path | None, typer.Option("--shots")] = None,
     frame_mode: Annotated[str, typer.Option("--frame-mode", help="shot-keyframes, fps, or every-frame.")] = "shot-keyframes",
     fps: Annotated[float, typer.Option("--fps", min=0.1)] = 1.0,
+    ocr_provider: Annotated[
+        str,
+        typer.Option("--ocr-provider", help="Optional frame-note OCR enrichment provider: none or sidecar-json."),
+    ] = DEFAULT_OCR_PROVIDER,
+    ocr_path: Annotated[
+        Path | None,
+        typer.Option("--ocr-path", help="OCR sidecar JSON with text segments for --ocr-provider sidecar-json."),
+    ] = None,
+    ocr_match_tolerance_seconds: Annotated[float, typer.Option("--ocr-match-tolerance-seconds", min=0.0)] = 0.5,
+    frame_motion_provider: Annotated[
+        str,
+        typer.Option(
+            "--frame-motion-provider",
+            help="Optional frame-difference enrichment provider: none or ffmpeg-diff.",
+        ),
+    ] = DEFAULT_FRAME_MOTION_PROVIDER,
     root: Annotated[Path, typer.Option("--root")] = Path("library"),
 ) -> None:
     resolved_title = title or media_path.stem
@@ -1811,11 +1896,21 @@ def build_frame_notes_cmd(
         library_root=root,
         frame_mode=frame_mode,
         fps=fps,
+        ocr_provider=ocr_provider,
+        ocr_path=ocr_path,
+        ocr_match_tolerance_seconds=ocr_match_tolerance_seconds,
+        frame_motion_provider=frame_motion_provider,
     )
     output_path = frame_notes_output_path(library_root=root, title=resolved_title)
     write_frame_notes(output_path, notes)
     console.print(f"created frame notes at {output_path}")
     console.print(f"frames: {len(notes)}")
+    ocr_matches = sum(1 for note in notes if note.get("ocr_status") == "matched")
+    if ocr_provider != DEFAULT_OCR_PROVIDER:
+        console.print(f"ocr matches: {ocr_matches}")
+    motion_measurements = sum(1 for note in notes if note.get("frame_motion_status") == "measured")
+    if frame_motion_provider != DEFAULT_FRAME_MOTION_PROVIDER:
+        console.print(f"frame motion measurements: {motion_measurements}")
 
 
 @app.command("build-motion-relations")

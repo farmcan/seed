@@ -13,6 +13,10 @@ from seed.library import init_library, slugify
 DEFAULT_SHORT_MAX_SECONDS = 60.0
 DEFAULT_SCENE_THRESHOLD = 0.35
 DEFAULT_FRAME_MODE = "shot-keyframes"
+DEFAULT_OCR_PROVIDER = "none"
+SUPPORTED_OCR_PROVIDERS = {"none", "sidecar-json"}
+DEFAULT_FRAME_MOTION_PROVIDER = "none"
+SUPPORTED_FRAME_MOTION_PROVIDERS = {"none", "ffmpeg-diff"}
 
 
 def short_profile_output_path(*, library_root: Path, title: str) -> Path:
@@ -149,6 +153,10 @@ def build_frame_notes(
     library_root: Path,
     frame_mode: str = DEFAULT_FRAME_MODE,
     fps: float = 1.0,
+    ocr_provider: str = DEFAULT_OCR_PROVIDER,
+    ocr_path: Path | None = None,
+    ocr_match_tolerance_seconds: float = 0.5,
+    frame_motion_provider: str = DEFAULT_FRAME_MOTION_PROVIDER,
 ) -> list[dict[str, Any]]:
     resolved_mode = normalize_frame_mode(frame_mode)
     if resolved_mode == "shot-keyframes":
@@ -162,7 +170,7 @@ def build_frame_notes(
             fps=fps,
             profile=profile,
         )
-    return [
+    notes = [
         {
             "kind": "short_frame_note",
             "version": 1,
@@ -176,7 +184,13 @@ def build_frame_notes(
             "image": probe_image(Path(frame["frame_path"])),
             "visual_provider": "none",
             "vl_caption": None,
+            "ocr_provider": DEFAULT_OCR_PROVIDER,
+            "ocr_status": "not_configured",
             "ocr_text": None,
+            "ocr_segments": [],
+            "frame_motion_provider": DEFAULT_FRAME_MOTION_PROVIDER,
+            "frame_motion_status": "not_configured",
+            "frame_delta": None,
             "subjects": [],
             "objects": [],
             "scene": None,
@@ -209,6 +223,12 @@ def build_frame_notes(
         }
         for index, frame in enumerate(frames, start=1)
     ]
+    return enrich_frame_notes_with_ocr(
+        enrich_frame_notes_with_motion(notes, provider=frame_motion_provider),
+        provider=ocr_provider,
+        ocr_path=ocr_path,
+        match_tolerance_seconds=ocr_match_tolerance_seconds,
+    )
 
 
 def write_frame_notes(path: Path, notes: list[dict[str, Any]]) -> Path:
@@ -228,6 +248,284 @@ def load_frame_notes(path: Path | None) -> list[dict[str, Any]]:
         for line in path.read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
+
+
+def enrich_frame_notes_with_ocr(
+    notes: list[dict[str, Any]],
+    *,
+    provider: str = DEFAULT_OCR_PROVIDER,
+    ocr_path: Path | None = None,
+    match_tolerance_seconds: float = 0.5,
+) -> list[dict[str, Any]]:
+    resolved_provider = normalize_ocr_provider(provider)
+    if resolved_provider == "none":
+        return notes
+
+    if not ocr_path:
+        return [mark_ocr_status(note, provider=resolved_provider, status="missing_ocr_path") for note in notes]
+    if not ocr_path.exists():
+        return [mark_ocr_status(note, provider=resolved_provider, status="missing_ocr_path") for note in notes]
+
+    segments = load_ocr_segments(ocr_path)
+    enriched = []
+    for note in notes:
+        matches = match_ocr_segments(
+            timestamp_seconds=as_float(note.get("timestamp_seconds")),
+            segments=segments,
+            tolerance_seconds=match_tolerance_seconds,
+        )
+        enriched.append(apply_ocr_matches(note, provider=resolved_provider, matches=matches))
+    return enriched
+
+
+def normalize_ocr_provider(provider: str | None) -> str:
+    resolved = (provider or DEFAULT_OCR_PROVIDER).strip().lower()
+    if resolved not in SUPPORTED_OCR_PROVIDERS:
+        allowed = ", ".join(sorted(SUPPORTED_OCR_PROVIDERS))
+        raise ValueError(f"Unsupported OCR provider: {provider}. Allowed: {allowed}")
+    return resolved
+
+
+def mark_ocr_status(note: dict[str, Any], *, provider: str, status: str) -> dict[str, Any]:
+    updated = dict(note)
+    updated["ocr_provider"] = provider
+    updated["ocr_status"] = status
+    updated.setdefault("ocr_segments", [])
+    return updated
+
+
+def load_ocr_segments(path: Path) -> list[dict[str, Any]]:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if isinstance(data, list):
+        raw_segments = data
+    elif isinstance(data, dict):
+        raw_segments = data.get("segments") or data.get("items") or data.get("results") or []
+    else:
+        raw_segments = []
+    return [
+        segment
+        for item in raw_segments
+        if isinstance(item, dict)
+        if (segment := normalize_ocr_segment(item)) is not None
+    ]
+
+
+def normalize_ocr_segment(item: dict[str, Any]) -> dict[str, Any] | None:
+    text = item.get("text") or item.get("ocr_text") or item.get("content")
+    if text is None or not str(text).strip():
+        return None
+    start = first_float(item, "start_seconds", "start", "timestamp_seconds", "timestamp")
+    end = first_float(item, "end_seconds", "end")
+    if start is None and end is None:
+        start = 0.0
+    if end is not None and start is not None and end < start:
+        end = start
+    return {
+        "text": str(text).strip(),
+        "start_seconds": start,
+        "end_seconds": end,
+        "bbox": item.get("bbox") or item.get("box") or item.get("bounding_box"),
+        "confidence": first_float(item, "confidence", "score"),
+        "source_id": item.get("id") or item.get("source_id"),
+    }
+
+
+def first_float(item: dict[str, Any], *keys: str) -> float | None:
+    for key in keys:
+        value = as_float(item.get(key))
+        if value is not None:
+            return value
+    return None
+
+
+def match_ocr_segments(
+    *,
+    timestamp_seconds: float | None,
+    segments: list[dict[str, Any]],
+    tolerance_seconds: float,
+) -> list[dict[str, Any]]:
+    if timestamp_seconds is None:
+        return []
+    matches = []
+    for segment in segments:
+        start = as_float(segment.get("start_seconds"))
+        end = as_float(segment.get("end_seconds"))
+        if start is not None and end is not None:
+            if start - tolerance_seconds <= timestamp_seconds <= end + tolerance_seconds:
+                matches.append(segment)
+            continue
+        anchor = start if start is not None else end
+        if anchor is not None and abs(timestamp_seconds - anchor) <= tolerance_seconds:
+            matches.append(segment)
+    return matches
+
+
+def apply_ocr_matches(note: dict[str, Any], *, provider: str, matches: list[dict[str, Any]]) -> dict[str, Any]:
+    updated = dict(note)
+    updated["ocr_provider"] = provider
+    updated["ocr_segments"] = matches
+    if not matches:
+        updated["ocr_status"] = "no_match"
+        return updated
+
+    text = " ".join(segment["text"] for segment in matches if segment.get("text"))
+    updated["ocr_status"] = "matched"
+    updated["ocr_text"] = text or None
+    updated["subtitle"] = {
+        **(updated.get("subtitle") or {}),
+        "present": bool(text),
+        "text": text or None,
+        "position": first_non_empty([segment.get("bbox") for segment in matches]),
+        "source": provider,
+    }
+    updated["visual_effects"] = {
+        **(updated.get("visual_effects") or {}),
+        "text_overlay": {
+            "present": bool(text),
+            "text": text or None,
+            "source": provider,
+            "segments": len(matches),
+        },
+    }
+    updated["status"] = "pending_vl_ocr_enriched"
+    return updated
+
+
+def first_non_empty(values: list[Any]) -> Any:
+    for value in values:
+        if value:
+            return value
+    return None
+
+
+def enrich_frame_notes_with_motion(
+    notes: list[dict[str, Any]],
+    *,
+    provider: str = DEFAULT_FRAME_MOTION_PROVIDER,
+) -> list[dict[str, Any]]:
+    resolved_provider = normalize_frame_motion_provider(provider)
+    if resolved_provider == "none":
+        return notes
+    if len(notes) < 2:
+        return [
+            mark_frame_motion_status(note, provider=resolved_provider, status="needs_multiple_frames")
+            for note in notes
+        ]
+
+    enriched = [mark_frame_motion_status(notes[0], provider=resolved_provider, status="baseline_start")]
+    for previous, current in zip(notes, notes[1:], strict=False):
+        enriched.append(
+            apply_frame_delta(
+                current,
+                previous=previous,
+                provider=resolved_provider,
+                delta=frame_difference_score(
+                    Path(str(previous.get("frame_path"))),
+                    Path(str(current.get("frame_path"))),
+                ),
+            )
+        )
+    return enriched
+
+
+def normalize_frame_motion_provider(provider: str | None) -> str:
+    resolved = (provider or DEFAULT_FRAME_MOTION_PROVIDER).strip().lower()
+    if resolved not in SUPPORTED_FRAME_MOTION_PROVIDERS:
+        allowed = ", ".join(sorted(SUPPORTED_FRAME_MOTION_PROVIDERS))
+        raise ValueError(f"Unsupported frame motion provider: {provider}. Allowed: {allowed}")
+    return resolved
+
+
+def mark_frame_motion_status(note: dict[str, Any], *, provider: str, status: str) -> dict[str, Any]:
+    updated = dict(note)
+    updated["frame_motion_provider"] = provider
+    updated["frame_motion_status"] = status
+    return updated
+
+
+def apply_frame_delta(
+    note: dict[str, Any],
+    *,
+    previous: dict[str, Any],
+    provider: str,
+    delta: float | None,
+) -> dict[str, Any]:
+    updated = dict(note)
+    updated["frame_motion_provider"] = provider
+    if delta is None:
+        updated["frame_motion_status"] = "unavailable"
+        return updated
+
+    intensity = classify_frame_delta(delta)
+    previous_timestamp = as_float(previous.get("timestamp_seconds"))
+    current_timestamp = as_float(note.get("timestamp_seconds"))
+    updated["frame_motion_status"] = "measured"
+    updated["frame_delta"] = {
+        "provider": provider,
+        "previous_frame_index": previous.get("index"),
+        "previous_frame_path": previous.get("frame_path"),
+        "previous_timestamp_seconds": previous_timestamp,
+        "current_timestamp_seconds": current_timestamp,
+        "score": delta,
+        "intensity": intensity,
+        "summary": (
+            "Frame-difference baseline measures visual change between sampled frames; "
+            "it does not identify people, objects, pose, or true optical flow."
+        ),
+    }
+    updated["editing"] = {
+        **(updated.get("editing") or {}),
+        "camera_motion": {
+            "provider": provider,
+            "status": "candidate",
+            "intensity": intensity,
+            "score": delta,
+            "needs_provider": ["optical_flow", "pose", "vl"],
+        },
+    }
+    return updated
+
+
+def classify_frame_delta(delta: float) -> str:
+    if delta >= 0.35:
+        return "high"
+    if delta >= 0.12:
+        return "medium"
+    return "low"
+
+
+def frame_difference_score(previous_path: Path, current_path: Path) -> float | None:
+    if not previous_path.exists() or not current_path.exists():
+        return None
+    result = subprocess.run(
+        [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-i",
+            str(previous_path),
+            "-i",
+            str(current_path),
+            "-filter_complex",
+            "[0:v][1:v]blend=all_mode=difference,signalstats,metadata=print:file=-",
+            "-frames:v",
+            "1",
+            "-f",
+            "null",
+            "-",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return None
+    output = f"{result.stdout}\n{result.stderr}"
+    match = re.search(r"lavfi\.signalstats\.YAVG=([0-9.]+)", output)
+    if not match:
+        return None
+    return round(min(max(float(match.group(1)) / 255.0, 0.0), 1.0), 4)
 
 
 def build_motion_relations_artifact(
@@ -261,6 +559,7 @@ def build_motion_relations_artifact(
             "pose_keypoints": False,
             "object_tracking": False,
             "ocr": False,
+            "frame_difference": any(note.get("frame_motion_status") == "measured" for note in frame_notes),
             "optical_flow": False,
         },
         "provider_notes": [
@@ -294,6 +593,7 @@ def build_temporal_relation(*, previous: dict[str, Any], current: dict[str, Any]
             "subtitle": [previous.get("subtitle"), current.get("subtitle")],
             "visual_effects": [previous.get("visual_effects"), current.get("visual_effects")],
             "editing": [previous.get("editing"), current.get("editing")],
+            "frame_delta": [previous.get("frame_delta"), current.get("frame_delta")],
         },
         "needs_provider": ["pose", "object_tracking", "optical_flow", "vl"],
         "summary": (
@@ -317,6 +617,7 @@ def build_single_frame_relation(note: dict[str, Any]) -> dict[str, Any]:
             "subtitle": note.get("subtitle"),
             "visual_effects": note.get("visual_effects"),
             "editing": note.get("editing"),
+            "frame_delta": note.get("frame_delta"),
         },
         "needs_provider": ["pose", "object_tracking", "vl"],
         "summary": "Only one frame is available, so motion relation requires pose/tracking/VL enrichment.",

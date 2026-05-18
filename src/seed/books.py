@@ -41,6 +41,18 @@ def book_methods_output_path(
     return library_root / "distilled" / f"{slugify(author)}-{slugify(title)}{suffix}.book-methods.json"
 
 
+def book_layers_output_path(
+    *,
+    library_root: Path,
+    author: str,
+    title: str,
+    topic: str | None = None,
+) -> Path:
+    init_library(library_root)
+    suffix = f".{slugify(topic)}" if topic else ""
+    return library_root / "distilled" / f"{slugify(author)}-{slugify(title)}{suffix}.book-layers.json"
+
+
 def book_source_output_path(*, library_root: Path, author: str, title: str) -> Path:
     init_library(library_root)
     return library_root / "notes" / f"{slugify(author)}-{slugify(title)}.book-source.json"
@@ -191,7 +203,16 @@ def build_book_methods_prompt(
     focus: str | None = None,
 ) -> str:
     skill = read_optional_text(BOOK_METHOD_DISTILLER_SKILL_PATH)
-    evidence_blocks = build_book_evidence_blocks(note_path)
+    layer_plan = build_book_layer_artifact(
+        note_path=note_path,
+        author=author,
+        title=title,
+        topic=topic,
+    )
+    evidence_blocks = [
+        {"ref": block["ref"], "text": block["text"], "section_id": block.get("section_id")}
+        for block in layer_plan["blocks"]
+    ]
     generated_at = datetime.now(UTC).isoformat()
     return f"""Distill durable methodology from this book note.
 
@@ -277,6 +298,10 @@ JSON schema:
 <book_note_evidence_blocks>
 {json.dumps(evidence_blocks, ensure_ascii=False, indent=2)}
 </book_note_evidence_blocks>
+
+<book_layer_plan>
+{json.dumps(layer_plan, ensure_ascii=False, indent=2)}
+</book_layer_plan>
 """
 
 
@@ -314,16 +339,220 @@ def build_book_evidence_blocks(
     max_blocks: int = 80,
     max_chars: int = 9000,
 ) -> list[dict[str, str]]:
+    blocks = [
+        {"ref": block["ref"], "text": block["text"]}
+        for block in build_layered_book_blocks(note_path, max_blocks=max_blocks, max_chars=max_chars)
+    ]
+    return blocks or [{"ref": "B1", "text": "待补充读书笔记内容。"}]
+
+
+def build_book_layer_artifact(
+    *,
+    note_path: Path,
+    author: str,
+    title: str,
+    topic: str | None = None,
+    max_blocks: int = 120,
+    max_chars: int = 20000,
+) -> dict[str, object]:
+    blocks = build_layered_book_blocks(note_path, max_blocks=max_blocks, max_chars=max_chars)
+    sections = build_book_sections(blocks)
+    return {
+        "version": 1,
+        "kind": "book_layers",
+        "source_type": "book-note",
+        "author": author,
+        "title": title,
+        "topic": topic,
+        "basis_path": str(note_path),
+        "generated_at": datetime.now(UTC).isoformat(),
+        "layers": ["block", "section", "book"],
+        "blocks": blocks or [{"ref": "B1", "text": "待补充读书笔记内容。", "section_id": "section-001"}],
+        "sections": sections,
+        "book_layer": {
+            "evidence_refs": [block["ref"] for block in blocks],
+            "section_ids": [section["section_id"] for section in sections],
+            "distillation_strategy": "section methods -> book methods -> topic profile",
+        },
+        "source_gaps": book_layer_source_gaps(blocks, sections),
+    }
+
+
+def write_book_layer_artifact(output_path: Path, artifact: dict[str, object]) -> Path:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(artifact, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return output_path
+
+
+def build_layered_book_blocks(
+    note_path: Path,
+    *,
+    max_blocks: int,
+    max_chars: int,
+) -> list[dict[str, object]]:
     body = read_markdown_body(note_path)
-    blocks: list[dict[str, str]] = []
+    raw_blocks = extract_markdown_blocks_with_headings(body)
+    blocks: list[dict[str, object]] = []
     chars_used = 0
-    for block in extract_markdown_blocks(body):
+    for raw in raw_blocks:
         if chars_used >= max_chars or len(blocks) >= max_blocks:
             break
-        clipped = block[:800]
+        clipped = str(raw["text"])[:800]
         chars_used += len(clipped)
-        blocks.append({"ref": f"B{len(blocks) + 1}", "text": clipped})
-    return blocks or [{"ref": "B1", "text": "待补充读书笔记内容。"}]
+        ref = f"B{len(blocks) + 1}"
+        section_title = str(raw.get("section_title") or "Unsectioned")
+        blocks.append(
+            {
+                "ref": ref,
+                "text": clipped,
+                "section_id": section_id(section_title),
+                "section_title": section_title,
+                "heading_path": raw.get("heading_path") or [],
+                "char_count": len(clipped),
+                "layer": "block",
+            }
+        )
+    return blocks
+
+
+def extract_markdown_blocks_with_headings(text: str) -> list[dict[str, object]]:
+    blocks: list[dict[str, object]] = []
+    current: list[str] = []
+    heading_stack: list[tuple[int, str]] = []
+
+    def flush() -> None:
+        if not current:
+            return
+        heading_path = [title for _, title in heading_stack]
+        section_title = heading_path[-1] if heading_path else "Unsectioned"
+        blocks.append(
+            {
+                "text": " ".join(current).strip(),
+                "heading_path": heading_path,
+                "section_title": section_title,
+            }
+        )
+        current.clear()
+
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            flush()
+            continue
+        if stripped.startswith("#"):
+            flush()
+            level = len(stripped) - len(stripped.lstrip("#"))
+            title = stripped.lstrip("#").strip()
+            heading_stack = [(item_level, item_title) for item_level, item_title in heading_stack if item_level < level]
+            heading_stack.append((level, title))
+            continue
+        if stripped.startswith(("- ", "* ")):
+            flush()
+            current.append(stripped[2:].strip())
+            flush()
+            continue
+        current.append(stripped)
+    flush()
+    return [block for block in blocks if str(block.get("text") or "").strip()]
+
+
+def build_book_sections(blocks: list[dict[str, object]]) -> list[dict[str, object]]:
+    grouped: dict[str, list[dict[str, object]]] = {}
+    order: list[str] = []
+    for block in blocks:
+        section = str(block.get("section_id") or "section-001")
+        if section not in grouped:
+            grouped[section] = []
+            order.append(section)
+        grouped[section].append(block)
+
+    sections = []
+    for section in order:
+        section_blocks = grouped[section]
+        title = str(section_blocks[0].get("section_title") or "Unsectioned")
+        refs = [str(block["ref"]) for block in section_blocks]
+        sections.append(
+            {
+                "section_id": section,
+                "title": title,
+                "heading_path": section_blocks[0].get("heading_path") or [],
+                "evidence_refs": refs,
+                "block_count": len(section_blocks),
+                "summary_candidate": summarize_section_candidate(section_blocks),
+                "method_candidates": method_candidates_from_blocks(section_blocks),
+                "source_gaps": section_source_gaps(section_blocks),
+            }
+        )
+    return sections
+
+
+def section_id(title: str) -> str:
+    slug = slugify(title)
+    return f"section-{slug}" if slug else "section-001"
+
+
+def summarize_section_candidate(blocks: list[dict[str, object]]) -> str:
+    text = " ".join(str(block.get("text") or "") for block in blocks)
+    return text[:360] + ("..." if len(text) > 360 else "")
+
+
+def method_candidates_from_blocks(blocks: list[dict[str, object]], *, limit: int = 5) -> list[dict[str, object]]:
+    candidates = []
+    for block in blocks:
+        text = str(block.get("text") or "")
+        if looks_method_like(text):
+            candidates.append(
+                {
+                    "evidence_ref": block.get("ref"),
+                    "candidate": text[:280],
+                    "status": "candidate_needs_distillation",
+                }
+            )
+        if len(candidates) >= limit:
+            break
+    return candidates
+
+
+def looks_method_like(text: str) -> bool:
+    lower = text.lower()
+    keywords = [
+        "should",
+        "must",
+        "rule",
+        "principle",
+        "method",
+        "avoid",
+        "check",
+        "步骤",
+        "原则",
+        "方法",
+        "避免",
+        "检查",
+        "边界",
+    ]
+    return any(keyword in lower for keyword in keywords)
+
+
+def section_source_gaps(blocks: list[dict[str, object]]) -> list[str]:
+    gaps = []
+    if not any(block.get("heading_path") for block in blocks):
+        gaps.append("No Markdown heading was available for this section.")
+    if len(blocks) == 1:
+        gaps.append("Only one evidence block is available; section-level conclusion should remain provisional.")
+    return gaps
+
+
+def book_layer_source_gaps(blocks: list[dict[str, object]], sections: list[dict[str, object]]) -> list[str]:
+    gaps = []
+    if not blocks:
+        gaps.append("No usable evidence blocks were found in the note.")
+    if not sections:
+        gaps.append("No section/chapter layer could be inferred.")
+    if len(sections) <= 1:
+        gaps.append("The note has one or zero inferred sections; chapter-level distillation is limited.")
+    if any(not block.get("heading_path") for block in blocks):
+        gaps.append("Some blocks have no heading path; add chapter/section headings for better layering.")
+    return gaps
 
 
 def extract_markdown_blocks(text: str) -> list[str]:
@@ -382,7 +611,14 @@ def write_book_source_artifact(
     location: str | None = None,
     tags: list[str] | None = None,
 ) -> Path:
-    evidence_blocks = build_book_evidence_blocks(note_path)
+    evidence_blocks = build_layered_book_blocks(note_path, max_blocks=80, max_chars=9000) or [
+        {
+            "ref": "B1",
+            "text": "待补充读书笔记内容。",
+            "section_title": "Unsectioned",
+            "heading_path": [],
+        }
+    ]
     entries = []
     for index, block in enumerate(evidence_blocks, start=1):
         evidence_id = str(block.get("ref") or block.get("id") or block.get("evidence_id") or f"B{index}")
@@ -390,7 +626,8 @@ def write_book_source_artifact(
             {
                 "evidence_id": evidence_id,
                 "kind": "note_block",
-                "chapter": None,
+                "chapter": block.get("section_title"),
+                "heading_path": block.get("heading_path") or [],
                 "page": None,
                 "location": location,
                 "highlight": block.get("text") or block.get("content") or "",

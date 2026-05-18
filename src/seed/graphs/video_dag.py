@@ -739,7 +739,15 @@ def frame_notes_summary(notes: list[dict[str, Any]]) -> str:
         return "短视频逐帧/密集帧证据索引。默认先记录 timestamp、shot、frame path 和图像尺寸；VL/OCR 字段可后续补强。"
     modes = ", ".join(sorted({str(note.get("frame_mode")) for note in notes if note.get("frame_mode")}))
     pending = sum(1 for note in notes if note.get("status") == "pending_vl")
-    return f"已生成 {len(notes)} 条 frame evidence。frame mode: {modes or 'unknown'}；待 VL/OCR 补强 {pending} 条。"
+    ocr_matches = sum(1 for note in notes if note.get("ocr_status") == "matched")
+    motion_measurements = sum(1 for note in notes if note.get("frame_motion_status") == "measured")
+    return (
+        f"已生成 {len(notes)} 条 frame evidence。"
+        f"frame mode: {modes or 'unknown'}；"
+        f"OCR 命中 {ocr_matches} 条；"
+        f"帧差运动测量 {motion_measurements} 条；"
+        f"待 VL/OCR 补强 {pending} 条。"
+    )
 
 
 def frame_notes_preview(notes: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -1019,6 +1027,8 @@ def build_frame_note_nodes(
             f"timestamp={format_event_timestamp(note.get('timestamp_seconds'))}；"
             f"shot={note.get('shot_id') or 'unknown'}；"
             f"image={image.get('width')}x{image.get('height')}；"
+            f"ocr={note.get('ocr_text') or note.get('ocr_status') or 'none'}；"
+            f"motion={frame_delta_summary(note.get('frame_delta'))}；"
             f"subtitle={field_presence(note.get('subtitle'))}；"
             f"effects={effects_presence(note.get('visual_effects'))}；"
             f"editing={field_presence(note.get('editing'))}；"
@@ -1035,6 +1045,8 @@ def build_frame_note_nodes(
                 [
                     str(note.get("frame_mode") or "frame"),
                     str(note.get("status") or ""),
+                    f"ocr={note.get('ocr_status') or 'none'}",
+                    f"motion={note.get('frame_motion_status') or 'none'}",
                 ],
                 frame_path or frame_notes_path,
                 preview={"type": "image", "src": str(frame_path)} if frame_path else None,
@@ -1118,6 +1130,14 @@ def effects_presence(value: Any) -> str:
         return "pending"
     enabled = [key for key, item in value.items() if has_value(item)]
     return ",".join(enabled) if enabled else "pending"
+
+
+def frame_delta_summary(value: Any) -> str:
+    if not isinstance(value, dict):
+        return "none"
+    intensity = value.get("intensity") or "unknown"
+    score = value.get("score")
+    return f"{intensity}/{score}" if score is not None else str(intensity)
 
 
 def has_value(value: Any) -> bool:

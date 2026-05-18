@@ -18,6 +18,21 @@ def test_run_manifest_output_path(tmp_path):
 def test_run_video_pipeline_for_local_media(tmp_path, monkeypatch):
     media = tmp_path / "demo.mp4"
     media.write_bytes(b"video")
+    library_root = tmp_path / "library"
+    history_path = library_root / "runs" / "history.video-pipeline.yaml"
+    history_path.parent.mkdir(parents=True, exist_ok=True)
+    history_path.write_text(
+        yaml.safe_dump(
+            {
+                "steps": [
+                    {"step": "source", "status": "completed", "duration_seconds": 2.0},
+                    {"step": "transcribe", "status": "completed", "duration_seconds": 8.0},
+                    {"step": "extract_frames", "status": "completed", "duration_seconds": 4.0},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
 
     def fake_extract_audio(media_path, library_root):
         path = library_root / "raw" / "demo.asr.mp3"
@@ -81,7 +96,7 @@ def test_run_video_pipeline_for_local_media(tmp_path, monkeypatch):
     context, manifest_path = run_video_pipeline(
         VideoPipelineOptions(
             source=str(media),
-            library_root=tmp_path / "library",
+            library_root=library_root,
             title="Demo",
             owner="demo-owner",
             vision=False,
@@ -102,6 +117,10 @@ def test_run_video_pipeline_for_local_media(tmp_path, monkeypatch):
     data = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
     status = json.loads(status_path.read_text(encoding="utf-8"))
     assert data["title"] == "Demo"
+    assert data["run_started_at"]
+    assert data["run_finished_at"]
+    assert data["duration_seconds"] is not None
+    assert data["step_counts"]["completed"] >= 1
     assert [step["step"] for step in data["steps"]] == [
         "source",
         "short_profile",
@@ -122,9 +141,18 @@ def test_run_video_pipeline_for_local_media(tmp_path, monkeypatch):
     assert any(str(context.transcript_path) in step["artifact_paths"] for step in data["steps"])
     assert status["kind"] == "video_pipeline_status"
     assert status["status"] == "completed"
+    assert status["summary"].startswith("status=completed")
+    assert status["estimated_total_seconds"] == 14.0
+    assert status["step_counts"]["pending"] == 0
     assert status["current_step"] is None
     assert [step["step"] for step in status["steps"]] == [step["step"] for step in data["steps"]]
+    assert status["steps"][0]["estimated_duration_seconds"] == 2.0
+    assert status["steps"][0]["historical_sample_count"] == 1
+    assert status["steps"][0]["message"]
     assert any(event["event"] == "run_started" for event in progress_events)
+    run_started_event = next(event for event in progress_events if event["event"] == "run_started")
+    assert run_started_event["estimated_total_seconds"] == 14.0
+    assert run_started_event["step_estimates"]["transcribe"]["estimated_duration_seconds"] == 8.0
     assert any(event["event"] == "step_started" for event in progress_events)
     assert any(event["event"] == "run_finished" for event in progress_events)
     assert "window.SEED_EMBEDDED_STATUS" in context.live_html_path.read_text(encoding="utf-8")

@@ -78,8 +78,8 @@ seed distill-book-methods <book-note.md> --author <author> --title <title>
   -> 后续可和 UP profile、新闻 facts、财报 facts、财经 digest 做 cross-source hooks
 
 seed run-book-pipeline <book-note.md> --author <author> --title <title>
-  -> 本地 Markdown 读书笔记一键跑完 source artifact + methods JSON + HTML report + agent playbook
-  -> 输出 `library/notes/*.book-source.json`、`library/distilled/*.book-methods.json`、`library/reports/*.book-methods-report.html`、`library/checks/*.book-methods-playbook.md`
+  -> 本地 Markdown 读书笔记一键跑完 source artifact + layered plan + methods JSON + HTML report + agent playbook
+  -> 输出 `library/notes/*.book-source.json`、`library/distilled/*.book-layers.json`、`library/distilled/*.book-methods.json`、`library/reports/*.book-methods-report.html`、`library/checks/*.book-methods-playbook.md`
 ```
 
 这些命令已经是当前优先入口；其他 CLI 视为可组合 step 或调试入口。新增功能如果不能进入 pipeline、不能生成稳定 artifact、不能被 DAG 或 creator aggregation 消费，就不应作为主功能推进。
@@ -99,7 +99,7 @@ seed run-book-pipeline <book-note.md> --author <author> --title <title>
 | Artifact and cost ledger | 让每次运行可恢复、可审计、可估算成本 | step inputs/outputs、provider usage、artifact paths | `library/runs/*.yaml`, `*.status.json`, `library/costs/*.cost.json`, `*.ledger.json` | `pipeline.py`, `creator_pipeline.py`, `costs.py` | CLI progress、live DAG、budget gate、debug/replay | live DAG 只展示运行态 step graph | 作为成本账本主数据 | step 必须幂等；失败可续跑；provider/model、duration、artifact_paths、cost_delta 不丢 |
 | DAG and report surfaces | 把本地证据和聚合结果变成可浏览入口 | graph JSON、creator profile、domain digest、manifest | video DAG HTML、creator DAG HTML、UP homepage、comparison/report HTML | `graphs/*`, `dag_export.py`, `reports/*`, `cli.py` | 人工 review、调试、方法论选择 | 是主要可视化面 | 不新增模型成本，除非报告生成调用 LLM | 默认静态 HTML；主布局用 vendored ELK；不给用户看低信息密度降级图 |
 | Agent assets and reflection loop | 把稳定方法论转成可用但需 review 的 Agent skills/checks，并用复盘反哺 | creator profile、domain digest、manual review、reflection log | draft skills、checks、review manifest、reflection、revision suggestions | `agent_assets.py`, `reflections.py` | Agent 运行前后、人类 review、后续 profile 修订 | skills/checks 可作为 asset 节点 | 生成若调用 LLM 要记录或预留 | 生成物默认 draft；必须 review 后再安装/长期使用；reflection 只追加 |
-| Book/note methodology | 把书籍、高亮和长笔记变成 source-grounded 方法论参照 | 本地 Markdown/笔记、章节/位置、主题 | book note、book semantics、book methods、topic profile | `books.py`, `skills/book-method-distiller/` | topic profile、creator/profile 对照、agent assets | 后续可进入主题/方法论 DAG | LLM 成本记录或预留 | 保留 `B*` evidence refs、适用边界、anti-patterns、source gaps，不替代事实核验 |
+| Book/note methodology | 把书籍、高亮和长笔记变成 source-grounded 方法论参照 | 本地 Markdown/笔记、章节/位置、主题 | book note、book semantics、book layers、book methods、topic profile | `books.py`, `skills/book-method-distiller/` | topic profile、creator/profile 对照、agent assets | 后续可进入主题/方法论 DAG | LLM 成本记录或预留 | 保留 `B*` evidence refs、章节/section layer、适用边界、anti-patterns、source gaps，不替代事实核验 |
 
 ### 能力归属原则
 
@@ -133,7 +133,7 @@ seed run-book-pipeline <book-note.md> --author <author> --title <title>
 | 视觉语言 | `seed extract-frames`, `seed analyze-frames` | `src/seed/vision/` | `library/frames/*`, `library/notes/*.visual.md` |
 | 短视频结构 | `seed profile-short-video`, `seed detect-shots`, `seed build-frame-notes`, `seed build-motion-relations`, `seed run-video-pipeline` | `src/seed/shorts.py`, `src/seed/pipeline.py` | `library/shorts/*.short-video-profile.json`, `library/shots/*.shots.json`, `library/shots/*.motion-relations.json`, `library/frames/*.frame-notes.jsonl`, `library/frames/*.shots/*` |
 | 成本计量 | `seed analyze-frames`, `seed build-cost-ledger`, `seed build-video-dag` | `src/seed/costs.py`, `src/seed/graphs/video_dag.py` | `library/costs/*.cost.json`, `library/costs/*.ledger.json`, DAG cost 节点 |
-| 书籍/笔记 | `seed import-book-note`, `seed import-book-source`, `seed analyze-book-note`, `seed distill-book-methods`, `seed build-book-methods-report`, `seed build-book-methods-playbook`, `seed run-book-pipeline`, `seed aggregate-topic` | `src/seed/books.py`, `skills/book-method-distiller/SKILL.md` | `library/notes/*.book-note.md`, `library/notes/*.book-source.json`, `library/semantics/*.book-semantics.md`, `library/distilled/*.book-methods.json`, `library/reports/*.book-methods-report.html`, `library/checks/*.book-methods-playbook.md`, `library/distilled/*.topic-profile.md` |
+| 书籍/笔记 | `seed import-book-note`, `seed import-book-source`, `seed analyze-book-note`, `seed distill-book-methods`, `seed build-book-methods-report`, `seed build-book-methods-playbook`, `seed run-book-pipeline`, `seed aggregate-topic` | `src/seed/books.py`, `skills/book-method-distiller/SKILL.md` | `library/notes/*.book-note.md`, `library/notes/*.book-source.json`, `library/semantics/*.book-semantics.md`, `library/distilled/*.book-layers.json`, `library/distilled/*.book-methods.json`, `library/reports/*.book-methods-report.html`, `library/checks/*.book-methods-playbook.md`, `library/distilled/*.topic-profile.md` |
 | 快速总结 | `seed summarize-transcript` | `src/seed/summarizers/`, `src/seed/skill_refs.py`, `src/seed/semantics/evidence.py` | `library/notes/*.summary.md` |
 | 视频语义 | `seed analyze-video-semantics` | `src/seed/semantics/analyzer.py`, `src/seed/skill_refs.py`, `src/seed/semantics/evidence.py` | `library/semantics/*.video-semantics.md` |
 | AI 方法论信号 | `seed extract-ai-practice-signals`, `seed build-ai-practice-digest`, `seed run-video-pipeline --domain ai-practices`, `seed run-creator-pipeline --domain ai-practices` | `src/seed/domains/ai_practices.py`, `src/seed/skill_refs.py` | `library/semantics/*.ai-practice-signals.json`, `library/distilled/*.ai-practice-digest.json`, video DAG / creator DAG AI practice 节点 |
@@ -156,18 +156,18 @@ seed run-book-pipeline <book-note.md> --author <author> --title <title>
 
 - `sources/`：平台采集适配器。只关心 URL、授权、下载、metadata，不做内容理解；下载结果需要记录 provider、fallback 和 cookies 相关诊断。
 - `creator_pipeline.py`：消费本地清单（`*.creator-videos.yaml`）进行逐条视频处理。默认按清单顺序和限制条件分发任务，已有 source record 但没有本地 `raw_path` 时仍继续下载补齐素材。
-- `pipeline.py`：负责把现有单步命令背后的业务函数串成单条视频 pipeline，写入 run manifest、status JSON 和 live DAG HTML，并支持断点续跑。每个 step 记录状态、输入输出、provider/model、耗时、artifact paths 和 cost delta；CLI 可用 Rich 进度表实时展示，live DAG 只展示运行态 step graph，不混入最终内容 DAG。
+- `pipeline.py`：负责把现有单步命令背后的业务函数串成单条视频 pipeline，写入 run manifest、status JSON 和 live DAG HTML，并支持断点续跑。每个 step 记录状态、输入输出、provider/model、耗时、artifact paths、cost delta、简短 message 和基于历史 manifest 的粗略 ETA；status 顶层记录运行耗时、step counts、estimated total/remaining。CLI 可用 Rich 进度表实时展示，live DAG 只展示运行态 step graph，不混入最终内容 DAG。
 - `creator_pipeline.py`：负责创作者级批量任务、发布时间窗口过滤、失败继续、成本预算门槛、creator profile 聚合、agent assets 生成和 creator DAG 导出；`--max-estimated-cost` 到达后停止后续视频，并在 manifest 写入 `budget_exceeded`，后处理步骤写入 `creator_steps`。
 - `asr/` 和 `media.py`：音频抽取、超限音频分片和线上 ASR provider。只产出 transcript；长音频会同时按文件大小和 `ffprobe` 时长判断是否切片，默认超过 300 秒会分段，transcript 会在 frontmatter 记录 `asr_chunks`。
 - `vision/`：抽帧、Qwen-VL 调用和 visual notes。只描述画面证据，不负责最终方法论；Qwen-VL provider 需要返回 token usage，供成本模块记录。
-- `shorts.py`：短视频 profile、shot boundary baseline、shot 代表帧、frame evidence notes 和 motion relation candidates。默认用 `ffprobe` 判断 `duration <= 60s` 是否进入短视频强分析，用 `ffmpeg` scene threshold 生成本地 shot artifact；`frame_notes` 默认按 shot 代表帧生成低成本 JSONL，并预留蒙版、画中画、贴纸、字幕、人的运动关系、滤镜、变速、转场和剪辑意图字段；`motion_relations` 默认只从相邻 frame notes 生成可追溯候选并标记 `needs_pose_or_vl`，后续可把 PySceneDetect/TransNetV2、逐帧 Qwen-VL/OCR、MediaPipe/OpenPose/YOLO pose 和 OpenCV optical flow 接成 provider。
+- `shorts.py`：短视频 profile、shot boundary baseline、shot 代表帧、frame evidence notes 和 motion relation candidates。默认用 `ffprobe` 判断 `duration <= 60s` 是否进入短视频强分析，用 `ffmpeg` scene threshold 生成本地 shot artifact；`frame_notes` 默认按 shot 代表帧生成低成本 JSONL，并预留蒙版、画中画、贴纸、字幕、人的运动关系、滤镜、变速、转场和剪辑意图字段；当前可用 `--ocr-provider sidecar-json --ocr-path <json>` 把外部 OCR 工具产出的时间段文本导入 frame notes，也可用 `--frame-motion-provider ffmpeg-diff` 对相邻采样帧做帧差强度基线，不在默认路径引入重依赖；`motion_relations` 默认只从相邻 frame notes 生成可追溯候选并标记 `needs_pose_or_vl`，后续可把 PySceneDetect/TransNetV2、逐帧 Qwen-VL/OCR、MediaPipe/OpenPose/YOLO pose 和 OpenCV optical flow 接成 provider。
 - `costs.py`：统一写入单条视频成本报告和 pipeline cost ledger。默认记录 Qwen-VL token 用量、单价来源、估算金额，并为 ASR、Codex、搜索/核验保留成本项；实际价格可通过环境变量覆盖。
 - `skill_refs.py`：读取共享 video analysis lenses 和可选 domain lenses。prompt 构建器只引用这个入口，避免各模块复制 lens 文本。
 - `domains/ai_practices.py`：AI 方法论领域信号抽取和人物/窗口级汇总。输入单条 `video-semantics.md`，输出 `*.ai-practice-signals.json`，记录 practice events、belief events、capability signals、tooling patterns、个人反补候选、Seed 项目反补候选、evidence gaps 和 open questions；输入多条 signals，输出 `*.ai-practice-digest.json`，作为 AI 时代方法论和个人能力训练账本。
 - `domains/finance.py`：财经领域信号抽取、窗口汇总、可选行情补强和新闻 facts 上下文。输入单条 `video-semantics.md`，输出 `*.finance-signals.json`，每条信号优先返回 `viewpoint_events`（主对象）；输入多条 signals，输出 `*.finance-digest.json`；显式 ticker mapping 后可用 Stooq 日线生成 `*.finance-digest.priced.json`；`seed enrich-finance-news` 可把 `*.news-digest.json` 的 facts、industry impacts 和 market relevance 挂到事件级 `news_context`，只做事实引用；`seed build-finance-news-report` 把 news-context digest 渲染成卡片式 HTML 报告；`seed distill-up-list` 在财经名单配置 `news_digest_paths` 时会自动补生成 news-context digest 和报告，并把它们链接进 UP 主页。所有观点都必须标记为创作者观点，不是 Seed 投资建议。
 - `domains/news.py`：新闻检索和 facts-first 蒸馏。默认 provider 是 GDELT DOC 2.0 `artlist` JSON，检索结果写入 `library/news/*.news-search.json`；Codex 蒸馏只汇总 facts、reported claims、industry impacts、source gaps 和 open questions，输出 `*.news-digest.json`。视频 pipeline 的 `--domain news` 会从 `video-semantics.md` 生成 `*.news-facts.json`，供 DAG 和 fact-check 消费。
 - `domains/earnings.py`：财报解析和 SEC baseline。默认 provider 是 SEC EDGAR `submissions` 与 XBRL `companyfacts` JSON，ticker/CIK 映射来自 SEC `company_tickers.json`；原始事实写入 `library/earnings/*.sec-earnings.json`，Codex 蒸馏输出 `*.earnings-digest.json`。视频 pipeline 的 `--domain earnings` 会把视频里的财报说法提取成待 SEC 核验的 `*.earnings-analysis.json`。
-- `books.py`：书籍/读书笔记导入、语义化和方法论蒸馏。初版 provider 是本地 Markdown；后续 provider 扩展 Readwise/Reader export、Zotero annotations、Kindle/Koreader highlights 时必须落到统一 `book-source` artifact，而不是把某个平台格式写进 prompt。长书处理采用 evidence blocks -> chapter/book methods -> topic profile 的分层合成，借鉴 NotebookLM source grounding、LlamaIndex/LangChain map-reduce/refine/tree summarize、Readwise/Zotero annotations 和 Zettelkasten literature/permanent notes。
+- `books.py`：书籍/读书笔记导入、语义化和方法论蒸馏。初版 provider 是本地 Markdown；后续 provider 扩展 Readwise/Reader export、Zotero annotations、Kindle/Koreader highlights 时必须落到统一 `book-source` artifact，而不是把某个平台格式写进 prompt。当前会先生成 deterministic `book-layers.json`，按 Markdown heading 把 `B*` evidence blocks 归入 section/chapter 候选，并把 layer plan 注入 book methods prompt；长书处理继续向 evidence blocks -> section methods -> book methods -> topic profile 的分层合成演进，借鉴 NotebookLM source grounding、LlamaIndex/LangChain map-reduce/refine/tree summarize、Readwise/Zotero annotations 和 Zettelkasten literature/permanent notes。
 - `semantics/evidence.py`：从 transcript chunk、visual notes 和 keyframe metadata 生成 `T*`、`V*`、`F*` 证据锚点，供总结、视频语义和创作者聚合引用。
 - `summarizers/`：单条 transcript 的轻量总结，适合作为人工快速预览；prompt 必须注入共享 lenses 和证据锚点。
 - `semantics/analyzer.py`：单条视频语义融合，输入 transcript 和 visual notes，输出 `library/semantics/*.video-semantics.md`；强结论要引用 transcript、visual notes 或 keyframe 证据 ID。
@@ -212,7 +212,7 @@ prompt 构建时会自动注入：
 - `library/raw/*.asr.chunks/`：长音频 ASR 分片，供 provider 逐片转写。
 - `library/shorts/*.short-video-profile.json`：短视频 profile，记录 duration、fps、分辨率、宽高比、竖屏、音轨和是否进入短视频强分析。
 - `library/shots/*.shots.json`：shot boundary artifact，记录 shot start/end、duration、代表帧、transition type、detector/provider 和 threshold。
-- `library/frames/*.frame-notes.jsonl`：短视频逐帧/密集帧证据索引，记录 timestamp、frame path、shot id、图像尺寸，并预留字幕、蒙版、画中画、贴纸、人的运动关系、镜头运动、转场、滤镜和待 VL/OCR 补强字段。
+- `library/frames/*.frame-notes.jsonl`：短视频逐帧/密集帧证据索引，记录 timestamp、frame path、shot id、图像尺寸、OCR provider/status/segments、frame motion provider/status 和 frame delta，并预留字幕、蒙版、画中画、贴纸、人的运动关系、镜头运动、转场、滤镜和待 VL/OCR 补强字段；`sidecar-json` provider 可按时间戳把外部 OCR 段落写入 `ocr_text`、`subtitle` 和 `visual_effects.text_overlay`，`ffmpeg-diff` provider 可把相邻采样帧的视觉变化强度写入 `frame_delta` 和 `editing.camera_motion` 候选。
 - `library/shots/*.motion-relations.json`：短视频人物/物体运动关系候选。默认 `schema-baseline` 只记录 frame-to-frame 候选、来源 frame、shot id、时间点和所需 provider，不声称已识别具体人物关系；后续由 pose、tracking、optical flow、OCR 或 VL provider 补强。
 - `library/transcripts/`：文字语言，来自 ASR 或人工整理。
 - `library/frames/`：抽样关键帧；`*.shots/` 子目录保存 shot 代表帧。
@@ -228,7 +228,7 @@ prompt 构建时会自动注入：
 - `library/notes/*.book-source.json`：书籍/读书高亮统一 source artifact，记录 provider、source metadata、highlight/note、location、tags、source URL 和 `B*` evidence refs；当前 provider 是本地 Markdown，后续兼容 Readwise/Zotero/Kindle/Koreader。
 - `library/reports/*.up-comparison.html`：UP 横向对比报告。
 - `library/runs/`：pipeline run manifest，记录 step 状态、输入输出、错误、provider/model 和耗时。
-- `library/runs/*.video-pipeline.status.json`：pipeline 运行态快照，面向 CLI 进度表和后续 live DAG 轮询；包含 pending/running/completed/skipped/failed 状态、当前 step、耗时、artifact paths 和 cost delta。
+- `library/runs/*.video-pipeline.status.json`：pipeline 运行态快照，面向 CLI 进度表和后续 live DAG 轮询；包含 pending/running/completed/skipped/failed 状态、当前 step、运行耗时、step counts、历史 ETA、remaining estimate、artifact paths、cost delta 和每步 message。
 - `library/runs/*.video-pipeline.live.html`：pipeline 运行态画布，使用独立 step graph 展示 pending/running/completed/skipped/failed；打开静态文件可看嵌入快照，通过本地 HTTP 打开时可轮询同目录 status JSON。
 - `library/semantics/*.video-semantics.md`：单条视频语义，是后续聚合的主数据。
 - `library/semantics/*.ai-practice-signals.json`：AI 方法论 domain 的单条视频结构化信号，记录真实 AI 使用流程、时代判断、能力信号、工具模式、个人实验候选、Seed 项目反补候选和证据缺口；进入 video DAG 和 creator DAG。
@@ -243,6 +243,7 @@ prompt 构建时会自动注入：
 - `library/graphs/*.video-dag.html`：嵌入 graph JSON 的静态画布快照，本地打开即可查看；媒体文件仍按相对路径读取 `library/`。
 - `library/graphs/*.creator-dag.json` 和 `*.creator-dag.html`：UP/作者级画布。
 - `library/distilled/*.topic-profile.md`：跨书籍/笔记/视频的主题聚合草稿。
+- `library/distilled/*.book-layers.json`：读书笔记的分层 evidence plan，记录 `B*` blocks、Markdown heading path、section/chapter 候选、section-level method candidates、book-level distillation strategy 和 source gaps；由 `distill-book-methods` 和 `run-book-pipeline` 生成，并注入 book methods prompt。
 - `library/distilled/*.book-methods.json`：读书笔记的方法论蒸馏结果，记录 stable principles、decision rules、mental models、agent checks、适用边界、anti-patterns、source gaps 和 open questions；用于给 UP/新闻/财报分析提供长期方法论参照。
 - `library/reports/*.book-methods-report.html`：面向人工阅读的读书方法论卡片报告，展示原则、规则、模型、agent checks、cross-source hooks、source gaps 和 open questions。
 - `library/checks/*.book-methods-playbook.md`：面向 agent 使用前检查的读书方法论 playbook，默认 draft，必须保留 evidence refs 和 source gaps。

@@ -68,11 +68,13 @@
 - [ ] 增加分层 book distillation。
   - 目标：block/chapter methods -> book methods -> topic profile，不把整本书一次性塞进 prompt。
   - 借鉴 `map_reduce/refine/tree_summarize`，保留每层 source gaps 和冲突观点。
+  - [x] P0 先生成 deterministic `*.book-layers.json`：按 Markdown heading 把 `B*` evidence blocks 归入 section/chapter 候选，记录 section-level method candidates、book-level distillation strategy 和 source gaps，并注入 `distill-book-methods` prompt。
+  - [ ] P1 再做真正的 section methods -> book methods 多阶段 LLM 合成，避免长书一次性进入 prompt。
 - [x] 增加 book methods 报告和 playbook 输出。
   - 新增 `seed build-book-methods-report`，输出 `library/reports/*.book-methods-report.html` 给人看。
   - 新增 `seed build-book-methods-playbook`，输出 `library/checks/*.book-methods-playbook.md` 给 agent 使用前检查。
 - [x] 增加 book 一键 pipeline。
-  - 新增 `seed run-book-pipeline`，输入本地 Markdown 读书笔记后一次生成 `book-source.json`、`book-methods.json`、HTML 报告和 agent playbook。
+  - 新增 `seed run-book-pipeline`，输入本地 Markdown 读书笔记后一次生成 `book-source.json`、`book-layers.json`、`book-methods.json`、HTML 报告和 agent playbook。
   - `--dry-run` 只生成 Codex prompt，不尝试渲染报告和 playbook。
 - [ ] 把 book methods 接入跨来源对照。
   - 在 creator profile / finance digest / news facts / earnings digest 中引用 `cross_source_hooks`，用于判断 UP 观点是否符合长期方法论、是否需要事实核验或边界提醒。
@@ -116,12 +118,13 @@
 - [x] 增强 Creator DAG 的媒体证据入口。
   - UP/作者级画布默认展示 profile、方法论、视频语义和 Agent 资产；每条视频节点可展开 4 个子节点：单条 video DAG HTML、本地视频、本地音频、关键帧截图 gallery。
   - 顶部 toolbar 改为自适应高度，控件换行时不再被 canvas 覆盖。
-- [ ] 增强 pipeline 运行可观测性。
+- [x] 增强 pipeline 运行可观测性。
   - 目标：用户运行一条视频时，能看到预计耗时、当前 step、已完成/运行中/失败/跳过状态、每步耗时、关键日志、当前产物路径和成本增量。
   - [x] P0 先增强 CLI 进度：用 Rich table 展示 step 状态，运行结束后输出耗时汇总；每个 step 在 manifest 写入 `duration_seconds`、`artifact_paths` 和 `cost_delta`。
   - [x] P1 增加 run status artifact：在 `library/runs/*.video-pipeline.yaml` 之外同步写一个更适合前端轮询的 `*.status.json`，每个 step 开始/结束时更新。
   - [x] P2 增加 live DAG preview：生成 `*.video-pipeline.live.html`，节点默认有 `pending/running/completed/skipped/failed` 状态；未完成节点虚线/半透明，运行中节点有轻量 pulse 动画；前端优先轮询同目录 status JSON，静态打开时至少展示嵌入快照。
-  - P3 再评估是否需要 Prefect/Dagster/Temporal 这类外部编排。当前不引入重型服务，除非出现多 worker、定时调度、复杂重试或团队协作需求。
+  - [x] P3 增加历史耗时粗估和运行摘要：status/manifest 顶层记录 run duration、step counts、estimated total/remaining；每步记录 `message`、`estimated_duration_seconds` 和历史样本数，CLI 与 live DAG 同步展示。
+  - P4 再评估是否需要 Prefect/Dagster/Temporal 这类外部编排。当前不引入重型服务，除非出现多 worker、定时调度、复杂重试或团队协作需求。
   - 设计原则：运行态画布是辅助视图，不替代准确的 manifest、日志和最终静态 DAG；动画只表达状态，不承载核心信息。
 
 ## P6：真实样本验证
@@ -178,6 +181,8 @@
   - 选 3 条 60s 内 Bilibili/小红书/手动本地视频，至少覆盖口播型、图文字幕型、强剪辑型。
   - 验证项：shot boundary 是否合理、逐帧成本是否可控、DAG 是否可读、短视频 semantics 是否比长视频模板更有信息密度。
 - [ ] 接入可选视觉 provider。
+  - [x] OCR sidecar baseline：`build-frame-notes` 和 `run-video-pipeline` 支持 `--ocr-provider sidecar-json --ocr-path <json>`，把外部 OCR 工具产出的 `text/start_seconds/end_seconds/bbox/confidence` 段落按时间戳写入 frame notes，不引入默认重依赖。
+  - [x] Frame motion baseline：`build-frame-notes` 和 `run-video-pipeline` 支持 `--frame-motion-provider ffmpeg-diff`，用相邻采样帧的 ffmpeg difference score 记录 `frame_delta` 和 `editing.camera_motion` 候选；只表达视觉变化强度，不识别人、物体或真实 optical flow。
   - OCR provider：优先调研 PaddleOCR / RapidVideOCR；输出字幕区域、字幕文字、位置、样式和时间段。
   - Human-motion provider：优先调研 MediaPipe / OpenPose / YOLO pose；输出人物框、pose/hand/face landmarks、人物间距离变化、人物与物体/镜头运动关系，并补强 `*.motion-relations.json`。
   - Motion/editing provider：优先用 OpenCV optical flow 做镜头运动、运动强度和速度变化 baseline；复杂剪辑效果交给 VL/LLM 基于 frame evidence 判断。
@@ -306,7 +311,7 @@
 - [x] Creator profile 最小样本约束：`seed aggregate-owner` 默认要求同一 owner 至少 3 条 video semantics；少量样本必须显式 `--min-videos` 降级。
 - [x] Reflection 修订建议：`seed suggest-revisions` 基于 reflection log 生成 revision suggestions 草稿，不自动覆盖原资产。
 - [x] 单条视频 pipeline：`seed run-video-pipeline` 串起现有分析步骤并写入 `library/runs/*.video-pipeline.yaml`。
-- [x] Pipeline 可观测性基础：`seed run-video-pipeline` 会显示 Rich step 进度表，并同步写入 `library/runs/*.video-pipeline.status.json`；manifest/status 都记录 step 耗时、artifact paths 和 cost delta。
+- [x] Pipeline 可观测性：`seed run-video-pipeline` 会显示 Rich step 进度表，并同步写入 `library/runs/*.video-pipeline.status.json`；manifest/status 都记录 step 耗时、artifact paths、cost delta、message、历史 ETA、运行摘要和 step counts。
 - [x] Pipeline live DAG：`seed run-video-pipeline` 会同步生成 `library/runs/*.video-pipeline.live.html`，用独立运行态 step graph 展示 pending/running/completed/skipped/failed，不污染最终内容分析 `video-dag.html`。
 - [x] 创作者 pipeline 收敛：`seed run-creator-pipeline` 可以按清单批量运行视频 pipeline，并自动串起 creator profile、agent assets 和 creator DAG。
 - [x] Creator DAG 第一版：`seed build-creator-dag` 生成 UP/作者级 DAG JSON 和静态 HTML，并可从每条视频展开本地视频、音频、截图和单条 video DAG。

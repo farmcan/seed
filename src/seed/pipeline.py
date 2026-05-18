@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -110,6 +111,10 @@ class VideoPipelineOptions:
     frame_notes: bool = True
     frame_mode: str = "shot-keyframes"
     frame_notes_fps: float = 1.0
+    ocr_provider: str = "none"
+    ocr_path: Path | None = None
+    ocr_match_tolerance_seconds: float = 0.5
+    frame_motion_provider: str = "none"
     motion_relations: bool = True
     domain: str | None = None
     semantics_skill_path: Path = DEFAULT_VIDEO_SEMANTICS_SKILL_PATH
@@ -161,6 +166,9 @@ class PipelineStepRecord:
     cost_delta: dict[str, Any] | None = None
     provider: str | None = None
     model: str | None = None
+    estimated_duration_seconds: float | None = None
+    historical_sample_count: int | None = None
+    message: str | None = None
     error: str | None = None
 
 
@@ -219,6 +227,13 @@ def run_video_pipeline(options: VideoPipelineOptions) -> tuple[VideoPipelineCont
     manifest_path = run_manifest_output_path(library_root=options.library_root, title=initial_title)
     status_path = run_status_output_path(library_root=options.library_root, title=initial_title)
     planned_steps = planned_video_pipeline_steps(options)
+    step_estimates = estimate_step_durations(
+        library_root=options.library_root,
+        planned_steps=planned_steps,
+        exclude_manifest_path=manifest_path,
+    )
+    run_started = datetime.now(UTC)
+    run_started_at = run_started.isoformat()
     steps: list[PipelineStepRecord] = []
 
     emit_progress(
@@ -228,6 +243,8 @@ def run_video_pipeline(options: VideoPipelineOptions) -> tuple[VideoPipelineCont
             "manifest_path": str(manifest_path),
             "status_path": str(status_path),
             "planned_steps": planned_steps,
+            "step_estimates": step_estimates,
+            "estimated_total_seconds": estimated_total_seconds(step_estimates),
         },
     )
     write_pipeline_status(
@@ -237,6 +254,8 @@ def run_video_pipeline(options: VideoPipelineOptions) -> tuple[VideoPipelineCont
         steps=steps,
         planned_steps=planned_steps,
         run_status="running",
+        run_started_at=run_started_at,
+        step_estimates=step_estimates,
     )
     context.live_html_path = export_pipeline_live_dag(
         status_path=status_path,
@@ -253,6 +272,7 @@ def run_video_pipeline(options: VideoPipelineOptions) -> tuple[VideoPipelineCont
     ) -> None:
         started = datetime.now(UTC)
         started_at = started.isoformat()
+        estimate = step_estimates.get(name, {})
         running_step = PipelineStepRecord(
             step=name,
             status="running",
@@ -261,6 +281,9 @@ def run_video_pipeline(options: VideoPipelineOptions) -> tuple[VideoPipelineCont
             inputs=_stringify_mapping(inputs or {}),
             provider=provider,
             model=model,
+            estimated_duration_seconds=estimate.get("estimated_duration_seconds"),
+            historical_sample_count=estimate.get("historical_sample_count"),
+            message="running",
         )
         write_pipeline_status(
             status_path,
@@ -270,6 +293,8 @@ def run_video_pipeline(options: VideoPipelineOptions) -> tuple[VideoPipelineCont
             planned_steps=planned_steps,
             run_status="running",
             current_step=running_step,
+            run_started_at=run_started_at,
+            step_estimates=step_estimates,
         )
         emit_progress(options, {"event": "step_started", "step": step_record_dict(running_step)})
         try:
@@ -288,6 +313,9 @@ def run_video_pipeline(options: VideoPipelineOptions) -> tuple[VideoPipelineCont
                 cost_delta=cost_delta_from_outputs(outputs),
                 provider=provider,
                 model=model,
+                estimated_duration_seconds=estimate.get("estimated_duration_seconds"),
+                historical_sample_count=estimate.get("historical_sample_count"),
+                message=step_message(status=status, outputs=outputs),
             )
             steps.append(record)
         except Exception as error:
@@ -301,10 +329,21 @@ def run_video_pipeline(options: VideoPipelineOptions) -> tuple[VideoPipelineCont
                 duration_seconds=round((finished - started).total_seconds(), 3),
                 provider=provider,
                 model=model,
+                estimated_duration_seconds=estimate.get("estimated_duration_seconds"),
+                historical_sample_count=estimate.get("historical_sample_count"),
+                message=step_message(status="failed", error=str(error)),
                 error=str(error),
             )
             steps.append(record)
-            write_pipeline_manifest(manifest_path, options=options, context=context, steps=steps)
+            run_finished_at = finished.isoformat()
+            write_pipeline_manifest(
+                manifest_path,
+                options=options,
+                context=context,
+                steps=steps,
+                run_started_at=run_started_at,
+                run_finished_at=run_finished_at,
+            )
             write_pipeline_status(
                 status_path,
                 options=options,
@@ -312,6 +351,9 @@ def run_video_pipeline(options: VideoPipelineOptions) -> tuple[VideoPipelineCont
                 steps=steps,
                 planned_steps=planned_steps,
                 run_status="failed",
+                run_started_at=run_started_at,
+                run_finished_at=run_finished_at,
+                step_estimates=step_estimates,
             )
             context.live_html_path = export_pipeline_live_dag(
                 status_path=status_path,
@@ -319,7 +361,13 @@ def run_video_pipeline(options: VideoPipelineOptions) -> tuple[VideoPipelineCont
             )
             emit_progress(options, {"event": "step_finished", "step": step_record_dict(record)})
             raise
-        write_pipeline_manifest(manifest_path, options=options, context=context, steps=steps)
+        write_pipeline_manifest(
+            manifest_path,
+            options=options,
+            context=context,
+            steps=steps,
+            run_started_at=run_started_at,
+        )
         write_pipeline_status(
             status_path,
             options=options,
@@ -327,6 +375,8 @@ def run_video_pipeline(options: VideoPipelineOptions) -> tuple[VideoPipelineCont
             steps=steps,
             planned_steps=planned_steps,
             run_status="running",
+            run_started_at=run_started_at,
+            step_estimates=step_estimates,
         )
         emit_progress(options, {"event": "step_finished", "step": step_record_dict(record)})
 
@@ -356,6 +406,9 @@ def run_video_pipeline(options: VideoPipelineOptions) -> tuple[VideoPipelineCont
             "media_path": context.media_path,
             "short_profile_path": context.short_profile_path,
             "shots_path": context.shots_path,
+            "ocr_provider": options.ocr_provider,
+            "ocr_path": options.ocr_path,
+            "frame_motion_provider": options.frame_motion_provider,
         },
     )
     run_step(
@@ -424,7 +477,15 @@ def run_video_pipeline(options: VideoPipelineOptions) -> tuple[VideoPipelineCont
     if options.export_html:
         run_step("export_video_dag_html", lambda: _html_step(options, context), inputs={"graph_path": context.graph_path})
 
-    write_pipeline_manifest(manifest_path, options=options, context=context, steps=steps)
+    run_finished_at = datetime.now(UTC).isoformat()
+    write_pipeline_manifest(
+        manifest_path,
+        options=options,
+        context=context,
+        steps=steps,
+        run_started_at=run_started_at,
+        run_finished_at=run_finished_at,
+    )
     write_pipeline_status(
         status_path,
         options=options,
@@ -432,6 +493,9 @@ def run_video_pipeline(options: VideoPipelineOptions) -> tuple[VideoPipelineCont
         steps=steps,
         planned_steps=planned_steps,
         run_status="completed",
+        run_started_at=run_started_at,
+        run_finished_at=run_finished_at,
+        step_estimates=step_estimates,
     )
     context.live_html_path = export_pipeline_live_dag(
         status_path=status_path,
@@ -469,6 +533,8 @@ def write_pipeline_manifest(
     options: VideoPipelineOptions,
     context: VideoPipelineContext,
     steps: list[PipelineStepRecord],
+    run_started_at: str | None = None,
+    run_finished_at: str | None = None,
 ) -> Path:
     data = {
         "version": 1,
@@ -478,6 +544,10 @@ def write_pipeline_manifest(
         "platform": context.platform,
         "domain": options.domain,
         "updated_at": datetime.now(UTC).isoformat(),
+        "run_started_at": run_started_at,
+        "run_finished_at": run_finished_at,
+        "duration_seconds": run_duration_seconds(run_started_at, run_finished_at),
+        "step_counts": step_counts([step_record_dict(step) for step in steps]),
         "force": options.force,
         "outputs": _stringify_mapping(context.__dict__),
         "steps": [step.__dict__ for step in steps],
@@ -496,15 +566,23 @@ def write_pipeline_status(
     planned_steps: list[str],
     run_status: str,
     current_step: PipelineStepRecord | None = None,
+    run_started_at: str | None = None,
+    run_finished_at: str | None = None,
+    step_estimates: dict[str, dict[str, Any]] | None = None,
 ) -> Path:
+    step_estimates = step_estimates or {}
     completed_by_name = {step.step: step_record_dict(step) for step in steps}
     rendered_steps: list[dict[str, Any]] = []
     for name in planned_steps:
         if name in completed_by_name:
             rendered_steps.append(completed_by_name[name])
         elif current_step and current_step.step == name:
-            rendered_steps.append(step_record_dict(current_step))
+            running = step_record_dict(current_step)
+            running["elapsed_seconds"] = elapsed_seconds_since(current_step.started_at)
+            running["remaining_estimated_seconds"] = remaining_for_running_step(running)
+            rendered_steps.append(running)
         else:
+            estimate = step_estimates.get(name, {})
             rendered_steps.append(
                 {
                     "step": name,
@@ -512,15 +590,22 @@ def write_pipeline_status(
                     "started_at": None,
                     "finished_at": None,
                     "duration_seconds": None,
+                    "elapsed_seconds": None,
                     "inputs": {},
                     "outputs": {},
                     "artifact_paths": [],
                     "cost_delta": None,
                     "provider": None,
                     "model": None,
+                    "estimated_duration_seconds": estimate.get("estimated_duration_seconds"),
+                    "historical_sample_count": estimate.get("historical_sample_count"),
+                    "remaining_estimated_seconds": estimate.get("estimated_duration_seconds"),
+                    "message": "pending",
                     "error": None,
                 }
             )
+    counts = step_counts(rendered_steps)
+    duration_seconds = run_duration_seconds(run_started_at, run_finished_at)
     data = {
         "version": 1,
         "kind": "video_pipeline_status",
@@ -531,6 +616,13 @@ def write_pipeline_status(
         "platform": context.platform,
         "domain": options.domain,
         "updated_at": datetime.now(UTC).isoformat(),
+        "run_started_at": run_started_at,
+        "run_finished_at": run_finished_at,
+        "duration_seconds": duration_seconds,
+        "estimated_total_seconds": estimated_total_seconds(step_estimates),
+        "remaining_estimated_seconds": remaining_estimated_seconds(rendered_steps),
+        "step_counts": counts,
+        "summary": status_summary(run_status=run_status, counts=counts, duration_seconds=duration_seconds),
         "current_step": current_step.step if current_step else None,
         "outputs": _stringify_mapping(context.__dict__),
         "steps": rendered_steps,
@@ -549,10 +641,15 @@ def step_record_dict(record: PipelineStepRecord) -> dict[str, Any]:
         "inputs": record.inputs,
         "outputs": record.outputs,
         "duration_seconds": record.duration_seconds,
+        "elapsed_seconds": None,
         "artifact_paths": record.artifact_paths,
         "cost_delta": record.cost_delta,
         "provider": record.provider,
         "model": record.model,
+        "estimated_duration_seconds": record.estimated_duration_seconds,
+        "historical_sample_count": record.historical_sample_count,
+        "remaining_estimated_seconds": None,
+        "message": record.message,
         "error": record.error,
     }
 
@@ -560,6 +657,185 @@ def step_record_dict(record: PipelineStepRecord) -> dict[str, Any]:
 def emit_progress(options: VideoPipelineOptions, event: dict[str, Any]) -> None:
     if options.progress_callback:
         options.progress_callback(event)
+
+
+def estimate_step_durations(
+    *,
+    library_root: Path,
+    planned_steps: list[str],
+    exclude_manifest_path: Path | None = None,
+) -> dict[str, dict[str, Any]]:
+    runs_dir = library_root / "runs"
+    if not runs_dir.exists():
+        return {}
+
+    samples: dict[str, list[float]] = {step: [] for step in planned_steps}
+    paths = sorted(
+        runs_dir.glob("*.video-pipeline.yaml"),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )[:50]
+    for path in paths:
+        if exclude_manifest_path and same_path(path, exclude_manifest_path):
+            continue
+        try:
+            data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        except (OSError, yaml.YAMLError):
+            continue
+        for step in data.get("steps") or []:
+            if not isinstance(step, dict):
+                continue
+            name = str(step.get("step") or "")
+            if name not in samples or step.get("status") != "completed":
+                continue
+            duration = as_positive_float(step.get("duration_seconds"))
+            if duration is not None:
+                samples[name].append(duration)
+
+    estimates: dict[str, dict[str, Any]] = {}
+    for step, durations in samples.items():
+        if not durations:
+            continue
+        estimates[step] = {
+            "estimated_duration_seconds": round(sum(durations) / len(durations), 3),
+            "historical_sample_count": len(durations),
+            "estimate_source": "historical_video_pipeline_manifests",
+        }
+    return estimates
+
+
+def same_path(left: Path, right: Path) -> bool:
+    try:
+        return left.resolve() == right.resolve()
+    except OSError:
+        return left == right
+
+
+def as_positive_float(value: Any) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if number < 0:
+        return None
+    return number
+
+
+def step_message(*, status: str, outputs: dict[str, Any] | None = None, error: str | None = None) -> str:
+    if error:
+        return f"failed: {error}"
+    outputs = outputs or {}
+    reason = outputs.get("reason")
+    if reason:
+        return f"{status}: {reason}"
+    counter_keys = {
+        "chunks",
+        "frames",
+        "shots",
+        "relations",
+        "ocr_matches",
+        "motion_measurements",
+        "input_tokens",
+        "output_tokens",
+    }
+    counters = [
+        f"{key}={value}"
+        for key, value in outputs.items()
+        if key in counter_keys and value is not None
+    ]
+    artifacts = artifact_paths_from_outputs(outputs)
+    if counters:
+        return f"{status}: " + ", ".join(counters)
+    if artifacts:
+        return f"{status}: {len(artifacts)} artifact(s)"
+    return status
+
+
+def run_duration_seconds(started_at: str | None, finished_at: str | None) -> float | None:
+    if not started_at:
+        return None
+    started = parse_datetime(started_at)
+    if not started:
+        return None
+    finished = parse_datetime(finished_at) if finished_at else datetime.now(UTC)
+    if not finished:
+        return None
+    return round((finished - started).total_seconds(), 3)
+
+
+def elapsed_seconds_since(started_at: str | None) -> float | None:
+    return run_duration_seconds(started_at, None)
+
+
+def parse_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed
+
+
+def estimated_total_seconds(step_estimates: dict[str, dict[str, Any]]) -> float | None:
+    values = [
+        estimate.get("estimated_duration_seconds")
+        for estimate in step_estimates.values()
+        if estimate.get("estimated_duration_seconds") is not None
+    ]
+    if not values:
+        return None
+    return round(sum(float(value) for value in values), 3)
+
+
+def remaining_for_running_step(step: dict[str, Any]) -> float | None:
+    estimate = step.get("estimated_duration_seconds")
+    elapsed = step.get("elapsed_seconds")
+    if estimate is None or elapsed is None:
+        return None
+    try:
+        return round(max(float(estimate) - float(elapsed), 0.0), 3)
+    except (TypeError, ValueError):
+        return None
+
+
+def remaining_estimated_seconds(steps: list[dict[str, Any]]) -> float | None:
+    total = 0.0
+    seen_estimate = False
+    for step in steps:
+        status = step.get("status")
+        if status == "pending":
+            estimate = step.get("estimated_duration_seconds")
+        elif status == "running":
+            estimate = step.get("remaining_estimated_seconds")
+        else:
+            estimate = None
+        if estimate is None:
+            continue
+        try:
+            total += float(estimate)
+        except (TypeError, ValueError):
+            continue
+        seen_estimate = True
+    return round(total, 3) if seen_estimate else None
+
+
+def step_counts(steps: list[dict[str, Any]]) -> dict[str, int]:
+    counts = Counter(str(step.get("status") or "pending") for step in steps)
+    return {status: counts.get(status, 0) for status in ["pending", "running", "completed", "skipped", "failed"]}
+
+
+def status_summary(*, run_status: str, counts: dict[str, int], duration_seconds: float | None) -> str:
+    parts = [f"status={run_status}"]
+    for status in ["completed", "skipped", "running", "pending", "failed"]:
+        count = counts.get(status, 0)
+        if count:
+            parts.append(f"{status}={count}")
+    if duration_seconds is not None:
+        parts.append(f"duration={duration_seconds}s")
+    return "; ".join(parts)
 
 
 def artifact_paths_from_outputs(outputs: dict[str, Any]) -> list[str]:
@@ -794,10 +1070,24 @@ def _frame_notes_step(options: VideoPipelineOptions, context: VideoPipelineConte
         library_root=options.library_root,
         frame_mode=options.frame_mode,
         fps=options.frame_notes_fps,
+        ocr_provider=options.ocr_provider,
+        ocr_path=options.ocr_path,
+        ocr_match_tolerance_seconds=options.ocr_match_tolerance_seconds,
+        frame_motion_provider=options.frame_motion_provider,
     )
     write_frame_notes(output_path, notes)
     context.frame_notes_path = output_path
-    return {"frame_notes_path": output_path, "frames": len(notes), "frame_mode": options.frame_mode}
+    ocr_matches = sum(1 for note in notes if note.get("ocr_status") == "matched")
+    motion_measurements = sum(1 for note in notes if note.get("frame_motion_status") == "measured")
+    return {
+        "frame_notes_path": output_path,
+        "frames": len(notes),
+        "frame_mode": options.frame_mode,
+        "ocr_provider": options.ocr_provider,
+        "ocr_matches": ocr_matches,
+        "frame_motion_provider": options.frame_motion_provider,
+        "motion_measurements": motion_measurements,
+    }
 
 
 def _motion_relations_step(options: VideoPipelineOptions, context: VideoPipelineContext) -> dict[str, Any]:

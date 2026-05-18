@@ -151,13 +151,25 @@ def step_title(step_id: str) -> str:
 def pipeline_step_body(step: dict) -> str:
     status = step.get("status") or "pending"
     duration = step.get("duration_seconds")
+    elapsed = step.get("elapsed_seconds")
+    estimate = step.get("estimated_duration_seconds")
+    remaining = step.get("remaining_estimated_seconds")
     artifacts = step.get("artifact_paths") or []
+    message = step.get("message")
     error = step.get("error")
     parts = [f"status={status}"]
     if duration is not None:
         parts.append(f"duration={duration}s")
+    elif elapsed is not None:
+        parts.append(f"elapsed={elapsed}s")
+    if estimate is not None:
+        parts.append(f"estimate={estimate}s")
+    if remaining is not None and status in {"pending", "running"}:
+        parts.append(f"remaining={remaining}s")
     if artifacts:
         parts.append(f"artifacts={len(artifacts)}")
+    if message:
+        parts.append(f"message={message}")
     if error:
         parts.append(f"error={error}")
     return "；".join(parts) + "。"
@@ -168,6 +180,10 @@ def pipeline_step_metrics(step: dict) -> list[str]:
     duration = step.get("duration_seconds")
     if duration is not None:
         metrics.append(f"{duration}s")
+    elif step.get("elapsed_seconds") is not None:
+        metrics.append(f"{step.get('elapsed_seconds')}s elapsed")
+    if step.get("estimated_duration_seconds") is not None:
+        metrics.append(f"~{step.get('estimated_duration_seconds')}s")
     provider = step.get("provider")
     if provider:
         metrics.append(str(provider))
