@@ -249,7 +249,7 @@ def build_equity_research_report_html(
       </div>
 
       <div class="card">
-        <h2>第一性原理（商业结构）</h2>
+        <h2>商业本质（第一性视角）</h2>
         <div class="principle-grid">
           <article class="principle-item">
             <h3>核心商业模式</h3>
@@ -277,7 +277,7 @@ def build_equity_research_report_html(
             <p class="sub">说明：{_join_lines(intl_notes)}</p>
           </article>
           <article class="principle-item">
-            <h3>第一性不确定性</h3>
+            <h3>商业本质不确定性</h3>
             <p>{_join_lines(fp_uncertainties)}</p>
           </article>
           <article class="principle-item">
