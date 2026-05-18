@@ -34,6 +34,7 @@ def test_build_finance_outlook_payload_and_html(tmp_path):
                 "direction": "bullish",
                 "conviction": "medium",
                 "risk_flags": ["valuation"],
+                "summary": "讨论了 Claude Code 与团队交付效率。",
                 "evidence_refs": ["T1"],
                 "published_at": "2026-05-01T09:00:00+00:00",
                 "event_outcomes": {
@@ -97,9 +98,13 @@ def test_build_finance_outlook_payload_and_html(tmp_path):
     assert payload["peer_context"]["target_ticker"] == "DEMO"
     assert payload["asset_rollups"][0]["target_prices"]["upside_target"] is not None
     assert payload["asset_rollups"][1]["target_prices"]["downside_target"] is not None
+    assert "AI Coding（如 Claude Code、Cursor、Copilot 等）" in " ".join(payload["aicoding_signals"])
+    assert payload["aicoding_signals"]
+    assert "AI 代码工具替代压力" in payload["risk_flags"]
     assert "demo - 财经观点前瞻研判" in html
     assert "时间覆盖" in html
     assert "同类公司（事实输入）" in html
+    assert "AI Coding 结构性变量（软件护城河）" in html
     assert "目标价位草案（基于价格后验）" in html
     assert "上行目标" in html
     assert payload["asset_rollups"][0]["asset_id"] == "AI"

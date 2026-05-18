@@ -69,6 +69,122 @@ AIGC_USAGE_KEYWORDS = [
     "创作",
 ]
 
+AICODING_KEYWORDS = [
+    "aicoding",
+    "ai coding",
+    "coding agent",
+    "代码",
+    "编程",
+    "代码生成",
+    "代码助手",
+    "开发工具",
+    "开发壁垒",
+    "claude",
+    "cursor",
+    "copilot",
+    "swe-agent",
+    "自动编程",
+]
+
+
+def _collect_event_text(event: dict[str, Any]) -> str:
+    fields: list[Any] = [
+        event.get("action"),
+        event.get("direction"),
+        event.get("entry_condition"),
+        event.get("uncertainty"),
+        event.get("thesis"),
+        event.get("summary"),
+        event.get("analysis"),
+        event.get("notes"),
+        event.get("title"),
+        event.get("description"),
+        event.get("observation"),
+        event.get("content"),
+        event.get("insight"),
+    ]
+    risk_flags = event.get("risk_flags")
+    if isinstance(risk_flags, list):
+        fields.extend(str(flag) for flag in risk_flags if isinstance(flag, str))
+    for key in ("event_outcomes", "news_context"):
+        nested = event.get(key)
+        if isinstance(nested, dict):
+            for item in nested.values():
+                if isinstance(item, str):
+                    fields.append(item)
+                elif isinstance(item, dict):
+                    fields.append(_collect_event_text(item))
+        elif isinstance(nested, list):
+            for item in nested:
+                if isinstance(item, dict):
+                    for value in item.values():
+                        if isinstance(value, str):
+                            fields.append(value)
+                        elif isinstance(value, list):
+                            fields.extend(str(v) for v in value if isinstance(v, str))
+    return " ".join(str(item) for item in fields if isinstance(item, str))
+
+
+def _build_aicoding_impact_signals(
+    events: list[dict[str, Any]],
+    *,
+    has_software_context: bool,
+    has_aicoding_context: bool,
+) -> list[str]:
+    event_text = " ".join(_collect_event_text(event) for event in events).casefold()
+    if (
+        not has_software_context
+        and not has_aicoding_context
+    ) or not _contains_any_keyword(event_text, AICODING_KEYWORDS):
+        return []
+
+    statements = [
+        "AI Coding（如 Claude Code、Cursor、Copilot 等）使部分软件开发工时和交付壁垒下降，倾向削弱传统“人力服务型”软件增速与毛利。",
+        "结构上更可能是从“交付效率提升”转向“产品化能力差异化”竞争，受益者往往是平台化、订阅化和生态闭环强的公司。",
+        "该变量需要与财报证据联动验证：人均毛利变化、项目工时占比、自动化后的人力替代率、定价与续费是否同步改善。",
+    ]
+    return statements
+
+
+def _contains_software_context(
+    events: list[dict[str, Any]],
+    digest: dict[str, Any],
+    peer_context: dict[str, Any],
+) -> bool:
+    chunks: list[Any] = []
+    chunks.append(peer_context.get("industry"))
+    chunks.append(digest.get("industry"))
+    chunks.append(digest.get("sector"))
+    chunks.extend(str(item) for item in peer_context.get("peers") or [])
+    for thesis in digest.get("macro_theses") or []:
+        if isinstance(thesis, dict):
+            chunks.append(thesis.get("industry"))
+            chunks.append(thesis.get("thesis"))
+            chunks.extend(thesis.get("variables") or [])
+        elif isinstance(thesis, str):
+            chunks.append(thesis)
+    for event in events:
+        chunks.extend(event.get(key) for key in ("industry", "sector", "aigc_sector", "analysis"))
+    context_text = " ".join(str(item) for item in chunks if isinstance(item, str))
+    if not context_text:
+        context_text = " ".join(_collect_event_text(event) for event in events)
+    return _contains_any_keyword(context_text, SOFTWARE_KEYWORDS)
+
+
+def _contains_aicoding_context(digest: dict[str, Any]) -> bool:
+    digest_text = " ".join(
+        str(item)
+        for item in [
+            digest.get("owner"),
+            digest.get("industry"),
+            digest.get("sector"),
+            str(digest.get("peer_context") or ""),
+            str(digest.get("methodology_signals") or ""),
+        ]
+        if isinstance(item, str)
+    )
+    return _contains_any_keyword(digest_text, AICODING_KEYWORDS)
+
 
 def finance_outlook_output_path(*, library_root: Path, digest_path: Path) -> Path:
     init_library(library_root)
@@ -555,6 +671,17 @@ def build_finance_outlook_payload(
     rollups = _build_asset_rollup(events)
     time_coverage = _build_time_coverage(events)
     peer_context = _peer_context_from_digest(digest)
+    has_software_context = bool([item for item in rollups if item.get("is_software_sector")])
+    has_aicoding_context = _contains_aicoding_context(digest) or _contains_software_context(
+        events,
+        digest=digest,
+        peer_context=peer_context,
+    )
+    aicoding_signals = _build_aicoding_impact_signals(
+        events,
+        has_software_context=has_software_context,
+        has_aicoding_context=has_aicoding_context,
+    )
 
     macro_signals: list[str] = []
     for thesis in digest.get("macro_theses") or []:
@@ -567,6 +694,8 @@ def build_finance_outlook_payload(
                     macro_signals.append(variable.strip())
         elif isinstance(thesis, str) and thesis.strip():
             macro_signals.append(thesis.strip())
+    if aicoding_signals:
+        macro_signals.extend(aicoding_signals)
 
     news_context_events = sum(1 for event in events if event.get("news_context"))
     priced_events = [
@@ -644,6 +773,8 @@ def build_finance_outlook_payload(
         for flag in event["risk_flags"]
         if isinstance(flag, str)
     )
+    if aicoding_signals:
+        risk_flags["AI 代码工具替代压力"] += 1
 
     return {
         "generated_at": datetime.now(UTC).isoformat(),
@@ -672,6 +803,7 @@ def build_finance_outlook_payload(
         "directions": dict(direction_counter),
         "risk_flags": dict(risk_flags),
         "software_headwinds": sorted(set(software_headwinds)),
+        "aicoding_signals": aicoding_signals,
         "industry_outlook": sorted(set(industry_outlook)),
         "aigc": {
             "assets": [item.get("instrument") for item in aigc_rollups],
@@ -722,6 +854,7 @@ def build_finance_outlook_report_html(payload: dict[str, Any]) -> str:
     software_headwinds = payload.get("software_headwinds") or []
     news_context_signals = payload.get("news_context_signals") or []
     aigc = payload.get("aigc") or {}
+    aicoding_signals = payload.get("aicoding_signals") or []
     direction_bias = totals.get("direction_bias") or {}
     time_coverage = payload.get("time_coverage") or {}
     peer_context = payload.get("peer_context") or {}
@@ -869,6 +1002,9 @@ def build_finance_outlook_report_html(payload: dict[str, Any]) -> str:
         f"<li>{escape(str(item))}</li>"
         for item in (payload.get("macro_signals") or ["暂无明确行业变量"])
     )
+    aicoding_rows_html = "".join(
+        f"<li>{escape(str(item))}</li>" for item in (aicoding_signals or ["暂无AI Coding结构性信号（当前证据不足）"])
+    )
     industry_rows_html = "".join(
         f"<li>{escape(str(item))}</li>"
         for item in (industry_outlook or ["暂无行业机制对齐"])
@@ -885,6 +1021,12 @@ def build_finance_outlook_report_html(payload: dict[str, Any]) -> str:
     ) or "待补充"
     aigc_assets = ", ".join(escape(str(item)) for item in aigc.get("assets", [])) or "无"
     news_context_snippets = "; ".join(escape(str(item)) for item in news_context_signals[:8]) or "无"
+    aicoding_guardrails = [
+        "1）优先核验：AI Coding 相关事件是否已落入已披露财报/公告（新增研发效率、外包与人力占比变化）。",
+        "2）若出现“人均毛利下滑+新增人力成本下降未提升续费率”，说明替代压力真实。",
+        "3）如可见“平台订阅化粘性提升+生态应用扩张”，再评估是否为受益而非受损。",
+    ]
+    aicoding_guardrail_html = "".join(f"<li>{item}</li>" for item in aicoding_guardrails)
 
     return f"""<!doctype html>
 <html lang='zh-CN'>
@@ -1108,6 +1250,20 @@ def build_finance_outlook_report_html(payload: dict[str, Any]) -> str:
       <div class="small muted" style="margin-top: 8px;">
         AIGC 相关标的：{aigc_assets}
       </div>
+    </section>
+
+    <section class="section">
+      <h2>AI Coding 结构性变量（软件护城河）</h2>
+      <div class="small muted" style="margin-bottom: 6px;">
+        该模块覆盖“编程智能体 / 自动编程”对软件行业供给结构的影响，重点看交付壁垒是否下降和公司商业化是否被替代。
+      </div>
+      <ul>
+        {aicoding_rows_html}
+      </ul>
+      <div class="small muted" style="margin-top: 8px;">复核指引（避免漏判）：</div>
+      <ul>
+        {aicoding_guardrail_html}
+      </ul>
     </section>
 
     <section class="section">
