@@ -141,6 +141,7 @@ run-book-pipeline
 - 文档 lint：Markdown 尽可能中文；代码、变量、函数、注释和 commit message 用英文。
 - 文档 lint：除非 `tests/test_docs_structure.py` 同步允许，不要新增 `docs/*.md`；优先更新 `docs/architecture.md`、`docs/todos.md`、`docs/research-competitors.md` 和 `agents.md`。
 - 功能 lint：新增功能必须更新 `docs/todos.md` 的状态，长期存在的功能必须更新 `docs/architecture.md`。
+- Capability map lint：新增或重塑长期能力时，必须按 `docs/architecture.md` 的“能力归属原则”和“新增能力流程”检查，并更新“能力地图”，说明目标、输入、输出、生产者、消费者、DAG、成本和关键约束；不要只在模块表或 TODO 里零散描述。
 - Artifact lint：新增 `library/<dir>` 必须更新 `.gitignore`、`.gitkeep`、`src/seed/library.py`、`docs/architecture.md` 和本文件。
 - Pipeline lint：新增视频处理能力必须说明它在 pipeline 中的位置，不能只提供单步 demo。
 - Source lint：平台下载失败要保留 provider、错误码和处理建议；不要吞掉 352/412 这类风控诊断。

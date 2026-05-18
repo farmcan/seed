@@ -84,6 +84,42 @@ seed run-book-pipeline <book-note.md> --author <author> --title <title>
 
 这些命令已经是当前优先入口；其他 CLI 视为可组合 step 或调试入口。新增功能如果不能进入 pipeline、不能生成稳定 artifact、不能被 DAG 或 creator aggregation 消费，就不应作为主功能推进。
 
+## 能力地图
+
+能力地图是 Seed 的架构索引。新增长期能力时，先判断它属于下表哪一类；如果不能归类，需要先说明它是新的核心能力、领域能力、provider 还是一次性实验。能力地图只放稳定边界，具体实现文件和完整产物列表仍以“功能模块总览”和“产物边界”为准。
+
+| 能力 | 目标 | 输入 | 输出 | 生产者 | 主要消费者 | DAG | 成本 | 关键约束 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Source ingestion | 把授权来源转成本地可追踪素材和 source record | URL、本地媒体、creator list、授权参数 | `library/raw/*`, `library/notes/*.source.yaml`, `*.creator-videos.yaml` | `sources/`, `creator_ingest.py`, `library.py` | video pipeline, creator pipeline | 作为 source/media 节点进入 DAG | 下载本身不计模型成本 | 下载失败保留 provider、错误码、fallback、cookies 诊断；平台逻辑只在 `sources/` |
+| Video evidence extraction | 把单条视频拆成 transcript、frames、visual notes、short/shot/frame evidence | raw media、本地 transcript、frame 参数、ASR/VL provider | transcripts、frames、visual notes、short profile、shots、frame notes、motion relations | `pipeline.py`, `asr/`, `vision/`, `shorts.py` | video semantics、timeline、DAG、cost ledger | 进入 video DAG，带时间点时写 `media_anchor` | ASR/VL/provider 必须记录或预留成本 | deterministic extraction 不猜时间点；视觉结论必须保留证据来源 |
+| Video semantics ledger | 把口播、视觉和 evidence anchors 合成单条视频长期语义资产 | transcript、visual notes、`T*/V*/F*` anchors、domain lens | `library/semantics/*.video-semantics.md` | `semantics/analyzer.py`, `skill_refs.py` | creator profile、claims、timeline、domain signals、DAG | 作为 video DAG 核心语义节点 | Codex/LLM 成本先 reserved | 强结论必须有证据引用；缺口写 Open Questions/Evidence Gaps |
+| Domain signal ledger | 在通用视频语义上追加专用领域事件，不复制 pipeline | `video-semantics.md`、domain lens、可选外部 facts/provider | `*.finance-signals.json`, `*.news-facts.json`, `*.earnings-analysis.json`, `*.ai-practice-signals.json` | `domains/*`, `skill_refs.py` | creator pipeline digest、DAG、reports、fact-check | 领域节点进入 video/creator DAG | LLM/provider/search 成本记录或预留 | 新领域先加 domain lens + 专用 artifact；领域规则不硬编码到通用层 |
+| Creator/person aggregation | 从多条视频形成创作者/人物级画像和领域 digest | 多条 video semantics、domain signals、creator list、时间窗口 | creator profile、validation、creator DAG、domain digest | `creator_pipeline.py`, `semantics/aggregator.py`, `domains/*` | agent assets、reports、UP 主页、cross compare | 进入 creator DAG | 汇总 creator cost ledger | 默认至少 3 条语义；少样本必须 provisional；窗口内缺发布时间保守排除 |
+| Facts and verification | 把外部事实、新闻、财报和待核验 claim 变成可追溯 facts ledger | claims、新闻检索结果、SEC/IR facts、source URLs | `*.news-digest.json`, `*.sec-earnings.json`, `*.earnings-digest.json`, `*.verified.json` | `domains/news.py`, `domains/earnings.py`, `claim_verification.py` | finance/news/earnings domain、fact-check queue、reports | facts/verified claims 进入 DAG 或被 report 引用 | 搜索/API/LLM 成本记录或预留 | facts、reported claims、interpretation 分离；没有外部证据保持 unverified |
+| Artifact and cost ledger | 让每次运行可恢复、可审计、可估算成本 | step inputs/outputs、provider usage、artifact paths | `library/runs/*.yaml`, `*.status.json`, `library/costs/*.cost.json`, `*.ledger.json` | `pipeline.py`, `creator_pipeline.py`, `costs.py` | CLI progress、live DAG、budget gate、debug/replay | live DAG 只展示运行态 step graph | 作为成本账本主数据 | step 必须幂等；失败可续跑；provider/model、duration、artifact_paths、cost_delta 不丢 |
+| DAG and report surfaces | 把本地证据和聚合结果变成可浏览入口 | graph JSON、creator profile、domain digest、manifest | video DAG HTML、creator DAG HTML、UP homepage、comparison/report HTML | `graphs/*`, `dag_export.py`, `reports/*`, `cli.py` | 人工 review、调试、方法论选择 | 是主要可视化面 | 不新增模型成本，除非报告生成调用 LLM | 默认静态 HTML；主布局用 vendored ELK；不给用户看低信息密度降级图 |
+| Agent assets and reflection loop | 把稳定方法论转成可用但需 review 的 Agent skills/checks，并用复盘反哺 | creator profile、domain digest、manual review、reflection log | draft skills、checks、review manifest、reflection、revision suggestions | `agent_assets.py`, `reflections.py` | Agent 运行前后、人类 review、后续 profile 修订 | skills/checks 可作为 asset 节点 | 生成若调用 LLM 要记录或预留 | 生成物默认 draft；必须 review 后再安装/长期使用；reflection 只追加 |
+| Book/note methodology | 把书籍、高亮和长笔记变成 source-grounded 方法论参照 | 本地 Markdown/笔记、章节/位置、主题 | book note、book semantics、book methods、topic profile | `books.py`, `skills/book-method-distiller/` | topic profile、creator/profile 对照、agent assets | 后续可进入主题/方法论 DAG | LLM 成本记录或预留 | 保留 `B*` evidence refs、适用边界、anti-patterns、source gaps，不替代事实核验 |
+
+### 能力归属原则
+
+- Core capability：改动来源采集、视频证据、语义主链路、creator 聚合、成本账本、DAG 或 Agent 资产时，必须接入现有主入口；不能只新增孤立 CLI。
+- Domain capability：新增垂直领域时，先扩展 domain lens 和领域 artifact，再由 `run-video-pipeline --domain <name>` 和 `run-creator-pipeline --domain <name>` 消费；通用 pipeline 只接 domain 名称和 artifact 路径。
+- Provider capability：新增外部服务、模型、下载器、OCR、行情、财报、新闻、ASR 或视觉 provider 时，provider 只负责采集/解析/调用，稳定产物仍写入能力地图对应 artifact。
+- Report capability：新增 HTML/report/playbook 时，必须说明它消费哪个稳定 artifact；报告不应成为唯一数据源，也不应替代 JSON/Markdown 主 artifact。
+- Agent capability：新增 skill/check/reflection 时，默认输出 draft，并通过 review manifest 或人工流程进入长期使用；不能把 LLM 生成物直接视为可信能力。
+
+### 新增能力流程
+
+1. 先定位能力类型：Core、Domain、Provider、Report 或 Agent。
+2. 写清输入和稳定输出：输出必须进入 `library/`，不能只打印 stdout。
+3. 决定生产者和消费者：至少有 pipeline、DAG、report、profile、skill/check 或人工 review 之一消费它。
+4. 判断 DAG：关键 artifact 应进入 video DAG、creator DAG 或明确说明为什么不进 DAG。
+5. 判断成本：任何外部模型/API/provider 调用都要记录或预留成本。
+6. 判断证据：强结论必须能回到 transcript、visual notes、timeline、keyframe、source URL 或 book evidence refs。
+7. 更新文档：长期能力更新本节能力地图和功能模块总览；仍有限制或后续工作时更新 `docs/todos.md`；依赖外部方案时更新 `docs/research-competitors.md`。
+8. 验证最小真实链路：优先验证能生成可读 artifact/report/DAG，再按风险补定向测试。
+
 ## 功能模块总览
 
 | 模块 | CLI | 主要代码 | 主要产物 |
