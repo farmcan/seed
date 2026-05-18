@@ -1,6 +1,6 @@
 # 竞品与类似项目调研
 
-调研日期：2026-05-07；画布与计费补充：2026-05-10；架构复核补充：2026-05-11；视觉笔记、核验、编排补充：2026-05-11；短视频 shot 级分析补充：2026-05-12；运行可观测性补充：2026-05-13；财经 UP 蒸馏补充：2026-05-14；新闻检索与财报解析补充：2026-05-17。
+调研日期：2026-05-07；画布与计费补充：2026-05-10；架构复核补充：2026-05-11；视觉笔记、核验、编排补充：2026-05-11；短视频 shot 级分析补充：2026-05-12；运行可观测性补充：2026-05-13；财经 UP 蒸馏补充：2026-05-14；新闻检索与财报解析补充：2026-05-17；AI 方法论与 agent 工作流补充：2026-05-18；书籍/读书方法论补充：2026-05-18。
 
 ## 结论
 
@@ -74,6 +74,12 @@
 | ClaimCheck / RAG fact-checking 研究 | 近年的 automated fact-checking 研究普遍拆成 claim decomposition、query planning、evidence retrieval、evidence synthesis、verdict prediction。 | `verify-claims` 不应只是“搜到来源就 unclear”；下一步应实现分阶段 artifact：query plan、evidence snippets、source quality、verdict 和 residual uncertainty。 |
 | Fabric `youtube_summary` pattern | transcript-first 视频总结 pattern，强调通读 transcript、识别主题、提取关键时间点、按视频进程组织 Markdown。 | Seed 的 video semantics 不应直接复制 prompt，但应吸收 timestamp-first、structure-first 和 extract-wisdom 的分析 lenses。 |
 | HoverNotes / Obsidian 视频笔记类产品 | 强调本地 Markdown、截图、timestamp、视觉内容和学习笔记联动。 | 支持 Seed 继续把 keyframe/screenshot/timeline 作为一等证据，而不是只保存 transcript 摘要。 |
+| NotebookLM source guide / source chat | 官方帮助强调 Source Guide 的整源摘要、对特定主题提问，以及多 source 场景下通过点名 source 缩小检索范围。 | 读书能力应保持 source-grounded：每个方法论结论都要回到书籍/笔记 evidence block，而不是直接输出“书的智慧”。 |
+| LlamaIndex response synthesizers | 官方文档内置 `refine`、`compact`、`tree_summarize` 等 response modes；`refine` 会按 chunk 顺序逐步更新答案，`tree_summarize` 适合分层合成。 | 长书/多本书不要一次塞进 prompt；Seed 应拆成 evidence blocks、chapter/section methods、book methods、topic profile 的层级合成。 |
+| LangChain map-reduce/refine summarization | LangChain 文档与示例长期把 summarization 拆成 `stuff`、`map_reduce`、`refine` 等 combine documents 模式。 | 读书蒸馏可借鉴 map -> reduce：先对 block/chapter 抽原则和规则，再合并去重、保留冲突和适用边界。 |
+| Readwise / Reader API | Readwise API 支持 highlights export，保留 book/article metadata、highlight、note、location、tags、updated cursor 和分页。 | 未来读书 ingestion 不应只收一篇 Markdown；应设计 `book-source` artifact，兼容 Readwise/Kindle/Koreader/手动 Markdown highlights。 |
+| Zotero Web API / annotations | Zotero Web API 提供在线 library 的 read-only access；Zotero 生态强调 PDF annotations、notes、collections 和 tags。 | 学术/研究类书籍应兼容 Zotero annotations：保留 item key、collection、annotation text、note、page/location 和 citation metadata。 |
+| Zettelkasten / evergreen notes 实践 | Obsidian/Zettelkasten 社区强调 literature notes、permanent notes、atomic notes、links 和长期复用。 | Seed 的 `book_methods` 不应停在摘要；应输出可复用的 principle/rule/check/hook，并能和 UP、新闻 facts、财报 facts 互相引用。 |
 
 ## 关键洞察
 
@@ -113,6 +119,12 @@
 34. 新闻检索不要从“观点总结”开始。GDELT 适合作为开放覆盖 baseline，但结果仍是媒体报道集合；Seed 的 `news-digest` 必须先分 facts、reported claims、source gaps，再写行业影响机制。
 35. 财报解析不要优先抓网页正文。SEC `submissions` 给 filing history，`companyfacts` 给可结构化 XBRL 指标；Seed 初版先把这两类 primary data 变成稳定 artifact，HTML filing/table 解析作为后续 provider。
 36. 通用能力新增前必须保留调研记录。新闻检索、财报解析、OCR、motion、行情、fact-check 这类常见能力都应先查官方或成熟开源项目，把选型写进 `docs/research-competitors.md`，再实现最小 provider。
+37. AI 方法论方向也应该作为 domain lens，而不是复制视频 pipeline。通用层继续负责采集、ASR、视觉、semantics、creator profile 和 DAG；AI practices 层只补充 practice events、belief events、capability signals、tooling patterns、个人/项目反补候选和证据缺口。
+38. AI 时代“牛人观点”的核心价值不在名言摘抄，而在可复用工作流。Anthropic 和 OpenAI 的 agent 文档共同指向：真实价值来自任务边界、工具调用、验证、权限、日志和 review；Seed 应把这些结构化成 `ai-practice-signals`，再反补到 skills/checks。
+39. 人物方法论要保留冲突和上下文。不同 AI 研究者、工程师、产品人对自动化程度、模型信任、eval、prompt/spec 和组织变革的观点可能相互冲突；digest 应聚合共识，也保留不一致和 evidence gaps。
+40. 读书能力应按 source-grounded 长文档合成来做，而不是新增一个“大摘要”。NotebookLM、LlamaIndex 和 LangChain 的共同点是：source/chunk 先结构化，再按问题合成；Seed 应先落 `B*` evidence blocks，再抽 stable principles、decision rules、mental models、agent checks 和 source gaps。
+41. Readwise/Zotero/Koreader 证明 reading ingestion 的主数据不是“整本书全文”，而是 highlights、annotations、notes、location、tags 和 source metadata。Seed 初版用本地 Markdown，后续 provider 应兼容这些来源，不把某一个平台格式写死到核心。
+42. Zettelkasten/evergreen note 的启发是：书籍价值在于长期可复用的原子原则和链接，而不是一次性摘要。Seed 的 book methods 应能和 creator profile、video semantics、news facts、earnings facts、finance digest 做 cross-source hooks。
 
 ## Sources
 
@@ -190,3 +202,11 @@
 - GDELT DOC 2.0 API: https://blog.gdeltproject.org/gdelt-doc-2-0-api-debuts/
 - SEC EDGAR APIs: https://www.sec.gov/search-filings/edgar-application-programming-interfaces
 - SEC Accessing EDGAR Data: https://www.sec.gov/search-filings/edgar-search-assistance/accessing-edgar-data
+- LlamaIndex response synthesizers: https://developers.llamaindex.ai/python/framework/module_guides/querying/response_synthesizers/
+- LangChain MapReduceDocumentsChain: https://api.python.langchain.com/en/latest/langchain/chains/langchain.chains.combine_documents.map_reduce.MapReduceDocumentsChain.html
+- LangChain summarization examples: https://langchain-doc.readthedocs.io/en/latest/modules/indexes/chain_examples/summarize.html
+- Readwise API: https://readwise.io/api_deets
+- Readwise Reader API: https://readwise.io/reader_api
+- Zotero Web API: https://www.zotero.org/support/dev/web_api/v3/basics
+- NotebookLM source help: https://support.google.com/notebooklm/answer/16215270
+- Obsidian Zettelkasten overview: https://obsidian.rocks/getting-started-with-zettelkasten-in-obsidian/
