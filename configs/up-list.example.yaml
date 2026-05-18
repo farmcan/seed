@@ -22,6 +22,11 @@ defaults:
   cookies_from_browser: null
   vision: true
   domain: finance
+  # 可选：如果已经用 seed research-news 生成了 facts-first digest，
+  # distill-up-list 会把这些新闻 facts 挂到财经观点事件上，并生成 finance-news-report.html。
+  news_digest_paths: []
+  build_finance_news_reports: true
+  max_news_contexts_per_event: 5
   force: false
   max_estimated_cost: 20.0
   cost_currency: USD

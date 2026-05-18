@@ -145,6 +145,7 @@
   - 新增 `distill-up-list`：读取 UP 名单配置后，一次性跑 creator pipeline 并生成横向报告。
   - 同时自动产出每位 UP 的 `.up-homepage.html` 主页，便于点击查看概要与产物入口。
   - 新增 `build-up-homepage`：对已有结果快速重建 UP 主页。
+  - 财经名单支持 `news_digest_paths` 配置；如果已有 news digest，会自动生成 news-context finance digest、finance-news-report HTML，并链接到 UP 主页。
 
 ## P7：60s 短视频强分析
 

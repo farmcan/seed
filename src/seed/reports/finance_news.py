@@ -1,11 +1,19 @@
 from __future__ import annotations
 
+import json
 from collections import Counter, defaultdict
 from datetime import UTC, datetime
 from html import escape
 from pathlib import Path
 from typing import Any
 
+from seed.domains.finance import (
+    enrich_finance_digest_with_news_context,
+    finance_digest_output_path,
+    news_context_finance_digest_output_path,
+    priced_finance_digest_output_path,
+    write_finance_digest_artifact,
+)
 from seed.library import init_library, slugify
 
 
@@ -303,6 +311,118 @@ def write_finance_news_report_html(path: Path, html: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(html, encoding="utf-8")
     return path
+
+
+def find_owner_finance_digest_paths(
+    *,
+    library_root: Path,
+    owner: str,
+    include_news_context: bool | None = None,
+) -> list[Path]:
+    distilled = library_root / "distilled"
+    if not distilled.exists():
+        return []
+    prefix = slugify(owner)
+    paths = sorted(distilled.glob(f"{prefix}*.finance-digest*.json"))
+    if include_news_context is True:
+        paths = [path for path in paths if path.name.endswith(".news-context.json")]
+    elif include_news_context is False:
+        paths = [path for path in paths if not path.name.endswith(".news-context.json")]
+    return paths
+
+
+def find_owner_finance_news_report_paths(*, library_root: Path, owner: str) -> list[Path]:
+    reports = library_root / "reports"
+    if not reports.exists():
+        return []
+    prefix = slugify(owner)
+    return sorted(reports.glob(f"{prefix}*.finance-news-report.html"))
+
+
+def resolve_finance_digest_for_owner(
+    *,
+    library_root: Path,
+    owner: str,
+    published_after: datetime | None = None,
+    published_before: datetime | None = None,
+) -> Path | None:
+    expected = finance_digest_output_path(
+        library_root=library_root,
+        owner=owner,
+        published_after=published_after,
+        published_before=published_before,
+    )
+    priced_expected = priced_finance_digest_output_path(digest_path=expected)
+    for candidate in (priced_expected, expected):
+        if candidate.exists():
+            return candidate
+
+    candidates = find_owner_finance_digest_paths(
+        library_root=library_root,
+        owner=owner,
+        include_news_context=False,
+    )
+    if not candidates:
+        return None
+    return sorted(
+        candidates,
+        key=lambda path: (
+            path.name.endswith(".finance-digest.priced.json"),
+            path.stat().st_mtime,
+            path.name,
+        ),
+        reverse=True,
+    )[0]
+
+
+def build_finance_news_outputs_for_owner(
+    *,
+    library_root: Path,
+    owner: str,
+    news_digest_paths: list[Path],
+    published_after: datetime | None = None,
+    published_before: datetime | None = None,
+    max_contexts_per_event: int = 5,
+) -> list[Path]:
+    output_paths: list[Path] = []
+    if news_digest_paths:
+        digest_path = resolve_finance_digest_for_owner(
+            library_root=library_root,
+            owner=owner,
+            published_after=published_after,
+            published_before=published_before,
+        )
+        if digest_path is None:
+            return output_paths
+        digest = json.loads(digest_path.read_text(encoding="utf-8"))
+        enriched = enrich_finance_digest_with_news_context(
+            digest,
+            news_digest_paths=news_digest_paths,
+            max_contexts_per_event=max_contexts_per_event,
+        )
+        enriched_path = news_context_finance_digest_output_path(digest_path=digest_path)
+        write_finance_digest_artifact(enriched_path, enriched)
+        output_paths.append(enriched_path)
+        report_digest_paths = [enriched_path]
+    else:
+        report_digest_paths = find_owner_finance_digest_paths(
+            library_root=library_root,
+            owner=owner,
+            include_news_context=True,
+        )
+
+    for report_digest_path in report_digest_paths:
+        digest = json.loads(report_digest_path.read_text(encoding="utf-8"))
+        report_path = finance_news_report_output_path(
+            library_root=library_root,
+            digest_path=report_digest_path,
+        )
+        write_finance_news_report_html(
+            report_path,
+            build_finance_news_report_html(digest, digest_path=report_digest_path),
+        )
+        output_paths.append(report_path)
+    return output_paths
 
 
 def build_topic_rows(events: list[dict[str, Any]]) -> list[dict[str, Any]]:

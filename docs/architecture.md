@@ -57,6 +57,7 @@ seed compare-up-profiles --platform <platform> <owner...>
 seed distill-up-list <up-list.yaml>
   -> 按名单一次跑多位 UP 的 creator pipeline（可配置窗口/预算）
   -> 自动生成横向对比 HTML + 每个 UP 的独立 `.up-homepage.html`
+  -> 财经名单可配置 news digest，自动补生成 news-context digest 与 finance-news-report HTML
 
 seed build-up-homepage --platform <platform> <owner...>
   -> 基于已有 run/manifest 快速补生成每个 UP 的主页卡片视图

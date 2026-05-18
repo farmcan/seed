@@ -113,8 +113,11 @@ from seed.graphs.creator_dag import (
     write_creator_dag_graph,
 )
 from seed.reports.finance_news import (
+    build_finance_news_outputs_for_owner,
     build_finance_news_report_html,
     finance_news_report_output_path,
+    find_owner_finance_digest_paths,
+    find_owner_finance_news_report_paths,
     write_finance_news_report_html,
 )
 from seed.library import (
@@ -652,6 +655,21 @@ def _parse_batch_config_defaults(raw: object) -> dict[str, object]:
     return raw
 
 
+def _parse_config_path_list(raw: object, field: str) -> list[Path]:
+    if raw is None:
+        return []
+    if isinstance(raw, (str, Path)):
+        return [Path(raw)]
+    if not isinstance(raw, list):
+        raise typer.BadParameter(f"`defaults.{field}` must be a path string or list.")
+    paths: list[Path] = []
+    for item in raw:
+        if not isinstance(item, (str, Path)):
+            raise typer.BadParameter(f"`defaults.{field}` entries must be path strings.")
+        paths.append(Path(item))
+    return paths
+
+
 def load_creator_batch_config(config_path: Path) -> tuple[
     Platform,
     list[str],
@@ -721,6 +739,12 @@ def load_creator_batch_config(config_path: Path) -> tuple[
         "build_creator_dag": bool(defaults.get("build_creator_dag", True)),
         "export_creator_dag_html": bool(defaults.get("export_creator_dag_html", True)),
         "codex_model": defaults.get("codex_model"),
+        "news_digest_paths": _parse_config_path_list(
+            defaults.get("news_digest_paths", defaults.get("news_digests")),
+            "news_digest_paths",
+        ),
+        "build_finance_news_reports": bool(defaults.get("build_finance_news_reports", True)),
+        "max_news_contexts_per_event": int(defaults.get("max_news_contexts_per_event", 5)),
         "root": str(defaults.get("root", "library")),
     }
     return platform, owners, owner_ids, options
@@ -857,9 +881,8 @@ def build_up_homepage(
         if isinstance(manifest.get("cost_ledger_path"), str)
         else None
     )
-    digest_path = root / "distilled" / f"{owner_slug}.finance-digest.json"
-    if not digest_path.exists():
-        digest_path = None
+    finance_digest_paths = find_owner_finance_digest_paths(library_root=root, owner=owner)
+    finance_report_paths = find_owner_finance_news_report_paths(library_root=root, owner=owner)
     steps: list[dict[str, object]] = []
     for step in manifest.get("creator_steps", []) if isinstance(manifest.get("creator_steps"), list) else []:
         if isinstance(step, dict):
@@ -902,8 +925,10 @@ def build_up_homepage(
         artifact_links.append(f"<a href='{escape(str(cost_ledger_path))}'>creator-ledger.json</a>")
     if video_list_path and video_list_path.exists():
         artifact_links.append(f"<a href='{escape(str(video_list_path))}'>creator-videos.yaml</a>")
-    if digest_path:
-        artifact_links.append(f"<a href='{escape(str(digest_path))}'>finance-digest.json</a>")
+    for digest_path in finance_digest_paths[:4]:
+        artifact_links.append(f"<a href='{escape(str(digest_path))}'>{escape(digest_path.name)}</a>")
+    for report_path in finance_report_paths[:4]:
+        artifact_links.append(f"<a href='{escape(str(report_path))}'>{escape(report_path.name)}</a>")
 
     output_path.write_text(
         f"""<!doctype html>
@@ -1201,6 +1226,14 @@ def distill_up_list(
         Path | None,
         typer.Option("--homepage-output-dir", help="Directory for generated UP homepage HTML files."),
     ] = None,
+    news_digest_path: Annotated[
+        list[Path] | None,
+        typer.Option("--news-digest", help="News digest to attach to finance digests. Can be repeated."),
+    ] = None,
+    skip_finance_news_reports: Annotated[
+        bool,
+        typer.Option("--skip-finance-news-reports", help="Do not auto-build finance news-context reports."),
+    ] = False,
     dry_run: Annotated[
         bool,
         typer.Option("--dry-run", help="Only resolve owner list and options, do not run pipelines."),
@@ -1219,7 +1252,20 @@ def distill_up_list(
         for index, owner in enumerate(owners):
             owner_id = owner_ids[index]
             console.print(f"- {owner}{f' (owner-id: {owner_id})' if owner_id else ''}")
+        configured_news = options.get("news_digest_paths") or []
+        if configured_news:
+            console.print("news digests=" + ", ".join(str(path) for path in configured_news))
         return
+
+    configured_news_paths = [
+        Path(str(path))
+        for path in options.get("news_digest_paths", [])
+        if str(path)
+    ]
+    resolved_news_digest_paths = news_digest_path if news_digest_path is not None else configured_news_paths
+    missing_news_paths = [path for path in resolved_news_digest_paths if not path.exists()]
+    if missing_news_paths:
+        raise typer.BadParameter(f"News digest path does not exist: {missing_news_paths[0]}")
 
     run_creator_batch_from_config(
         platform=platform,
@@ -1244,6 +1290,27 @@ def distill_up_list(
         encoding="utf-8",
     )
     console.print(f"created up distill report at {report_path}")
+
+    finance_news_paths: list[tuple[str, list[Path]]] = []
+    if (
+        not skip_finance_news_reports
+        and bool(options.get("build_finance_news_reports", True))
+        and str(options.get("domain") or "") == "finance"
+    ):
+        for owner in owners:
+            paths = build_finance_news_outputs_for_owner(
+                library_root=library_root,
+                owner=owner,
+                news_digest_paths=resolved_news_digest_paths,
+                published_after=options["published_after"],  # type: ignore[arg-type]
+                published_before=options["published_before"],  # type: ignore[arg-type]
+                max_contexts_per_event=int(options.get("max_news_contexts_per_event", 5)),
+            )
+            if paths:
+                finance_news_paths.append((owner, paths))
+        for owner, paths in finance_news_paths:
+            for path in paths:
+                console.print(f"created finance news artifact for {owner}: {path}")
 
     if build_homepages:
         homepage_paths = [
