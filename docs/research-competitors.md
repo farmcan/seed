@@ -128,6 +128,11 @@
 42. Zettelkasten/evergreen note 的启发是：书籍价值在于长期可复用的原子原则和链接，而不是一次性摘要。Seed 的 book methods 应能和 creator profile、video semantics、news facts、earnings facts、finance digest 做 cross-source hooks。
 43. 微信读书接入建议先用官方 `weread-skills` 与 `WEREAD_API_KEY` 路径；非官方 cookie 逆向仅做备份能力，不作为主链路，先避免稳定性和合规风险。接入目标是可持续把书架与书籍笔记落入 `book-source`。
 44. 美股股价展望类报告应先做“事实-观点-后验”分层：先记录标的、时间、动作、置信度与证据引用，再给出情景化区间。目标位只用于研判输入草案，不应以确定值写入或作为交易信号，必须标注不确定和替代假设。
+45. 财经工作流不应把观点抽取和后验验证混为一体：先产出视频观点事件账本（transcript + visual + timeline），再补新闻与财报上下文，最后再做频道级复盘。  
+46. 财经检索链路建议固定为：视频证据 -> `GDELT` news facts -> `SEC filings`（submissions/companyfacts）-> 显式 `ticker map` 的行情。每一步都记录 source URL、时间窗口与映射失败原因。  
+47. 信号 taxonomy 建议以观点事件 ledger 为主：`recommendation_presence`、`ticker/entity`、`action`、`direction`、`horizon`、`conviction`、`entry/exit`、`risk_flags`、`modality_evidence`、`uncertainty`、`evidence_refs`。  
+48. 验证闭环建议：观点检测 -> 证据检索和评分 -> verdict（默认 `unverified`） -> 事件 outcome（1D/5D/20D/60D/latest）-> channel profile 回灌。  
+49. benchmark 参考统一为公开基准指数（如 SPY/QQQ）与公开事件仓库（VideoConviction/TickerReceipts），用于后验解释；单条搜索结果不作为交易胜率依据。
 
 ## Sources
 
@@ -205,6 +210,7 @@
 - GDELT DOC 2.0 API: https://blog.gdeltproject.org/gdelt-doc-2-0-api-debuts/
 - SEC EDGAR APIs: https://www.sec.gov/search-filings/edgar-application-programming-interfaces
 - SEC Accessing EDGAR Data: https://www.sec.gov/search-filings/edgar-search-assistance/accessing-edgar-data
+- stooq 指数历史序列（SPY/QQQ）：https://stooq.com/q/d/l/
 - LlamaIndex response synthesizers: https://developers.llamaindex.ai/python/framework/module_guides/querying/response_synthesizers/
 - LangChain MapReduceDocumentsChain: https://api.python.langchain.com/en/latest/langchain/chains/langchain.chains.combine_documents.map_reduce.MapReduceDocumentsChain.html
 - LangChain summarization examples: https://langchain-doc.readthedocs.io/en/latest/modules/indexes/chain_examples/summarize.html

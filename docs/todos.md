@@ -219,6 +219,11 @@
   - `run-creator-pipeline --domain finance` 会在窗口内批量样本后生成 `library/distilled/*.finance-digest.json`。
   - `seed build-finance-digest --owner ... --signal ...` 可对已有 signals 重建 digest。
   - 当前 digest 输出最近提到的标的、方向、动作、核心理由、风险、重复方法论和证据缺口；价格后验在 `enrich-finance-prices` 做 event-level。
+- [ ] 固化财经 workflow 研究计划（检索源 / 信号 / 验证 / benchmark）。
+  - 检索顺序固定：视频证据（transcript/visual/timeline）→ `search-news/distill-news-facts`（GDELT）→ `fetch-earnings`（SEC mapping）→ `enrich-finance-prices`（显式 `ticker-map`）。
+  - 信号 taxonomy 锁定为 `viewpoint_events`：`recommendation_presence`、`ticker/entity`、`action`、`direction`、`horizon`、`conviction`、`entry/exit`、`risk_flags`、`modality_evidence`、`uncertainty`、`evidence_refs`。
+  - 验证循环固定为：推荐检测 → evidence retrieval + snippets → verdict（默认 `unverified`）→ event_outcome（1D/5D/20D/60D/latest）→ profile 回写。
+  - 基准约束：每个事件都写入 `benchmark` + `benchmark_return`，缺失写 `benchmark_missing`；并与 VideoConviction / TickerReceipts 的公开事件行为做对照。
 - [x] 接入行情/价格 provider baseline。
   - `seed enrich-finance-prices <digest.json> --ticker-map 标的=ticker` 会生成 `*.finance-digest.priced.json`。
   - 当前 provider 是可选 `stooq` 日线 CSV，记录发布日附近收盘价、最新收盘价、涨跌幅、可选 benchmark 和数据来源 URL。
@@ -227,6 +232,7 @@
   - `seed build-finance-outlook-report` 从 `*.finance-digest*.json` 生成 `*.finance-outlook-report.html` 与 `*.finance-outlook.json`。
   - 报告输出标的级风险收益、上行/下行空间、利空因素、软件和 AI 行业变量与证据边界。
   - `seed distill-up-list --domain finance` 默认可自动附带生成 outlook（新增可选 `--skip-finance-outlook-reports`）。
+  - `run-creator-pipeline --domain finance` 现已在 creator 后处理阶段自动尝试构建 `*.finance-outlook*.json/report`，并在 `creator_steps` 中输出 `build_finance_outlook`。
   - 对应 skill 规范：`skills/finance-outlook-analyzer/SKILL.md`，用于统一 `event -> outlook` 的输出结构约束和复核清单。
 
 - [ ] 增加财经方法论回测/后验评估。

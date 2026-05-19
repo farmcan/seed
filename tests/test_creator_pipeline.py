@@ -399,11 +399,20 @@ def test_run_creator_pipeline_builds_finance_digest(tmp_path, monkeypatch):
         )
     )
 
-    digest_step = manifest["creator_steps"][-1]
+    assert len(manifest["creator_steps"]) == 5
+    assert manifest["creator_steps"][-1]["name"] == "build_finance_outlook"
+    assert manifest["creator_steps"][-2]["name"] == "build_finance_digest"
+    digest_step = manifest["creator_steps"][-2]
+    outlook_step = manifest["creator_steps"][-1]
     assert digest_step["name"] == "build_finance_digest"
     assert digest_step["status"] == "completed"
     assert digest_step["recommendations"] == 1
+    assert outlook_step["status"] == "completed"
+    assert any(path.endswith(".finance-outlook.json") for path in outlook_step["outlook_paths"])
+    assert any(path.endswith(".finance-outlook-report.html") for path in outlook_step["outlook_paths"])
     assert (tmp_path / "library" / "distilled" / "demo.20260510-to-20260514.finance-digest.json").exists()
+    assert (tmp_path / "library" / "distilled" / "demo-20260510-to-20260514.finance-outlook.json").exists()
+    assert (tmp_path / "library" / "reports" / "demo-20260510-to-20260514.finance-outlook-report.html").exists()
 
 
 def test_run_creator_pipeline_builds_ai_practice_digest(tmp_path, monkeypatch):

@@ -39,6 +39,7 @@ from seed.graphs.creator_dag import (
     write_creator_dag_graph,
 )
 from seed.library import init_library, save_creator_video_list, slugify
+from seed.reports.finance_outlook import build_finance_outlook_outputs_for_owner
 from seed.models import CreatorVideoList, Platform
 from seed.pipeline import VideoPipelineOptions, run_video_pipeline
 from seed.semantics.aggregator import (
@@ -309,6 +310,14 @@ def run_creator_post_processing(
                 options=options,
             )
         )
+        steps.append(
+            maybe_build_finance_outlook(
+                owner=owner,
+                options=options,
+                published_after=options.published_after,
+                published_before=options.published_before,
+            )
+        )
     if options.domain == "ai-practices":
         steps.append(
             maybe_build_ai_practice_digest(
@@ -564,6 +573,47 @@ def maybe_build_finance_digest(
             "digest_path": str(output_path),
             "videos_analyzed": artifact["videos_analyzed"],
             "recommendations": artifact["totals"]["recommendations"],
+        }
+    )
+    return step
+
+
+def maybe_build_finance_outlook(
+    *,
+    owner: str,
+    published_after: datetime | None,
+    published_before: datetime | None,
+    options: CreatorPipelineOptions,
+) -> dict[str, Any]:
+    step: dict[str, Any] = {
+        "name": "build_finance_outlook",
+        "status": "pending",
+        "inputs": {
+            "published_after": published_after.isoformat() if published_after else None,
+            "published_before": published_before.isoformat() if published_before else None,
+        },
+    }
+    if options.domain != "finance":
+        return skipped_step(step, "not finance domain")
+    try:
+        output_paths = build_finance_outlook_outputs_for_owner(
+            library_root=options.library_root,
+            owner=owner,
+            published_after=published_after,
+            published_before=published_before,
+        )
+    except Exception as error:
+        if not options.keep_going:
+            raise
+        return failed_step(step, error)
+
+    if not output_paths:
+        return skipped_step(step, "no finance digest for outlook")
+
+    step.update(
+        {
+            "status": "completed",
+            "outlook_paths": [str(path) for path in output_paths],
         }
     )
     return step
