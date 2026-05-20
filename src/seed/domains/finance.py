@@ -1071,6 +1071,67 @@ def stooq_daily_csv_url(ticker: str) -> str:
     return f"https://stooq.com/q/d/l/?{query}"
 
 
+def yahoo_chart_url(ticker: str, *, range_: str = "3y", interval: str = "1d") -> str:
+    query = urllib.parse.urlencode({"range": range_, "interval": interval})
+    return f"https://query2.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(ticker.upper())}?{query}"
+
+
+def fetch_yahoo_chart_history(
+    ticker: str,
+    *,
+    range_: str = "3y",
+    interval: str = "1d",
+) -> list[dict[str, Any]]:
+    request = urllib.request.Request(
+        yahoo_chart_url(ticker, range_=range_, interval=interval),
+        headers={
+            "Accept": "application/json",
+            "User-Agent": "Mozilla/5.0 seed/0.1",
+        },
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        content = response.read().decode("utf-8", errors="replace")
+    return parse_yahoo_chart_json(content)
+
+
+def parse_yahoo_chart_json(content: str) -> list[dict[str, Any]]:
+    data = json.loads(content)
+    result = ((data.get("chart") or {}).get("result") or [None])[0]
+    if not isinstance(result, dict):
+        return []
+    timestamps = result.get("timestamp") or []
+    indicators = result.get("indicators") or {}
+    quote = (indicators.get("quote") or [None])[0]
+    if not isinstance(quote, dict):
+        return []
+
+    rows: list[dict[str, Any]] = []
+    opens = quote.get("open") or []
+    highs = quote.get("high") or []
+    lows = quote.get("low") or []
+    closes = quote.get("close") or []
+    volumes = quote.get("volume") or []
+    for index, timestamp in enumerate(timestamps):
+        open_price = _optional_float(opens[index] if index < len(opens) else None)
+        high_price = _optional_float(highs[index] if index < len(highs) else None)
+        low_price = _optional_float(lows[index] if index < len(lows) else None)
+        close_price = _optional_float(closes[index] if index < len(closes) else None)
+        if open_price is None or high_price is None or low_price is None or close_price is None:
+            continue
+        row: dict[str, Any] = {
+            "date": datetime.fromtimestamp(int(timestamp), UTC).date().isoformat(),
+            "open": open_price,
+            "high": high_price,
+            "low": low_price,
+            "close": close_price,
+        }
+        volume = _optional_int(volumes[index] if index < len(volumes) else None)
+        if volume is not None:
+            row["volume"] = volume
+        rows.append(row)
+    return rows
+
+
 def parse_stooq_daily_csv(content: str) -> list[dict[str, Any]]:
     rows = []
     for line in content.splitlines()[1:]:
@@ -1078,10 +1139,37 @@ def parse_stooq_daily_csv(content: str) -> list[dict[str, Any]]:
         if len(parts) < 5 or parts[0].lower() == "no data":
             continue
         try:
-            rows.append({"date": parts[0], "close": float(parts[4])})
+            row: dict[str, Any] = {
+                "date": parts[0],
+                "open": float(parts[1]),
+                "high": float(parts[2]),
+                "low": float(parts[3]),
+                "close": float(parts[4]),
+            }
+            if len(parts) > 5 and parts[5]:
+                row["volume"] = int(float(parts[5]))
+            rows.append(row)
         except ValueError:
             continue
     return rows
+
+
+def _optional_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _optional_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return None
 
 
 def select_price_on_or_before(

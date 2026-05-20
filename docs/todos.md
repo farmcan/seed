@@ -219,11 +219,13 @@
   - `run-creator-pipeline --domain finance` 会在窗口内批量样本后生成 `library/distilled/*.finance-digest.json`。
   - `seed build-finance-digest --owner ... --signal ...` 可对已有 signals 重建 digest。
   - 当前 digest 输出最近提到的标的、方向、动作、核心理由、风险、重复方法论和证据缺口；价格后验在 `enrich-finance-prices` 做 event-level。
-- [ ] 固化财经 workflow 研究计划（检索源 / 信号 / 验证 / benchmark）。
+- [x] 固化财经 workflow 研究计划（检索源 / 信号 / 验证 / benchmark）。
   - 检索顺序固定：视频证据（transcript/visual/timeline）→ `search-news/distill-news-facts`（GDELT）→ `fetch-earnings`（SEC mapping）→ `enrich-finance-prices`（显式 `ticker-map`）。
   - 信号 taxonomy 锁定为 `viewpoint_events`：`recommendation_presence`、`ticker/entity`、`action`、`direction`、`horizon`、`conviction`、`entry/exit`、`risk_flags`、`modality_evidence`、`uncertainty`、`evidence_refs`。
   - 验证循环固定为：推荐检测 → evidence retrieval + snippets → verdict（默认 `unverified`）→ event_outcome（1D/5D/20D/60D/latest）→ profile 回写。
   - 基准约束：每个事件都写入 `benchmark` + `benchmark_return`，缺失写 `benchmark_missing`；并与 VideoConviction / TickerReceipts 的公开事件行为做对照。
+  - 前瞻空间新增 `market_context` / `market_scenarios` 口径：先检索当前价、52 周区间、近 1 周/月/年走势、分析师目标价、财报/产品/政策催化，再构建上行/下行/风险收益比；事件后验只作为复核，不再默认当未来目标价。
+  - 报告支持 `historical_prices` 的“历史 K 线 + 关键时间点 + 情景路径”：真实 OHLC 交给 vendored TradingView Lightweight Charts 渲染，默认用约 3 年日线 K 线做价格语境，并在报告写入覆盖起止日期、交易日数和 `historical_price_coverage`；目标区参考 TradingView Price Target 口径，叠加当前价、基准/上行/下行目标/支撑水平线、`market_context.historical_events/chart_events` 历史事件 marker、`market_context.next_events` 未来事件标记和非 K 线情景路径；未来情景路径按日采样，保证未来 12 个月在横轴上有可见宽度；图下增加同轴事件时间线，明确“当前 / 最后一根真实 K 线”、未来观察窗、持续窗口事件和未来单点事件的关注内容/潜在影响/多情景触发；不得生成伪未来每日 K 线、粗箭头或大面积扇形，必须说明路径只表达“事件可能让价格靠近哪个锚点”，历史事件只表示可能解释变量、不等于因果证明。
 - [x] 接入行情/价格 provider baseline。
   - `seed enrich-finance-prices <digest.json> --ticker-map 标的=ticker` 会生成 `*.finance-digest.priced.json`。
   - 当前 provider 是可选 `stooq` 日线 CSV，记录发布日附近收盘价、最新收盘价、涨跌幅、可选 benchmark 和数据来源 URL。
@@ -231,9 +233,35 @@
 - [x] 增加金融观点前瞻草案报告。
   - `seed build-finance-outlook-report` 从 `*.finance-digest*.json` 生成 `*.finance-outlook-report.html` 与 `*.finance-outlook.json`。
   - 报告输出标的级风险收益、上行/下行空间、利空因素、软件和 AI 行业变量与证据边界。
+  - 报告新增用户价值层：先回答“这份报告有什么用、适合谁、下一步盯什么、不能替你做什么”，再进入专业方法论和证据。
+  - 报告新增成熟研报方法论映射、一致预期与目标价分歧、数据覆盖度 / 交付自检模块；目标价显示平均/中位/高/低、样本数、跨度和来源，避免只拿均值当结论。
   - `seed distill-up-list --domain finance` 默认可自动附带生成 outlook（新增可选 `--skip-finance-outlook-reports`）。
   - `run-creator-pipeline --domain finance` 现已在 creator 后处理阶段自动尝试构建 `*.finance-outlook*.json/report`，并在 `creator_steps` 中输出 `build_finance_outlook`。
   - 对应 skill 规范：`skills/finance-outlook-analyzer/SKILL.md`，用于统一 `event -> outlook` 的输出结构约束和复核清单。
+
+- [ ] 将市场锚点补强为独立 provider/artifact。
+  - 当前小米、美图样例的 `market_context` 仍以人工检索后写入 digest/payload 为主，适合 demo 与方法论验证。
+  - 后续应新增 `*.market-context.json`，把行情、历史 OHLC、一致预期、财报主源、新闻/政策催化和 metric-level source lineage 分开保存，再由 outlook renderer 消费。
+  - provider 影响面需拆成：行情/目标价 provider、artifact schema、pipeline/DAG 接入、CLI、docs/tests。
+  - 检索增强 plan：
+    - Provider：先做 `search-log` provider（Brave/Exa/Tavily 可选）和 `market-context` provider（StockAnalysis/Stooq/FMP/ValueInvesting/HKEXnews/SEC 可选），都必须显式配置，不猜 ticker。
+    - Artifact：新增 `library/news/*.search-log.json` 或 `library/distilled/*.market-search-log.json`，记录 query、domain、候选 URL、采纳/拒绝原因；`*.market-context.json` 记录 metric-level lineage。
+    - Pipeline/DAG：`build-finance-outlook-report` 优先消费 `*.market-context.json`；DAG 增加“market source / research report / primary filing”节点。
+    - CLI：新增 `research-market-context <ticker> --company-name ... --market HK --providers ...`，输出 search log + market context，不直接生成投资结论。
+    - Docs/tests：补 source tier、客户级复核要求、无来源数字阻断测试和 metric lineage smoke。
+
+- [ ] 把 finance outlook 接回 Seed 视频/UP 证据链。
+  - 竞品/研究启发：VideoConviction 强调金融视频里的 `ticker/action/conviction/timestamp`，TickerReceipts/AlphaCheck 类产品强调 time-stamped picks、频道 track record 和事后验证；因此 Seed 的结合点应该围绕“视频证据 -> 观点事件 -> 市场事实 -> 报告/主页/回测”，不是把财经报告硬塞进所有页面。
+  - Artifact：在 `*.finance-outlook.json` 中补 `supporting_event_ids`、`video_evidence_refs`、`source_lineage_refs` 和 `market_context_ref`，让上行/下行、风险、催化、目标价和 source gap 都能回到 `finance-signals`、news facts、earnings facts 或 `market-context`。
+  - Pipeline：`run-creator-pipeline --domain finance` 生成 outlook 时，优先消费同一窗口的 `finance-digest`、`event_outcomes`、`news-context`、`earnings-digest` 和 `market-context`；缺少任一层时在报告里显示覆盖度，不用模型补假数字。
+  - Video/DAG：单条 video DAG 继续展示 finance signals；creator DAG 增加 outlook/report 节点，并连到对应视频、观点事件、新闻 facts、财报 facts、market source、search log 和最终 HTML。带时间戳的观点必须写 `media_anchor`，能跳回原视频片段。
+  - UP 主页：新增“财经用户价值卡”，只在已有财经 digest/outlook 时展示，内容包括近期重点标的、风险/催化、数据覆盖度、可点击报告、证据缺口和下一步跟踪项；非财经 UP 不显示空壳模块。
+  - UP 动向/思维：在财经报告和短线观察里新增可选的 creator momentum / thinking shift 信号，记录 UP 最近 7/30/60 天关注标的、反复强调主题、新增/放弃的 thesis、观点强度变化、风险披露变化、从宏观/产业/财报/估值/技术面/情绪面切换的痕迹，以及对应视频证据和发布时间；这些信号只能作为“市场叙事 / 注意力变化 / 思维框架变化”的参考，不当作事实证据或买卖建议。
+  - 横向对比：`compare-up-profiles` 可增加财经维度，但先比较“谁提了什么、何时提、证据覆盖和后验窗口是否完整”，等样本量、benchmark 和价格源足够后再展示频道命中率/超额收益，不提前做排行榜。
+  - Creator finance profile：复用 P9 的 `*.finance-profile.json`，把多条 `viewpoint_events` 与 `event_outcomes` 汇总为 UP 的方法论画像，例如偏好行业、常用论据、风险披露习惯、horizon 稳定性、失效条件质量和 source discipline，再作为 UP 主页与 creator profile 的一个可选 section。
+  - Agent 资产：只有通过 review 的 finance profile 才生成 draft checklist，例如“财经视频抽取 QA”“股票前瞻报告 preflight”“无来源数字阻断清单”；仍然只做研究辅助，不生成买卖建议。
+  - Book/AI practices：只在有明确商业模式、AI 替代、生产力变化或行业迁移 claim 时引用 `book_methods.cross_source_hooks` / `ai-practice-digest`，作为假设和风险 lens；不要用书籍方法论或 AI 观点替代事实核验。
+  - 明确不做：不为非财经内容强行加财经模块；不在样本不足时做 UP 投资能力排名；不把 event 后验收益当成未来目标价；不把 Seed 输出写成投资建议。
 
 - [ ] 增加财经方法论回测/后验评估。
   - 当前 priced digest 已有 event-level 基础价格后验，缺少系统性回测框架。
@@ -271,6 +299,7 @@
   - 输出 `event_outcomes`，包含 asset return、benchmark return、relative return、max drawdown、price source、交易日对齐和 ticker mapping 来源。
 - [ ] 做 creator-level finance profile。
   - 从多个 event 和 outcome 中总结 UP 的方法论：偏宏观/政策/产业/财报/估值/技术面/情绪面，是否给风险和失效条件，哪些 horizon 更稳定，哪些标的/行业经常误判。
+  - 同时输出短窗口动向字段：`recent_topics`、`newly_mentioned_instruments`、`repeated_theses`、`dropped_or_weakened_theses`、`conviction_delta`、`risk_disclosure_delta`、`source_discipline_delta` 和 `thinking_shift_events`；每个变化必须保留 `published_at`、`video_title`、`event_id`、`evidence_refs` 和不确定性，供 7/30 天短线报告与 UP 主页消费。
   - 输出可以合入 `creator-profile.md` 的 finance section，也可以先生成 `*.finance-profile.json`。
 
 ## P10：新闻检索、facts 蒸馏和财报解析

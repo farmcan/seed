@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections import Counter, defaultdict
 from datetime import UTC, datetime
 from html import escape
@@ -8,6 +9,12 @@ from pathlib import Path
 from statistics import mean
 from typing import Any
 
+from seed.domains.finance import fetch_yahoo_chart_history, yahoo_chart_url
+from seed.reports.finance_outlook_assets import (
+    company_assets_from_digest,
+    render_company_assets_html,
+)
+from seed.reports.finance_outlook_chart import build_kline_chart_html
 from seed.library import init_library, slugify
 
 AIGC_KEYWORDS = [
@@ -93,6 +100,8 @@ FINANCE_OUTLOOK_DIGEST_SUFFIXES: tuple[str, ...] = (
     ".finance-digest.priced.json",
     ".finance-digest.json",
 )
+MIN_KLINE_HISTORY_DAYS = 365 * 3 - 14
+MIN_KLINE_HISTORY_POINTS = 600
 
 
 def _is_finance_digest_artifact(path: Path) -> bool:
@@ -831,6 +840,670 @@ def _build_overall_price_targets(
     }
 
 
+def _market_context_from_digest(
+    resolved_digest: dict[str, Any],
+    source_digest: dict[str, Any],
+) -> dict[str, Any]:
+    context = _as_dict(resolved_digest.get("market_context"))
+    if context:
+        return context
+    return _as_dict(source_digest.get("market_context"))
+
+
+def _parse_historical_price_date(value: Any) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    match = re.search(r"\b(20\d{2}-\d{2}-\d{2})\b", text)
+    if not match:
+        return None
+    try:
+        return datetime.fromisoformat(match.group(1))
+    except ValueError:
+        return None
+
+
+def _historical_price_coverage(history: list[Any]) -> dict[str, Any]:
+    dates = sorted(
+        date
+        for date in (
+            _parse_historical_price_date(_as_dict(row).get("date") or _as_dict(row).get("time"))
+            for row in history
+            if isinstance(row, dict)
+        )
+        if date is not None
+    )
+    if not dates:
+        return {
+            "status": "missing",
+            "points": len(history),
+            "first_date": None,
+            "last_date": None,
+            "calendar_days": 0,
+            "meets_three_year_minimum": False,
+        }
+    calendar_days = (dates[-1].date() - dates[0].date()).days
+    return {
+        "status": "ok",
+        "points": len(history),
+        "first_date": dates[0].date().isoformat(),
+        "last_date": dates[-1].date().isoformat(),
+        "calendar_days": calendar_days,
+        "meets_three_year_minimum": (
+            calendar_days >= MIN_KLINE_HISTORY_DAYS
+            and len(history) >= MIN_KLINE_HISTORY_POINTS
+        ),
+    }
+
+
+def _normalize_yahoo_ticker(value: Any) -> str | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if re.fullmatch(r"\d{1,5}", text):
+        return f"{text.zfill(4)}.HK"
+    return text.upper()
+
+
+def _append_market_note(context: dict[str, Any], note: str) -> None:
+    notes = _as_list(context.get("data_quality_notes"))
+    if note not in notes:
+        notes.append(note)
+    context["data_quality_notes"] = notes
+
+
+def _append_market_source(context: dict[str, Any], source: dict[str, Any]) -> None:
+    refs = [item for item in _as_list(context.get("source_refs")) if isinstance(item, dict)]
+    source_url = str(source.get("url") or "")
+    if source_url and any(str(item.get("url") or "") == source_url for item in refs):
+        context["source_refs"] = refs
+        return
+    refs.append(source)
+    context["source_refs"] = refs
+
+
+def _ensure_three_year_historical_prices(
+    market_context: dict[str, Any],
+    *,
+    target_ticker: Any = None,
+) -> dict[str, Any]:
+    if not market_context:
+        return market_context
+    context = dict(market_context)
+    history = [item for item in _as_list(context.get("historical_prices")) if isinstance(item, dict)]
+    current_coverage = _historical_price_coverage(history)
+    ticker = _normalize_yahoo_ticker(context.get("ticker") or target_ticker)
+    if current_coverage.get("meets_three_year_minimum"):
+        context["historical_price_coverage"] = current_coverage
+        return context
+    if not ticker:
+        context["historical_price_coverage"] = current_coverage
+        _append_market_note(context, "历史 K 线少于 3 年且缺少 ticker，无法自动补充 3 年 OHLC。")
+        return context
+
+    source_url = yahoo_chart_url(ticker, range_="3y", interval="1d")
+    try:
+        fetched_history = fetch_yahoo_chart_history(ticker, range_="3y", interval="1d")
+    except Exception as exc:
+        context["historical_price_coverage"] = current_coverage
+        _append_market_note(
+            context,
+            f"历史 K 线少于 3 年，自动拉取 Yahoo Finance 3y 日线失败：{type(exc).__name__}。",
+        )
+        return context
+
+    fetched_coverage = _historical_price_coverage(fetched_history)
+    if fetched_history and (
+        fetched_coverage.get("calendar_days", 0) > current_coverage.get("calendar_days", 0)
+        or len(fetched_history) > len(history)
+    ):
+        context["historical_prices"] = fetched_history
+        context["historical_price_provider"] = "yahoo_finance_chart"
+        context["historical_price_source_url"] = source_url
+        context["historical_price_range"] = "3y"
+        context["historical_price_interval"] = "1d"
+        context["historical_price_coverage"] = fetched_coverage
+        _append_market_source(
+            context,
+            {
+                "title": f"Yahoo Finance chart {ticker} 3y daily OHLC",
+                "url": source_url,
+                "accessed_at": datetime.now(UTC).date().isoformat(),
+                "note": "用于补充 3 年历史 K 线；二级行情源，客户级交付前仍需交易所或付费行情源复核。",
+            },
+        )
+        _append_market_note(
+            context,
+            "历史 K 线已自动补充 Yahoo Finance chart API 3 年日线 OHLC；这是二级行情源，不是交易所实时直连。",
+        )
+    else:
+        context["historical_price_coverage"] = current_coverage
+        _append_market_note(context, "历史 K 线少于 3 年，Yahoo Finance 未返回更长 OHLC 序列。")
+    return context
+
+
+def _market_scenarios_from_digest(
+    resolved_digest: dict[str, Any],
+    source_digest: dict[str, Any],
+) -> dict[str, Any]:
+    scenarios = _as_dict(resolved_digest.get("market_scenarios"))
+    if scenarios:
+        return scenarios
+    return _as_dict(source_digest.get("market_scenarios"))
+
+
+def _normalize_market_scenario_case(
+    raw_case: Any,
+    *,
+    label: str,
+    direction: str,
+    anchor_price: float | None,
+) -> dict[str, Any]:
+    if not isinstance(raw_case, dict):
+        return {
+            "scenario": label,
+            "status": "insufficient",
+            "direction": direction,
+            "event_count": 0,
+            "returns": None,
+            "target_price": None,
+            "confidence": 0,
+            "evidence_refs": [],
+            "triggers": [],
+            "validation_points": [],
+        }
+
+    target_price = _safe_float(raw_case.get("target_price") or raw_case.get("price"))
+    return_pct = _safe_float(
+        raw_case.get("returns")
+        or raw_case.get("return_pct")
+        or raw_case.get("upside_pct")
+        or raw_case.get("downside_pct")
+    )
+    if return_pct is None and target_price is not None:
+        return_pct = _pct_from_price(target_price=target_price, anchor_price=anchor_price)
+    if target_price is None and return_pct is not None and anchor_price is not None:
+        target_price = round(anchor_price * (1 + return_pct / 100), 4)
+
+    evidence_refs = _as_list_of_str(raw_case.get("evidence_refs") or [])
+    source_urls = _as_list_of_str(raw_case.get("source_urls") or [])
+    source_titles = _as_list_of_str(raw_case.get("source_titles") or [])
+    evidence_refs.extend(source_urls)
+    evidence_refs.extend(source_titles)
+
+    triggers = _as_list_of_str(raw_case.get("triggers") or [])
+    thesis = _as_str(raw_case.get("thesis") or raw_case.get("rationale"))
+    if thesis:
+        triggers.append(thesis)
+
+    validation_points = _as_list_of_str(raw_case.get("validation_points") or [])
+    method = _as_str(raw_case.get("method"))
+    if method:
+        validation_points.append(f"method: {method}")
+
+    confidence = _safe_float(raw_case.get("confidence"))
+    if confidence is None:
+        confidence = 0.0 if return_pct is None else 0.5
+
+    return {
+        "scenario": label,
+        "status": _as_str(raw_case.get("status")) or ("estimated" if return_pct is not None else "insufficient"),
+        "direction": direction,
+        "event_count": int(_safe_float(raw_case.get("event_count")) or 0),
+        "returns": return_pct,
+        "target_price": target_price,
+        "confidence": round(confidence, 2),
+        "evidence_refs": sorted({item.strip() for item in evidence_refs if item.strip()}),
+        "triggers": sorted({item.strip() for item in triggers if item.strip()})[:8],
+        "validation_points": sorted({item.strip() for item in validation_points if item.strip()})[:8],
+        "method": method,
+    }
+
+
+def _build_market_scenarios(
+    raw_scenarios: dict[str, Any],
+    market_context: dict[str, Any],
+) -> dict[str, Any] | None:
+    if not raw_scenarios:
+        return None
+
+    anchor_price = _safe_float(
+        raw_scenarios.get("anchor_price")
+        or market_context.get("current_price")
+        or market_context.get("latest_close")
+    )
+    anchor_price_date = (
+        raw_scenarios.get("anchor_price_date")
+        or market_context.get("price_date")
+        or market_context.get("as_of")
+    )
+    base_case = _normalize_market_scenario_case(
+        raw_scenarios.get("base_case"),
+        label="base",
+        direction="base",
+        anchor_price=anchor_price,
+    )
+    upside_case = _normalize_market_scenario_case(
+        raw_scenarios.get("upside_case"),
+        label="upside",
+        direction="upside",
+        anchor_price=anchor_price,
+    )
+    downside_case = _normalize_market_scenario_case(
+        raw_scenarios.get("downside_case"),
+        label="downside",
+        direction="downside",
+        anchor_price=anchor_price,
+    )
+
+    notes = _as_list_of_str(raw_scenarios.get("notes") or [])
+    if not notes:
+        notes = [
+            "场景基于市场行情、52周区间、分析师目标价、财报与政策催化信息；不构成投资建议。",
+            "事件后验仅用于复核观点表现，不再作为未来目标价的默认来源。",
+        ]
+
+    return {
+        "status": "ok",
+        "method": _as_str(raw_scenarios.get("method")) or "market_valuation_context",
+        "anchor_price": anchor_price,
+        "anchor_price_date": anchor_price_date,
+        "event_count": int(_safe_float(raw_scenarios.get("event_count")) or 0),
+        "base_case": base_case,
+        "upside_case": upside_case,
+        "downside_case": downside_case,
+        "notes": notes,
+        "source_refs": _as_list(raw_scenarios.get("source_refs") or market_context.get("source_refs")),
+    }
+
+
+def _build_market_price_targets(market_scenarios: dict[str, Any]) -> dict[str, Any] | None:
+    anchor_price = _safe_float(market_scenarios.get("anchor_price"))
+    if anchor_price is None:
+        return None
+    upside_case = _as_dict(market_scenarios.get("upside_case"))
+    downside_case = _as_dict(market_scenarios.get("downside_case"))
+    return {
+        "asset": market_scenarios.get("asset"),
+        "latest_close": anchor_price,
+        "latest_price_date": market_scenarios.get("anchor_price_date"),
+        "published_close": None,
+        "published_price_date": None,
+        "overall_upside_target": upside_case.get("target_price"),
+        "overall_downside_target": downside_case.get("target_price"),
+        "overall_upside": upside_case.get("returns"),
+        "overall_downside": downside_case.get("returns"),
+        "method": market_scenarios.get("method"),
+    }
+
+
+def _calc_target_return(*, current_price: float | None, target_price: float | None) -> float | None:
+    if current_price is None or current_price == 0 or target_price is None:
+        return None
+    return round((target_price / current_price - 1) * 100, 2)
+
+
+def _build_consensus_diagnostics(market_context: dict[str, Any]) -> dict[str, Any]:
+    current_price = _safe_float(market_context.get("current_price") or market_context.get("latest_close"))
+    target_average = _safe_float(market_context.get("analyst_target_average"))
+    target_median = _safe_float(market_context.get("analyst_target_median"))
+    target_low = _safe_float(market_context.get("analyst_target_low"))
+    target_high = _safe_float(market_context.get("analyst_target_high"))
+    sample_size = _safe_float(market_context.get("analyst_sample_size"))
+
+    returns = {
+        "low": _calc_target_return(current_price=current_price, target_price=target_low),
+        "average": _calc_target_return(current_price=current_price, target_price=target_average),
+        "median": _calc_target_return(current_price=current_price, target_price=target_median),
+        "high": _calc_target_return(current_price=current_price, target_price=target_high),
+    }
+    dispersion_pct = None
+    if current_price is not None and current_price != 0 and target_low is not None and target_high is not None:
+        dispersion_pct = round((target_high - target_low) / current_price * 100, 2)
+    average_median_gap_pct = None
+    if current_price is not None and current_price != 0 and target_average is not None and target_median is not None:
+        average_median_gap_pct = round((target_average - target_median) / current_price * 100, 2)
+
+    conflict_level = "unknown"
+    if dispersion_pct is not None:
+        if dispersion_pct >= 100:
+            conflict_level = "high"
+        elif dispersion_pct >= 50:
+            conflict_level = "medium"
+        else:
+            conflict_level = "low"
+
+    notes: list[str] = []
+    if conflict_level == "high":
+        notes.append("高分歧：最高/最低目标价跨度很大，平均目标价不能单独作为结论。")
+    elif conflict_level == "medium":
+        notes.append("中等分歧：需要结合财报兑现和催化时间表复核目标价。")
+    elif conflict_level == "low":
+        notes.append("低分歧：一致预期区间相对集中，但仍需确认样本数和来源口径。")
+    if sample_size is None:
+        notes.append("缺少分析师样本数，目标价可信度需要降权。")
+    if target_low is None or target_high is None:
+        notes.append("缺少目标价上下界，不能形成完整风险收益区间。")
+
+    return {
+        "status": "ok" if current_price is not None and any(value is not None for value in returns.values()) else "insufficient",
+        "current_price": current_price,
+        "target_average": target_average,
+        "target_median": target_median,
+        "target_low": target_low,
+        "target_high": target_high,
+        "analyst_sample_size": int(sample_size) if sample_size is not None else None,
+        "rating": (
+            market_context.get("analyst_consensus_rating")
+            or market_context.get("analyst_consensus")
+            or market_context.get("consensus_rating")
+        ),
+        "returns": returns,
+        "dispersion_pct": dispersion_pct,
+        "average_median_gap_pct": average_median_gap_pct,
+        "conflict_level": conflict_level,
+        "notes": notes,
+        "source_note": market_context.get("target_price_source_note"),
+    }
+
+
+def _contains_source_keyword(source_refs: list[Any], keywords: tuple[str, ...]) -> bool:
+    haystack = " ".join(
+        " ".join(str(source.get(key) or "") for key in ("title", "url", "note"))
+        for source in source_refs
+        if isinstance(source, dict)
+    ).casefold()
+    return any(keyword in haystack for keyword in keywords)
+
+
+def _coverage_item(label: str, present: int, total: int, note: str) -> dict[str, Any]:
+    denominator = max(total, 1)
+    score = round(min(max(present / denominator, 0), 1), 2)
+    return {
+        "label": label,
+        "score": score,
+        "present": present,
+        "total": total,
+        "note": note,
+    }
+
+
+def _build_research_methodology(
+    *,
+    market_context: dict[str, Any],
+    scenarios: dict[str, Any],
+    first_principles: dict[str, Any],
+    peer_context: dict[str, Any],
+    source_gaps: list[str],
+    open_questions: list[str],
+) -> dict[str, Any]:
+    source_refs = _as_list(market_context.get("source_refs"))
+    next_events = _as_list(market_context.get("next_events"))
+    peers = _as_list(peer_context.get("peers"))
+    first_principles_fields = [
+        "business_model",
+        "revenue_logic",
+        "core_differentiators",
+        "competitive_pressure",
+        "customer_dependency",
+        "aicoding_or_automation_risk",
+        "internationalization_progress",
+    ]
+
+    coverage_items = [
+        _coverage_item(
+            "行情锚点",
+            sum(
+                1
+                for key in (
+                    "current_price",
+                    "as_of",
+                    "day_change_pct",
+                    "one_week_return_pct",
+                    "one_month_return_pct",
+                    "fifty_two_week_low",
+                    "fifty_two_week_high",
+                )
+                if market_context.get(key) is not None
+            ),
+            7,
+            "当前价、短期动量、52周区间是目标价讨论的第一层边界。",
+        ),
+        _coverage_item(
+            "历史价格/K线",
+            1 if _as_dict(market_context.get("historical_price_coverage")).get("meets_three_year_minimum") else 0,
+            1,
+            "K线默认至少覆盖约 3 年真实 OHLC；不足时必须标注数据缺口，不画伪历史或伪未来走势。",
+        ),
+        _coverage_item(
+            "目标价/一致预期",
+            sum(
+                1
+                for key in (
+                    "analyst_target_average",
+                    "analyst_target_median",
+                    "analyst_target_low",
+                    "analyst_target_high",
+                    "analyst_sample_size",
+                )
+                if market_context.get(key) is not None
+            ),
+            5,
+            "至少需要平均/中位/高低/样本数，才能讨论分歧与风险收益比。",
+        ),
+        _coverage_item(
+            "情景估值",
+            sum(
+                1
+                for key in ("base_case", "upside_case", "downside_case")
+                if _as_dict(scenarios.get(key)).get("target_price") is not None
+            ),
+            3,
+            "基准/上行/下行情景都要绑定可追溯目标价和验证点。",
+        ),
+        _coverage_item(
+            "财报/主源",
+            int(_contains_source_keyword(source_refs, ("ir", "annual", "results", "filing", "hkex", "公告", "财报", "results"))),
+            1,
+            "成熟研报先回到公司公告、IR、交易所或 SEC 主源。",
+        ),
+        _coverage_item(
+            "催化/事件",
+            min(len(next_events), 3),
+            3,
+            "下一财报、产品、政策和监管节点决定未来验证节奏。",
+        ),
+        _coverage_item(
+            "商业本质/竞争",
+            sum(1 for key in first_principles_fields if first_principles.get(key)) + min(len(peers), 3),
+            len(first_principles_fields) + 3,
+            "商业模式、护城河、竞争、客户依赖、AI替代、出海与同业比较要闭环。",
+        ),
+    ]
+    overall_score = round(mean(item["score"] for item in coverage_items), 2) if coverage_items else 0.0
+
+    frameworks = [
+        {
+            "name": "CFA equity valuation",
+            "borrowed_rule": "理解业务、预测业绩、选择估值模型、转化为估值，并让事实/观点/假设可被读者质疑。",
+            "how_seed_uses_it": "报告固定拆成行情锚点、财报/经营、情景估值、风险和可验证假设。",
+            "source_url": "https://www.cfainstitute.org/insights/professional-learning/refresher-readings/2026/equity-valuation-applications-and-processes",
+        },
+        {
+            "name": "Morningstar moat/fair value",
+            "borrowed_rule": "把竞争优势、长期盈利质量、估值和不确定性放在同一个框架。",
+            "how_seed_uses_it": "商业本质模块显式覆盖护城河、竞争压力、利润率和不确定性。",
+            "source_url": "https://www.morningstar.com/business/insights/blog/equity-economic-moat-ratings",
+        },
+        {
+            "name": "TIKR / Koyfin estimates workflow",
+            "borrowed_rule": "历史实际值与未来一致预期并排看，样本数、平均/中位、估值倍数和趋势都要保留。",
+            "how_seed_uses_it": "新增一致预期分歧诊断，目标价必须显示平均/中位/高/低和样本数。",
+            "source_url": "https://support.tikr.com/hc/en-us/articles/39071375390235-How-do-I-use-TIKR-s-Estimates-feature",
+        },
+        {
+            "name": "Quartr first-party IR workflow",
+            "borrowed_rule": "把财报、电话会、PPT、公告等一手材料结构化，并能回到原文。",
+            "how_seed_uses_it": "市场来源、财报来源、新闻来源和本地产物路径必须进入 source_refs / data lineage。",
+            "source_url": "https://quartr.com/",
+        },
+        {
+            "name": "FinRobot report pipeline",
+            "borrowed_rule": "数据抓取、预测/估值、AI 分析、HTML/PDF 报告分阶段生成，包含财务、估值、同业、催化、技术和风险。",
+            "how_seed_uses_it": "当前先落报告模块；后续把 market_context 独立为可复用 artifact/provider。",
+            "source_url": "https://github.com/AI4Finance-Foundation/FinRobot",
+        },
+        {
+            "name": "SEC analyst-report caution",
+            "borrowed_rule": "不要只依赖分析师评级；要读公司报告、核验披露并关注利益冲突。",
+            "how_seed_uses_it": "目标价只作为外部一致预期锚点，报告继续声明非投资建议并展示数据缺口。",
+            "source_url": "https://www.sec.gov/investor/pubs/analysts.htm",
+        },
+    ]
+
+    return {
+        "overall_score": overall_score,
+        "coverage": coverage_items,
+        "frameworks": frameworks,
+        "pipeline": [
+            "1. 收集真实行情：当前价、52周区间、1D/1W/1M/1Y、成交量、市值和历史 OHLC。",
+            "2. 收集一致预期：平均/中位/高/低目标价、样本数、评级分布和来源日期。",
+            "3. 回到主源：公司 IR、交易所公告、财报、业绩 PPT、电话会或官方经营更新。",
+            "4. 建立情景：基准、上行、下行分别绑定目标价、触发条件、验证点和来源。",
+            "5. 做分歧诊断：目标价跨度、平均/中位差、样本数和数据缺口决定置信度。",
+            "6. 输出可审计报告：每个关键数字保留来源链接、访问日期和本地 artifact。",
+        ],
+        "self_review_questions": [
+            "上行/下行空间是否来自外部目标价、52周位置、估值倍数或财报敏感性，而不是模型编的数字？",
+            "目标价分歧是否足够大，导致平均值需要降权？",
+            "财报主源、新闻事实和行情源是否能点开复核？",
+            "AI / AI Coding 变量是进入商业本质、成本曲线和竞争结构，还是被误写成自动利多/利空？",
+            "还缺哪些字段会影响客户级交付？",
+        ],
+        "source_gaps_count": len(source_gaps),
+        "open_questions_count": len(open_questions),
+    }
+
+
+def _build_user_value_summary(
+    *,
+    totals: dict[str, Any],
+    market_context: dict[str, Any],
+    consensus_diagnostics: dict[str, Any],
+    research_methodology: dict[str, Any],
+    peer_context: dict[str, Any],
+    source_gaps: list[str],
+) -> dict[str, Any]:
+    source_count = len(_as_list(market_context.get("source_refs")))
+    next_events = _as_list(market_context.get("next_events"))
+    first_event = _as_dict(next_events[0]) if next_events else {}
+    target_asset = peer_context.get("target_asset") or peer_context.get("target_ticker") or "当前标的"
+    upside = _safe_float(totals.get("overall_upside"))
+    downside = _safe_float(totals.get("overall_downside"))
+    rr = _safe_float(totals.get("overall_risk_reward"))
+    conflict_level = str(consensus_diagnostics.get("conflict_level") or "unknown")
+    conflict_label = {
+        "high": "高分歧",
+        "medium": "中等分歧",
+        "low": "低分歧",
+        "unknown": "待补充",
+    }.get(conflict_level, "待补充")
+    coverage_score = _safe_float(research_methodology.get("overall_score"))
+
+    cards = [
+        {
+            "title": "30 秒判断",
+            "value": f"上行 {_format_pct(upside)} / 下行 {_format_pct(downside)}",
+            "text": f"先看 {target_asset} 是否值得继续研究：赔率、目标价分歧和证据缺口放在同一屏。",
+        },
+        {
+            "title": "少搜资料",
+            "value": f"{source_count} 个来源",
+            "text": "把行情、目标价、财报/公告、券商分歧和新闻催化集中到可点击来源。",
+        },
+        {
+            "title": "知道盯什么",
+            "value": str(first_event.get("date") or "待补充"),
+            "text": str(first_event.get("event") or "下一财报、产品、政策和成本变量需要继续补齐。"),
+        },
+        {
+            "title": "避开误读",
+            "value": conflict_label,
+            "text": "目标价分歧越大，越不能只看平均目标价；报告会把高/低/中位目标拆开。",
+        },
+    ]
+    if rr is not None:
+        cards[0]["text"] += f" 当前 R/R 约 {rr:.2f}，只作为风险收益讨论输入。"
+
+    return {
+        "headline": "这份报告不是替用户下单，而是帮用户快速判断“值不值得继续研究、下一步该核验什么”。",
+        "audience": [
+            "普通用户：用来快速理解一家公司当前股价故事和主要风险。",
+            "内容创作者：用来把观点讲清楚，避免只抛结论没有来源。",
+            "投研助理/Agent：用来沉淀 search log、source refs 和后续复核清单。",
+        ],
+        "cards": cards,
+        "user_jobs": [
+            "节省检索时间：把分散的行情、研报、财报、政策和新闻事实集中到一个页面。",
+            "降低误判：先暴露目标价分歧、数据覆盖度和证据缺口。",
+            "形成跟踪清单：告诉用户接下来盯财报、产品、政策、成本、竞争中的哪些变量。",
+            "便于分享：把复杂研究压成普通人能复述的上/下行、关键风险和验证点。",
+        ],
+        "limitations": [
+            "不提供买入/卖出指令。",
+            "不把目标价当确定预测。",
+            "不替代交易所公告、公司财报、券商终端或用户自己的风险承受能力判断。",
+        ],
+        "coverage_score": coverage_score,
+        "source_gaps_count": len(source_gaps),
+    }
+
+
+def _apply_market_scenarios_to_rollups(
+    rollups: list[dict[str, Any]],
+    market_scenarios: dict[str, Any] | None,
+    market_context: dict[str, Any],
+) -> list[dict[str, Any]]:
+    if not market_scenarios or not rollups:
+        return rollups
+
+    upside_case = _as_dict(market_scenarios.get("upside_case"))
+    downside_case = _as_dict(market_scenarios.get("downside_case"))
+    base_case = _as_dict(market_scenarios.get("base_case"))
+    anchor_price = _safe_float(market_scenarios.get("anchor_price"))
+    target_prices = {
+        "upside_pct": upside_case.get("returns"),
+        "upside_target": upside_case.get("target_price"),
+        "downside_pct": downside_case.get("returns"),
+        "downside_target": downside_case.get("target_price"),
+        "method": market_scenarios.get("method"),
+    }
+    risk_reward_ratio = None
+    upside = _safe_float(upside_case.get("returns"))
+    downside = _safe_float(downside_case.get("returns"))
+    if upside is not None and downside is not None and downside < 0:
+        risk_reward_ratio = round(upside / abs(downside), 2)
+
+    updated: list[dict[str, Any]] = []
+    for item in rollups:
+        row = dict(item)
+        row["latest_return"] = base_case.get("returns")
+        row["upside"] = upside_case.get("returns")
+        row["downside"] = downside_case.get("returns")
+        row["risk_reward_ratio"] = risk_reward_ratio
+        row["target_prices"] = target_prices
+        row["price_context"] = {
+            "status": "market_context",
+            "latest_close": anchor_price,
+            "latest_price_date": market_scenarios.get("anchor_price_date"),
+            "target_prices": target_prices,
+            "method": market_scenarios.get("method"),
+            "source_refs": market_context.get("source_refs"),
+        }
+        updated.append(row)
+    return updated
+
+
 def _build_asset_rollup(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for event in events:
@@ -888,7 +1561,7 @@ def _build_asset_rollup(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
         production_terms = _extract_matching_terms(event_text, AIGC_PRODUCTION_KEYWORDS)
         usage_terms = _extract_matching_terms(event_text, AIGC_USAGE_KEYWORDS)
         software_terms = _extract_matching_terms(event_text, SOFTWARE_KEYWORDS)
-        bearish_direction = direction_counter.get("bearish", 0) + direction_counter.get("mixed", 0)
+        bearish_direction = direction_counter.get("bearish", 0)
         bullish_direction = direction_counter.get("bullish", 0)
         bearish_actions = (
             action_counter.get("sell", 0)
@@ -1067,6 +1740,16 @@ def build_finance_outlook_payload(
     if not first_principles:
         first_principles = _first_principles_context(source_first_principles)
     rollups = _build_asset_rollup(events)
+    market_context = _market_context_from_digest(resolved_digest, source_digest)
+    market_context = _ensure_three_year_historical_prices(
+        market_context,
+        target_ticker=peer_context.get("target_ticker"),
+    )
+    company_assets = company_assets_from_digest(resolved_digest, source_digest, market_context)
+    market_scenarios_input = _market_scenarios_from_digest(resolved_digest, source_digest)
+    market_scenarios = _build_market_scenarios(market_scenarios_input, market_context)
+    if market_scenarios:
+        rollups = _apply_market_scenarios_to_rollups(rollups, market_scenarios, market_context)
     time_coverage = _build_time_coverage(events)
     has_software_context = bool([item for item in rollups if item.get("is_software_sector")])
     has_aicoding_context = _contains_aicoding_context(digest) or _contains_software_context(
@@ -1124,6 +1807,17 @@ def build_finance_outlook_payload(
         rollups=rollups,
         overall_price_targets=overall_price_targets,
     )
+    if market_scenarios:
+        scenarios = market_scenarios
+        overall_upside = _safe_float(_as_dict(scenarios.get("upside_case")).get("returns"))
+        overall_downside = _safe_float(_as_dict(scenarios.get("downside_case")).get("returns"))
+        overall_rr = None
+        if overall_upside is not None and overall_downside is not None and overall_downside < 0:
+            overall_rr = round(overall_upside / abs(overall_downside), 2)
+        market_price_targets = _build_market_price_targets(scenarios)
+        if market_price_targets:
+            market_price_targets["asset"] = peer_context.get("target_asset") or resolved_digest.get("owner")
+            overall_price_targets = market_price_targets
 
     software_headwinds: list[str] = []
     for item in software_rollups:
@@ -1220,6 +1914,35 @@ def build_finance_outlook_payload(
     methodology_signals = sorted(
         set(_as_list(resolved_digest.get("methodology_signals")) + _as_list(source_digest.get("methodology_signals")))
     )
+    consensus_diagnostics = _build_consensus_diagnostics(market_context)
+    research_methodology = _build_research_methodology(
+        market_context=market_context,
+        scenarios=scenarios,
+        first_principles=first_principles_summary,
+        peer_context=peer_context,
+        source_gaps=source_gaps,
+        open_questions=open_questions,
+    )
+    totals_summary = {
+        "events": len(events),
+        "priced_events": len(priced_events),
+        "news_context_events": news_context_events,
+        "assets": len(rollups),
+        "software_assets": len(software_rollups),
+        "aigc_assets": len(aigc_rollups),
+        "overall_upside": overall_upside,
+        "overall_downside": overall_downside,
+        "overall_risk_reward": overall_rr,
+        "direction_bias": dict(direction_bias_counts),
+    }
+    user_value = _build_user_value_summary(
+        totals=totals_summary,
+        market_context=market_context,
+        consensus_diagnostics=consensus_diagnostics,
+        research_methodology=research_methodology,
+        peer_context=peer_context,
+        source_gaps=source_gaps,
+    )
 
     return {
         "generated_at": datetime.now(UTC).isoformat(),
@@ -1233,18 +1956,7 @@ def build_finance_outlook_payload(
         "not_investment_advice": True,
         "time_coverage": time_coverage,
         "peer_context": peer_context,
-        "totals": {
-            "events": len(events),
-            "priced_events": len(priced_events),
-            "news_context_events": news_context_events,
-            "assets": len(rollups),
-            "software_assets": len(software_rollups),
-            "aigc_assets": len(aigc_rollups),
-            "overall_upside": overall_upside,
-            "overall_downside": overall_downside,
-            "overall_risk_reward": overall_rr,
-            "direction_bias": dict(direction_bias_counts),
-        },
+        "totals": totals_summary,
         "macro_signals": macro_signals,
         "actions": dict(action_counter),
         "directions": dict(direction_counter),
@@ -1265,6 +1977,11 @@ def build_finance_outlook_payload(
         "asset_rollups": rollups,
         "overall_price_targets": overall_price_targets,
         "scenarios": scenarios,
+        "market_context": market_context,
+        "company_assets": company_assets,
+        "consensus_diagnostics": consensus_diagnostics,
+        "research_methodology": research_methodology,
+        "user_value": user_value,
         "first_principles": first_principles_summary,
         "methodology_signals": methodology_signals,
     }
@@ -1295,6 +2012,46 @@ def _format_price(value: float | None) -> str:
     return f"{value:,.2f}"
 
 
+def _pct_from_price(*, target_price: float | None, anchor_price: float | None) -> float | None:
+    if target_price is None or anchor_price is None or anchor_price == 0:
+        return None
+    return round((target_price / anchor_price - 1) * 100, 2)
+
+
+def _is_url(value: str) -> bool:
+    return value.startswith(("http://", "https://"))
+
+
+def _render_ref(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if _is_url(text):
+        safe_url = escape(text, quote=True)
+        return f"<a href=\"{safe_url}\" target=\"_blank\" rel=\"noopener noreferrer\">{escape(text)}</a>"
+    return escape(text)
+
+
+def _render_link(*, title: Any, url: Any) -> str:
+    label = str(title or url or "").strip()
+    href = str(url or "").strip()
+    if not href:
+        return escape(label)
+    safe_url = escape(href, quote=True)
+    return f"<a href=\"{safe_url}\" target=\"_blank\" rel=\"noopener noreferrer\">{escape(label)}</a>"
+
+
+def _render_ref_list(values: Any, *, limit: int | None = None) -> str:
+    if not isinstance(values, list):
+        return "无"
+    items = values[:limit] if limit is not None else values
+    rendered = [_render_ref(item) for item in items]
+    rendered = [item for item in rendered if item]
+    return "，".join(rendered) if rendered else "无"
+
+
+
+
 def _normalize_text_line(value: Any) -> str:
     if value is None:
         return ""
@@ -1306,7 +2063,7 @@ def _format_scenario(scenario: dict[str, Any], fallback_title: str) -> str:
     if not scenario:
         return f"<div class='card'><span class='muted'>{fallback_title}</span><strong>待补充</strong></div>"
     status = str(scenario.get("status") or "insufficient")
-    if status != "observed":
+    if status not in {"observed", "estimated", "market"}:
         notes = scenario.get("notes")
         if isinstance(notes, list):
             note_text = "；".join(escape(str(item).strip()) for item in notes if str(item).strip())
@@ -1320,7 +2077,7 @@ def _format_scenario(scenario: dict[str, Any], fallback_title: str) -> str:
     returns = _format_pct(_safe_float(scenario.get("returns")))
     confidence = _format_pct((_safe_float(scenario.get("confidence")) or 0) * 100)
     evidence = scenario.get("evidence_refs") or []
-    evidence_text = "，".join(escape(str(item)) for item in evidence[:4]) if evidence else "无"
+    evidence_text = _render_ref_list(evidence, limit=4)
     triggers = scenario.get("triggers") or []
     trigger_text = "；".join(escape(str(item)) for item in triggers[:3]) if triggers else "无明确触发条件"
     validation_points = scenario.get("validation_points") or []
@@ -1348,6 +2105,214 @@ def _render_list(items: list[Any], default: str) -> str:
     return "；".join(values)
 
 
+def _render_research_methodology_html(
+    methodology: dict[str, Any],
+    consensus: dict[str, Any],
+) -> str:
+    if not methodology and not consensus:
+        return ""
+
+    coverage_rows: list[str] = []
+    for item in _as_list(methodology.get("coverage")):
+        if not isinstance(item, dict):
+            continue
+        score = _safe_float(item.get("score")) or 0.0
+        score_pct = round(score * 100)
+        coverage_rows.append(
+            f"""
+            <div class="score-row">
+              <div>
+                <strong>{escape(str(item.get("label") or "未命名"))}</strong>
+                <div class="small muted">{escape(str(item.get("note") or ""))}</div>
+              </div>
+              <div class="score-meter" aria-label="{score_pct}%">
+                <span style="width:{score_pct}%"></span>
+              </div>
+              <div class="score-num">{score_pct}%</div>
+            </div>
+            """
+        )
+
+    framework_cards: list[str] = []
+    for item in _as_list(methodology.get("frameworks"))[:6]:
+        if not isinstance(item, dict):
+            continue
+        title = _render_link(title=item.get("name"), url=item.get("source_url"))
+        framework_cards.append(
+            f"""
+            <div class="method-card">
+              <span class="muted">{title}</span>
+              <strong>{escape(str(item.get("borrowed_rule") or "待补充"))}</strong>
+              <div class="small muted">Seed 用法：{escape(str(item.get("how_seed_uses_it") or "待补充"))}</div>
+            </div>
+            """
+        )
+
+    pipeline_rows = "".join(
+        f"<li>{escape(str(item))}</li>"
+        for item in _as_list(methodology.get("pipeline"))[:8]
+        if str(item).strip()
+    )
+    self_review_rows = "".join(
+        f"<li>{escape(str(item))}</li>"
+        for item in _as_list(methodology.get("self_review_questions"))[:8]
+        if str(item).strip()
+    )
+
+    returns = _as_dict(consensus.get("returns"))
+    consensus_rows = [
+        ("最低目标", consensus.get("target_low"), returns.get("low")),
+        ("平均目标", consensus.get("target_average"), returns.get("average")),
+        ("中位目标", consensus.get("target_median"), returns.get("median")),
+        ("最高目标", consensus.get("target_high"), returns.get("high")),
+    ]
+    consensus_table_rows = "".join(
+        f"<tr><td>{escape(label)}</td><td>{_format_price(_safe_float(price))}</td><td>{_format_pct(_safe_float(ret))}</td></tr>"
+        for label, price, ret in consensus_rows
+        if price is not None or ret is not None
+    )
+    conflict_map = {
+        "high": "高分歧",
+        "medium": "中等分歧",
+        "low": "低分歧",
+        "unknown": "待补充分歧",
+    }
+    conflict_label = conflict_map.get(str(consensus.get("conflict_level") or "unknown"), "待补充分歧")
+    consensus_notes = "".join(
+        f"<li>{escape(str(item))}</li>"
+        for item in _as_list(consensus.get("notes"))
+        if str(item).strip()
+    )
+    source_note = _normalize_text_line(consensus.get("source_note"))
+
+    return f"""
+    <section class="section">
+      <h2>成熟研报方法论映射</h2>
+      <div class="methodology-grid">
+        {''.join(framework_cards) or '<div class="card">暂无参考方法论</div>'}
+      </div>
+      <div class="grid" style="margin-top:10px;">
+        <div class="card wide-card">
+          <span class="muted">生成 pipeline</span>
+          <ul>{pipeline_rows or '<li>待补充</li>'}</ul>
+        </div>
+        <div class="card wide-card">
+          <span class="muted">输出自检问题</span>
+          <ul>{self_review_rows or '<li>待补充</li>'}</ul>
+        </div>
+      </div>
+      <div class="small muted">这部分是报告方法论，不是投资建议；它用来强迫每个结论回到数据、来源和可验证假设。</div>
+    </section>
+
+    <section class="section">
+      <h2>一致预期与目标价分歧</h2>
+      <div class="grid">
+        <div class="card">
+          <span class="muted">当前价格</span>
+          <strong>{_format_price(_safe_float(consensus.get("current_price")))}</strong>
+          <div class="small muted">目标收益均按当前价格重新计算。</div>
+        </div>
+        <div class="card">
+          <span class="muted">分析师样本</span>
+          <strong>{escape(str(consensus.get("analyst_sample_size") or "待补充"))}</strong>
+          <div class="small muted">评级：{escape(str(consensus.get("rating") or "待补充"))}</div>
+        </div>
+        <div class="card">
+          <span class="muted">目标价跨度</span>
+          <strong>{_format_pct(_safe_float(consensus.get("dispersion_pct")))}</strong>
+          <div class="small muted">分歧等级：{escape(conflict_label)}</div>
+        </div>
+        <div class="card">
+          <span class="muted">平均/中位差</span>
+          <strong>{_format_pct(_safe_float(consensus.get("average_median_gap_pct")))}</strong>
+          <div class="small muted">均值被极端目标拉动时要降权。</div>
+        </div>
+      </div>
+      <table>
+        <thead><tr><th>目标价口径</th><th>目标价</th><th>相对当前价</th></tr></thead>
+        <tbody>{consensus_table_rows or '<tr><td colspan="3">暂无目标价数据</td></tr>'}</tbody>
+      </table>
+      <ul>{consensus_notes or '<li>暂无额外分歧说明</li>'}</ul>
+      <div class="small muted">{escape(source_note or "目标价来源待补充")}</div>
+    </section>
+
+    <section class="section">
+      <h2>数据覆盖度 / 交付自检</h2>
+      <div class="score-summary">
+        <strong>{round((_safe_float(methodology.get("overall_score")) or 0.0) * 100)}%</strong>
+        <span class="muted">当前报告数据覆盖度。它只评估数据是否齐，不代表结论正确。</span>
+      </div>
+      <div class="score-list">{''.join(coverage_rows) or '<div class="muted">暂无覆盖度数据</div>'}</div>
+      <div class="small muted">
+        Source gaps: {escape(str(methodology.get("source_gaps_count") or 0))} ｜ Open questions: {escape(str(methodology.get("open_questions_count") or 0))}
+      </div>
+    </section>
+    """
+
+
+def _render_user_value_html(user_value: dict[str, Any]) -> str:
+    if not user_value:
+        return ""
+
+    cards_html = "".join(
+        f"""
+        <div class="value-card">
+          <span class="muted">{escape(str(item.get("title") or ""))}</span>
+          <strong>{escape(str(item.get("value") or "待补充"))}</strong>
+          <div class="small muted">{escape(str(item.get("text") or ""))}</div>
+        </div>
+        """
+        for item in _as_list(user_value.get("cards"))
+        if isinstance(item, dict)
+    )
+    audience_html = "".join(
+        f"<li>{escape(str(item))}</li>"
+        for item in _as_list(user_value.get("audience"))
+        if str(item).strip()
+    )
+    jobs_html = "".join(
+        f"<li>{escape(str(item))}</li>"
+        for item in _as_list(user_value.get("user_jobs"))
+        if str(item).strip()
+    )
+    limitations_html = "".join(
+        f"<li>{escape(str(item))}</li>"
+        for item in _as_list(user_value.get("limitations"))
+        if str(item).strip()
+    )
+    coverage_score = _safe_float(user_value.get("coverage_score"))
+    coverage_text = f"{round(coverage_score * 100)}%" if coverage_score is not None else "待补充"
+
+    return f"""
+    <section class="section user-value-section">
+      <h2>用户视角：这份报告有什么价值</h2>
+      <p class="lead">{escape(str(user_value.get("headline") or "帮助用户快速判断是否值得继续研究。"))}</p>
+      <div class="value-grid">{cards_html or '<div class="card">暂无用户价值摘要</div>'}</div>
+      <div class="grid" style="margin-top:10px;">
+        <div class="card">
+          <span class="muted">适合谁</span>
+          <ul>{audience_html or '<li>普通用户和内容创作者</li>'}</ul>
+        </div>
+        <div class="card">
+          <span class="muted">用户拿它做什么</span>
+          <ul>{jobs_html or '<li>快速形成复核清单</li>'}</ul>
+        </div>
+        <div class="card">
+          <span class="muted">不能替你做什么</span>
+          <ul>{limitations_html or '<li>不提供买卖指令</li>'}</ul>
+        </div>
+        <div class="card">
+          <span class="muted">可交付度</span>
+          <strong>{coverage_text}</strong>
+          <div class="small muted">Source gaps: {escape(str(user_value.get("source_gaps_count") or 0))}</div>
+        </div>
+      </div>
+    </section>
+    """
+
+
+
+
 def build_finance_outlook_report_html(payload: dict[str, Any]) -> str:
     owner = escape(str(payload.get("owner") or "Unknown"))
     platform = escape(str(payload.get("platform") or "unknown"))
@@ -1365,6 +2330,17 @@ def build_finance_outlook_report_html(payload: dict[str, Any]) -> str:
     direction_bias = totals.get("direction_bias") or {}
     time_coverage = payload.get("time_coverage") or {}
     peer_context = payload.get("peer_context") or {}
+    market_context = _as_dict(payload.get("market_context"))
+    user_value_html = _render_user_value_html(_as_dict(payload.get("user_value")))
+    research_methodology_html = _render_research_methodology_html(
+        _as_dict(payload.get("research_methodology")),
+        _as_dict(payload.get("consensus_diagnostics")),
+    )
+    company_assets_html = render_company_assets_html(
+        _as_dict(payload.get("company_assets")),
+        peer_context=peer_context,
+    )
+    kline_chart_html = build_kline_chart_html(market_context, scenarios)
 
     actions = payload.get("actions") or {}
     directions = payload.get("directions") or {}
@@ -1444,6 +2420,100 @@ def build_finance_outlook_report_html(payload: dict[str, Any]) -> str:
             if note := str(peer.get("note") or "").strip():
                 parts.append(note)
             peer_rows.append("｜".join(parts))
+
+    market_metrics = [
+        ("当前价", _format_price(_safe_float(market_context.get("current_price") or market_context.get("latest_close")))),
+        ("价格日期", str(market_context.get("as_of") or market_context.get("price_date") or "-")),
+        ("今日", _format_pct(_safe_float(market_context.get("day_change_pct")))),
+        ("近一周", _format_pct(_safe_float(market_context.get("one_week_return_pct")))),
+        ("近一月", _format_pct(_safe_float(market_context.get("one_month_return_pct")))),
+        ("近一年", _format_pct(_safe_float(market_context.get("one_year_return_pct")))),
+        (
+            "52周区间",
+            f"{_format_price(_safe_float(market_context.get('fifty_two_week_low')))} - "
+            f"{_format_price(_safe_float(market_context.get('fifty_two_week_high')))}",
+        ),
+        ("距52周低点", _format_pct(_safe_float(market_context.get("pct_from_52_week_low")))),
+        ("距52周高点", _format_pct(_safe_float(market_context.get("pct_to_52_week_high")))),
+        ("平均目标价", _format_price(_safe_float(market_context.get("analyst_target_average")))),
+        ("目标价上行", _format_pct(_safe_float(market_context.get("analyst_target_average_upside_pct")))),
+        ("最低目标价", _format_price(_safe_float(market_context.get("analyst_target_low")))),
+    ]
+    market_metric_rows = "".join(
+        f"<tr><td>{escape(label)}</td><td>{escape(value)}</td></tr>"
+        for label, value in market_metrics
+        if value and value != "-"
+    )
+    market_source_rows: list[str] = []
+    for source in _as_list(market_context.get("source_refs")):
+        if not isinstance(source, dict):
+            continue
+        title = str(source.get("title") or source.get("url") or "source").strip()
+        url = str(source.get("url") or "").strip()
+        accessed = str(source.get("accessed_at") or "").strip()
+        note = str(source.get("note") or "").strip()
+        link = _render_link(title=title, url=url)
+        suffix = "；".join(escape(item) for item in [accessed, note] if item)
+        market_source_rows.append(f"<li>{link}{' ｜ ' + suffix if suffix else ''}</li>")
+    market_next_event_rows: list[str] = []
+    for event in _as_list(market_context.get("next_events")):
+        if not isinstance(event, dict):
+            continue
+        title = str(event.get("event") or event.get("title") or "").strip()
+        date = str(event.get("date") or "").strip()
+        relevance = str(event.get("relevance") or event.get("note") or "").strip()
+        if title:
+            market_next_event_rows.append(
+                f"<li>{escape(date)} ｜ {escape(title)}"
+                f"{'：' + escape(relevance) if relevance else ''}</li>"
+            )
+    market_lineage_rows: list[str] = []
+    for key in ("price_source_note", "target_price_source_note"):
+        note = _normalize_text_line(market_context.get(key))
+        if note:
+            market_lineage_rows.append(f"<li>{escape(note)}</li>")
+    for note in _as_list(market_context.get("data_quality_notes")):
+        if isinstance(note, str) and note.strip():
+            market_lineage_rows.append(f"<li>{escape(note.strip())}</li>")
+    saved_artifacts = market_context.get("saved_artifacts")
+    if isinstance(saved_artifacts, dict):
+        for label, path in saved_artifacts.items():
+            if str(path or "").strip():
+                market_lineage_rows.append(f"<li>{escape(str(label))}: {escape(str(path))}</li>")
+    market_lineage_html = (
+        f"""
+        <div class="card">
+          <span class="muted">数据口径与保存</span>
+          <ul>{''.join(market_lineage_rows)}</ul>
+        </div>
+        """
+        if market_lineage_rows
+        else ""
+    )
+    market_context_html = (
+        f"""
+    <section class="section">
+      <h2>市场锚点（真实检索口径）</h2>
+      <table>
+        <tbody>{market_metric_rows or '<tr><td colspan="2">暂无市场锚点</td></tr>'}</tbody>
+      </table>
+      <div class="grid" style="margin-top:10px;">
+        <div class="card">
+          <span class="muted">接下来要盯的时间点</span>
+          <ul>{''.join(market_next_event_rows) or '<li>暂无</li>'}</ul>
+        </div>
+        <div class="card">
+          <span class="muted">检索来源</span>
+          <ul>{''.join(market_source_rows) or '<li>暂无</li>'}</ul>
+        </div>
+        {market_lineage_html}
+      </div>
+      <div class="small muted">口径说明：这里记录的是行情、目标价、52周区间、财报/政策/产品催化来源；未来空间优先来自该口径，事件后验只用于复核观点表现。</div>
+    </section>
+        """
+        if market_context
+        else ""
+    )
 
     asset_rows = []
     for item in rollups:
@@ -1542,7 +2612,7 @@ def build_finance_outlook_report_html(payload: dict[str, Any]) -> str:
         if not isinstance(item, dict):
             continue
         price_context = item.get("price_context")
-        if not isinstance(price_context, dict) or price_context.get("status") != "priced":
+        if not isinstance(price_context, dict) or price_context.get("status") not in {"priced", "market_context"}:
             continue
         target_prices = item.get("target_prices")
         if not isinstance(target_prices, dict):
@@ -1591,6 +2661,16 @@ def build_finance_outlook_report_html(payload: dict[str, Any]) -> str:
         if isinstance(scenario_notes, list)
         else str(scenario_notes or "待补充")
     )
+    scenario_heading = (
+        "情景锚点（市场/估值口径）"
+        if scenarios.get("method") == "market_valuation_context"
+        else "情景锚点（事件级）"
+    )
+    scenario_disclaimer = (
+        "场景来自真实行情、52周区间、分析师目标价、财报与政策催化信息；事件后验仅作为复核，不构成投资建议。"
+        if scenarios.get("method") == "market_valuation_context"
+        else "场景为事件与价格后验汇总结果，仅用于风险收益边界，不构成投资建议。"
+    )
     aicoding_guardrails = [
         "1）优先核验：AI Coding 相关事件是否已落入已披露财报/公告（新增研发效率、外包与人力占比变化）。",
         "2）若出现“人均毛利下滑+新增人力成本下降未提升续费率”，说明替代压力真实。",
@@ -1636,6 +2716,8 @@ def build_finance_outlook_report_html(payload: dict[str, Any]) -> str:
     h1 {{ margin: 0 0 8px; font-size: 30px; }}
     .muted {{ color: var(--muted); }}
     .meta {{ color: #445; margin-top: 4px; }}
+    a {{ color: #225ea8; text-decoration: none; }}
+    a:hover {{ text-decoration: underline; }}
     .grid {{
       display: grid;
       grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1707,10 +2789,437 @@ def build_finance_outlook_report_html(payload: dict[str, Any]) -> str:
     .scenario-grid .card {{
       border-left: 3px solid #d9e4ea;
     }}
+    .lead {{
+      margin: 0 0 12px;
+      font-size: 16px;
+      color: #344246;
+    }}
+    .brand-context {{
+      display: grid;
+      grid-template-columns: 210px minmax(0, 1.5fr) minmax(260px, 0.9fr);
+      gap: 12px;
+      align-items: stretch;
+    }}
+    .brand-logo-card,
+    .product-card,
+    .brand-notes {{
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfcfd;
+      padding: 12px;
+    }}
+    .brand-logo-card {{
+      display: grid;
+      gap: 8px;
+      align-content: center;
+      justify-items: center;
+      text-align: center;
+      min-height: 190px;
+    }}
+    .brand-logo-card img {{
+      max-width: 128px;
+      max-height: 92px;
+      width: auto;
+      height: auto;
+      object-fit: contain;
+      display: block;
+    }}
+    .logo-fallback {{
+      background: linear-gradient(135deg, #fff, #eef4f3);
+    }}
+    .brand-product-grid {{
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }}
+    .product-card {{
+      display: grid;
+      gap: 7px;
+      min-height: 190px;
+    }}
+    .product-card img,
+    .product-image-placeholder {{
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      border-radius: 6px;
+      border: 1px solid #e0e6e8;
+      background: #f1f4f5;
+      object-fit: cover;
+      display: grid;
+      place-items: center;
+      color: var(--muted);
+      font-size: 12px;
+    }}
+    .product-card strong {{
+      font-size: 15px;
+      line-height: 1.35;
+    }}
+    .product-card span,
+    .product-card small {{
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }}
+    .brand-notes {{
+      min-height: 190px;
+    }}
+    .value-grid {{
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }}
+    .value-card {{
+      background: #fbfcfd;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      min-height: 128px;
+    }}
+    .value-card strong {{
+      display: block;
+      margin: 6px 0;
+      font-size: 21px;
+      line-height: 1.25;
+    }}
+    .methodology-grid {{
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }}
+    .method-card {{
+      background: #fbfcfd;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+    }}
+    .method-card strong {{
+      display: block;
+      margin: 6px 0;
+      font-size: 15px;
+      line-height: 1.45;
+    }}
+    .wide-card {{
+      grid-column: span 2;
+    }}
+    .score-summary {{
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+      margin-bottom: 10px;
+    }}
+    .score-summary strong {{
+      font-size: 28px;
+    }}
+    .score-list {{
+      display: grid;
+      gap: 8px;
+      margin-bottom: 10px;
+    }}
+    .score-row {{
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) minmax(180px, 0.8fr) 58px;
+      gap: 10px;
+      align-items: center;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      background: #fbfcfd;
+    }}
+    .score-row strong {{
+      font-size: 15px;
+    }}
+    .score-meter {{
+      height: 9px;
+      border-radius: 999px;
+      background: #e8eef0;
+      overflow: hidden;
+    }}
+    .score-meter span {{
+      display: block;
+      height: 100%;
+      background: #2f7d6d;
+    }}
+    .score-num {{
+      text-align: right;
+      color: var(--muted);
+      font-size: 13px;
+    }}
+    .chart-wrap {{
+      width: 100%;
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfcfd;
+    }}
+    .finance-chart-root {{
+      min-width: 860px;
+      height: 430px;
+    }}
+    .chart-fallback {{
+      display: none;
+      padding: 14px;
+      border-top: 1px solid var(--line);
+      background: #fff;
+    }}
+    .chart-wrap.chart-failed .chart-fallback {{ display: block; }}
+    .chart-path-note {{ margin-top: 10px; }}
+    .chart-legend {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin: 10px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+    }}
+    .legend-candle, .legend-line, .legend-path, .legend-event, .legend-historical-event {{
+      display: inline-block;
+      width: 18px;
+      height: 8px;
+      margin-right: 5px;
+      vertical-align: middle;
+    }}
+    .legend-candle.up {{ background: #b4443f; }}
+    .legend-candle.down {{ background: #16745b; }}
+    .legend-line {{ border-top: 2px dashed #255f9e; }}
+    .legend-path {{ border-top: 2px solid #255f9e; }}
+    .legend-event {{
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: #255f9e;
+    }}
+    .legend-historical-event {{
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: #8a5a28;
+    }}
+    .target-legend span {{ white-space: nowrap; }}
+    .chart-time-rail {{
+      margin-top: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfcfd;
+      padding: 10px 12px 8px;
+      overflow: hidden;
+    }}
+    .rail-heading {{
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 8px;
+      color: var(--muted);
+      font-size: 12px;
+    }}
+    .rail-heading strong {{
+      color: var(--ink);
+      font-size: 14px;
+    }}
+    .rail-canvas {{
+      position: relative;
+      min-width: 860px;
+      height: 154px;
+      border-radius: 8px;
+      background: linear-gradient(90deg, #ffffff 0%, #ffffff var(--now), #fff8f3 var(--now), #fff8f3 100%);
+      border: 1px solid #edf2f4;
+    }}
+    .rail-axis {{
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 68px;
+      border-top: 1px solid #cbd6da;
+    }}
+    .rail-future-zone {{
+      position: absolute;
+      left: var(--now);
+      width: var(--future-width);
+      top: 0;
+      bottom: 0;
+      background: repeating-linear-gradient(
+        90deg,
+        rgba(177, 91, 41, 0.08),
+        rgba(177, 91, 41, 0.08) 10px,
+        rgba(177, 91, 41, 0.02) 10px,
+        rgba(177, 91, 41, 0.02) 20px
+      );
+      border-left: 1px dashed #b15b29;
+    }}
+    .rail-now {{
+      position: absolute;
+      left: var(--now);
+      top: 0;
+      bottom: 0;
+      border-left: 2px solid #b15b29;
+      z-index: 4;
+    }}
+    .rail-now span {{
+      position: absolute;
+      left: 6px;
+      top: 8px;
+      min-width: 110px;
+      color: #8a431f;
+      font-size: 11px;
+      line-height: 1.25;
+      background: rgba(255, 248, 243, 0.92);
+      padding: 3px 5px;
+      border-radius: 5px;
+    }}
+    .rail-point {{
+      position: absolute;
+      top: 61px;
+      width: 17px;
+      height: 17px;
+      line-height: 17px;
+      transform: translateX(-50%);
+      border-radius: 50%;
+      color: #fff;
+      font-size: 9px;
+      text-align: center;
+      z-index: 3;
+      box-shadow: 0 0 0 2px #fff;
+    }}
+    .rail-future-event {{
+      position: absolute;
+      top: calc(10px + var(--lane) * 42px);
+      width: min(240px, 24%);
+      min-width: 150px;
+      transform: translateX(-12px);
+      border-left: 3px solid var(--rail-color);
+      border-radius: 7px;
+      background: rgba(255, 255, 255, 0.96);
+      border-top: 1px solid var(--line);
+      border-right: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      padding: 6px 8px;
+      z-index: 5;
+      box-shadow: 0 4px 14px rgba(31, 45, 50, 0.08);
+    }}
+    .rail-future-event strong,
+    .rail-future-event em,
+    .rail-future-event small {{
+      display: block;
+      line-height: 1.25;
+    }}
+    .rail-future-event strong {{ font-size: 12px; color: var(--ink); }}
+    .rail-future-event em {{
+      color: var(--muted);
+      font-style: normal;
+      font-size: 11px;
+      margin-top: 2px;
+    }}
+    .rail-future-event small {{
+      color: var(--muted);
+      font-size: 10px;
+      margin-top: 2px;
+    }}
+    .rail-future-event small.upside {{ color: #9f3734; }}
+    .rail-future-event small.downside {{ color: #12664f; }}
+    .rail-event-date {{
+      display: block;
+      color: var(--rail-color);
+      font-size: 11px;
+      font-weight: 700;
+    }}
+    .rail-window {{
+      position: absolute;
+      top: calc(114px - var(--lane) * 18px);
+      height: 17px;
+      min-width: 28px;
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--rail-color), white 78%);
+      border: 1px solid color-mix(in srgb, var(--rail-color), white 45%);
+      color: #4c4f51;
+      font-size: 10px;
+      overflow: hidden;
+      white-space: nowrap;
+      padding: 1px 7px;
+      z-index: 2;
+    }}
+    .rail-window strong {{
+      margin-left: 5px;
+      font-weight: 700;
+    }}
+    .rail-labels {{
+      display: flex;
+      justify-content: space-between;
+      color: var(--muted);
+      font-size: 11px;
+      margin-top: 5px;
+    }}
+    .chart-event-history {{
+      display: grid;
+      gap: 7px;
+      margin-top: 12px;
+    }}
+    .chart-event-row {{
+      display: grid;
+      grid-template-columns: 10px 88px minmax(160px, 0.8fr) auto minmax(220px, 1.2fr) minmax(120px, 0.8fr);
+      gap: 8px;
+      align-items: center;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 8px 10px;
+      background: #fff;
+    }}
+    .chart-event-dot {{
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      display: inline-block;
+    }}
+    .source-ref {{
+      text-align: right;
+    }}
+    .finance-event-timeline {{
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 10px;
+      margin-top: 12px;
+    }}
+    .event-impact-card {{
+      border: 1px solid var(--line);
+      border-left: 3px solid #255f9e;
+      border-radius: 8px;
+      padding: 11px 12px;
+      background: #fff;
+    }}
+    .event-impact-card strong {{
+      display: block;
+      margin-bottom: 5px;
+    }}
+    .event-date {{
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 4px;
+    }}
+    .scenario-hint {{
+      margin-top: 5px;
+    }}
+    .scenario-hint span {{
+      font-weight: 700;
+      color: var(--text);
+    }}
+    .scenario-hint.upside span {{ color: #b4443f; }}
+    .scenario-hint.downside span {{ color: #16745b; }}
     @media (max-width: 1024px) {{
       .scenario-grid {{ grid-template-columns: 1fr; }}
+      .brand-context {{ grid-template-columns: 1fr; }}
+      .value-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+      .methodology-grid {{ grid-template-columns: 1fr; }}
+      .wide-card {{ grid-column: span 1; }}
+      .score-row {{ grid-template-columns: 1fr; }}
+      .chart-event-row {{ grid-template-columns: 10px 82px 1fr; }}
+      .chart-event-row .tag,
+      .chart-event-row .source-ref {{ grid-column: 3; text-align: left; }}
+      .score-num {{ text-align: left; }}
+    }}
+    @media (max-width: 700px) {{
+      .value-grid {{ grid-template-columns: 1fr; }}
     }}
   </style>
+  <script src="../../tools/vendor/lightweight-charts-5.2.0.standalone.production.js"></script>
 </head>
 <body>
   <div class="shell">
@@ -1748,15 +3257,25 @@ def build_finance_outlook_report_html(payload: dict[str, Any]) -> str:
     </header>
 
     <section class="section">
-      <h2>情景锚点（事件级）</h2>
+      <h2>{escape(scenario_heading)}</h2>
       <div class="scenario-grid">
         {_format_scenario(base_case, "基准情景")}
         {_format_scenario(upside_case, "上行情景")}
         {_format_scenario(downside_case, "下行情景")}
       </div>
-      <div class="small muted" style="margin-top:8px;">场景为事件与价格后验汇总结果，仅用于风险收益边界，不构成投资建议。</div>
+      <div class="small muted" style="margin-top:8px;">{escape(scenario_disclaimer)}</div>
       <div class="small muted">场景依据：{escape(scenario_notes_text)}</div>
     </section>
+
+    {company_assets_html}
+
+    {user_value_html}
+
+    {research_methodology_html}
+
+    {market_context_html}
+
+    {kline_chart_html}
 
     <section class="section">
       <h2>全局情景</h2>
@@ -1849,7 +3368,7 @@ def build_finance_outlook_report_html(payload: dict[str, Any]) -> str:
     </section>
 
     <section class="section">
-      <h2>目标价位草案（基于价格后验）</h2>
+      <h2>目标价位草案（市场/事件口径）</h2>
       <ul>
         {target_price_rows_html}
       </ul>
@@ -1857,7 +3376,7 @@ def build_finance_outlook_report_html(payload: dict[str, Any]) -> str:
         全局口径目标：{_format_price(_safe_float(overall_price_targets.get("overall_upside_target")))}（{_format_pct(overall_price_targets.get("overall_upside"))}）
         / { _format_price(_safe_float(overall_price_targets.get("overall_downside_target")))}（{_format_pct(overall_price_targets.get("overall_downside"))}）
       </div>
-      <div class='small muted'>目标仅为草案：采用 latest close 与事件极值收益做场景映射；仅作风险收益讨论输入。</div>
+      <div class='small muted'>目标仅为草案：优先采用 market_scenarios 的真实行情/目标价口径；缺失时才退回事件后验映射。仅作风险收益讨论输入。</div>
     </section>
 
     <section class="section">
@@ -1909,6 +3428,189 @@ def build_finance_outlook_report_html(payload: dict[str, Any]) -> str:
       请结合公司公告/财报与独立核验后做最终判断。
     </div>
   </div>
+  <script>
+    (function () {{
+      function showChartFallback(container, message) {{
+        var wrap = container.closest(".chart-wrap");
+        if (wrap) {{
+          wrap.classList.add("chart-failed");
+        }}
+        var fallback = wrap ? wrap.querySelector(".chart-fallback") : null;
+        if (fallback && message) {{
+          fallback.textContent = message;
+        }}
+      }}
+
+      function createCandlestickSeries(chart, options) {{
+        if (typeof chart.addCandlestickSeries === "function") {{
+          return chart.addCandlestickSeries(options);
+        }}
+        return chart.addSeries(LightweightCharts.CandlestickSeries, options);
+      }}
+
+      function createLineSeries(chart, options) {{
+        if (typeof chart.addLineSeries === "function") {{
+          return chart.addLineSeries(options);
+        }}
+        return chart.addSeries(LightweightCharts.LineSeries, options);
+      }}
+
+      document.querySelectorAll(".finance-kline-chart").forEach(function (shell) {{
+        var container = shell.querySelector(".finance-chart-root");
+        var dataNode = shell.querySelector(".finance-chart-data");
+        if (!container || !dataNode) {{
+          return;
+        }}
+        if (!window.LightweightCharts || typeof LightweightCharts.createChart !== "function") {{
+          showChartFallback(container, "图表脚本未加载：请检查本地 Lightweight Charts vendor 文件。");
+          return;
+        }}
+
+        var chartData;
+        try {{
+          chartData = JSON.parse(dataNode.textContent || "{{}}");
+        }} catch (error) {{
+          showChartFallback(container, "图表数据解析失败。");
+          return;
+        }}
+        if (!Array.isArray(chartData.history) || chartData.history.length === 0) {{
+          showChartFallback(container, "缺少可绘制的历史 OHLC 数据。");
+          return;
+        }}
+
+        var colorType = LightweightCharts.ColorType && LightweightCharts.ColorType.Solid;
+        var chart = LightweightCharts.createChart(container, {{
+          width: Math.max(container.clientWidth || 0, 860),
+          height: 430,
+          layout: {{
+            background: {{ type: colorType || "solid", color: "#fbfcfd" }},
+            textColor: "#4a5b61",
+          }},
+          grid: {{
+            vertLines: {{ color: "#edf2f4" }},
+            horzLines: {{ color: "#edf2f4" }},
+          }},
+          localization: {{
+            priceFormatter: function (price) {{ return Number(price).toFixed(2); }},
+          }},
+          rightPriceScale: {{
+            borderVisible: false,
+            scaleMargins: {{ top: 0.08, bottom: 0.12 }},
+          }},
+          timeScale: {{
+            borderVisible: false,
+            rightOffset: 8,
+            barSpacing: 8,
+            fixLeftEdge: true,
+          }},
+        }});
+
+        var autoscale = chartData.autoscale || {{}};
+        var candleSeries = createCandlestickSeries(chart, {{
+          upColor: "#b4443f",
+          downColor: "#16745b",
+          borderVisible: false,
+          wickUpColor: "#b4443f",
+          wickDownColor: "#16745b",
+          priceLineVisible: false,
+          autoscaleInfoProvider: function (original) {{
+            var base = typeof original === "function" ? original() : null;
+            if (typeof autoscale.min !== "number" || typeof autoscale.max !== "number") {{
+              return base;
+            }}
+            return {{
+              priceRange: {{
+                minValue: autoscale.min,
+                maxValue: autoscale.max,
+              }},
+              margins: base && base.margins ? base.margins : null,
+            }};
+          }},
+        }});
+        candleSeries.setData(chartData.history);
+        if (
+          Array.isArray(chartData.historicalEventMarkers)
+          && chartData.historicalEventMarkers.length > 0
+          && typeof LightweightCharts.createSeriesMarkers === "function"
+        ) {{
+          LightweightCharts.createSeriesMarkers(candleSeries, chartData.historicalEventMarkers, {{ zOrder: "top" }});
+        }}
+
+        var dashed = LightweightCharts.LineStyle ? LightweightCharts.LineStyle.Dashed : 2;
+        var dotted = LightweightCharts.LineStyle ? LightweightCharts.LineStyle.Dotted : 1;
+        (chartData.scenarioPaths || []).forEach(function (path) {{
+          if (!Array.isArray(path.data) || path.data.length < 2) {{
+            return;
+          }}
+          var pathSeries = createLineSeries(chart, {{
+            color: path.color || "#255f9e",
+            lineWidth: 2,
+            lineStyle: dashed,
+            priceLineVisible: false,
+            lastValueVisible: false,
+            crosshairMarkerVisible: false,
+          }});
+          pathSeries.setData(path.data);
+        }});
+
+        if (Array.isArray(chartData.eventLane) && chartData.eventLane.length > 0) {{
+          var eventSeries = createLineSeries(chart, {{
+            color: "rgba(37, 95, 158, 0)",
+            lineWidth: 1,
+            priceLineVisible: false,
+            lastValueVisible: false,
+            crosshairMarkerVisible: false,
+          }});
+          eventSeries.setData(chartData.eventLane);
+          if (
+            Array.isArray(chartData.eventMarkers)
+            && chartData.eventMarkers.length > 0
+            && typeof LightweightCharts.createSeriesMarkers === "function"
+          ) {{
+            LightweightCharts.createSeriesMarkers(eventSeries, chartData.eventMarkers, {{ zOrder: "top" }});
+          }}
+        }}
+
+        if (typeof chartData.currentPrice === "number") {{
+          candleSeries.createPriceLine({{
+            price: chartData.currentPrice,
+            color: "#5d6970",
+            lineWidth: 1,
+            lineStyle: dotted,
+            axisLabelVisible: true,
+            title: chartData.currentPriceLabel || "当前",
+          }});
+        }}
+        (chartData.targets || []).forEach(function (target) {{
+          if (typeof target.price !== "number") {{
+            return;
+          }}
+          candleSeries.createPriceLine({{
+            price: target.price,
+            color: target.color || "#255f9e",
+            lineWidth: 2,
+            lineStyle: dashed,
+            axisLabelVisible: true,
+            title: target.title || target.label || "目标价",
+          }});
+        }});
+
+        chart.timeScale().fitContent();
+        chart.timeScale().applyOptions({{ rightOffset: 8 }});
+
+        if (window.ResizeObserver) {{
+          var observer = new ResizeObserver(function (entries) {{
+            var rect = entries[0] && entries[0].contentRect;
+            if (!rect) {{
+              return;
+            }}
+            chart.applyOptions({{ width: Math.max(Math.floor(rect.width), 860), height: 430 }});
+          }});
+          observer.observe(container);
+        }}
+      }});
+    }})();
+  </script>
 </body>
 </html>
 """

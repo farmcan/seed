@@ -9,6 +9,7 @@ from seed.domains.finance import (
     finance_digest_output_path,
     news_context_finance_digest_output_path,
     parse_stooq_daily_csv,
+    parse_yahoo_chart_json,
     write_finance_digest_artifact,
 )
 
@@ -100,9 +101,51 @@ def test_parse_stooq_daily_csv_and_market_data_record():
     )
 
     assert record["status"] == "priced"
+    assert history[0]["open"] == 10
+    assert history[0]["high"] == 11
+    assert history[0]["low"] == 9
+    assert history[0]["volume"] == 100
     assert record["published_close"] == 12
     assert record["latest_close"] == 12
     assert record["return_pct"] == 0.0
+
+
+def test_parse_yahoo_chart_json():
+    history = parse_yahoo_chart_json(
+        json.dumps(
+            {
+                "chart": {
+                    "result": [
+                        {
+                            "timestamp": [1779177600, 1779264000],
+                            "indicators": {
+                                "quote": [
+                                    {
+                                        "open": [30.6, 30.8],
+                                        "high": [31.0, 31.2],
+                                        "low": [30.3, 30.5],
+                                        "close": [30.64, None],
+                                        "volume": [89701722, 0],
+                                    }
+                                ]
+                            },
+                        }
+                    ]
+                }
+            }
+        )
+    )
+
+    assert history == [
+        {
+            "date": "2026-05-19",
+            "open": 30.6,
+            "high": 31.0,
+            "low": 30.3,
+            "close": 30.64,
+            "volume": 89701722,
+        }
+    ]
 
 
 def test_enrich_finance_digest_with_prices(monkeypatch):

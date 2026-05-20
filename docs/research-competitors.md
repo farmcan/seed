@@ -1,6 +1,6 @@
 # 竞品与类似项目调研
 
-调研日期：2026-05-07；画布与计费补充：2026-05-10；架构复核补充：2026-05-11；视觉笔记、核验、编排补充：2026-05-11；短视频 shot 级分析补充：2026-05-12；运行可观测性补充：2026-05-13；财经 UP 蒸馏补充：2026-05-14；新闻检索与财报解析补充：2026-05-17；AI 方法论与 agent 工作流补充：2026-05-18；书籍/读书方法论补充：2026-05-18；微信读书接入补充：2026-05-18。
+调研日期：2026-05-07；画布与计费补充：2026-05-10；架构复核补充：2026-05-11；视觉笔记、核验、编排补充：2026-05-11；短视频 shot 级分析补充：2026-05-12；运行可观测性补充：2026-05-13；财经 UP 蒸馏补充：2026-05-14；新闻检索与财报解析补充：2026-05-17；AI 方法论与 agent 工作流补充：2026-05-18；书籍/读书方法论补充：2026-05-18；微信读书接入补充：2026-05-18；财经报告与 UP 证据链结合补充：2026-05-20。
 
 ## 结论
 
@@ -58,6 +58,7 @@
 | OpenAI Codex 文档与安全实践 | Codex 被定位为能读写代码、运行命令并在工作区内执行任务的 coding agent；OpenAI 的安全实践强调 workspace 控制、日志、权限和 review。 | Seed 的 AI 方法论账本要记录“如何委派 agent、如何 review、如何限制权限、如何验收结果”，并把这些反补到 agent skill/check。 |
 | Simon Willison Using LLMs 系列 | 长期记录 LLM 在编程、数据处理、研究、工具构建和日常工作中的真实用法与失败经验。 | 适合作为“人物方法论”样本：记录具体 task、prompt/spec、工具组合、验证方式和可复用经验，而不是只摘录抽象观点。 |
 | Stooq daily CSV / pandas-datareader StooqDailyReader | Stooq 提供历史行情 CSV 下载，pandas-datareader 也内置 StooqDailyReader，底层使用 `https://stooq.com/q/d/l/`。 | 适合做轻量行情后验 baseline；Seed 先要求显式 ticker mapping，避免把视频里的中文标的名猜成错误代码。 |
+| StockAnalysis / TipRanks / Investing / ValueInvesting.io | 常见公开页面会展示当前价、52 周区间、近年涨跌、估值指标、下一财报日期和分析师目标价分布。 | 适合作为人工研究报告的 `market_context` 来源；未来上/下行空间要从当前价到目标价、52 周区间或估值情景推导，不能从事件后验涨跌硬推。 |
 | GDELT DOC 2.0 API | 官方文档说明 DOC API 支持全文新闻搜索、跨语言机器翻译覆盖、`artlist` 文章列表、JSON 输出和 timeline/tone/source country 等模式。 | 新闻检索 baseline 不自建爬虫，先用 GDELT `mode=artlist&format=json` 拉取候选来源，再由 facts distiller 拆 facts、reported claims、source gaps 和行业影响机制。 |
 | SEC EDGAR data APIs | SEC 官方文档说明 `data.sec.gov` 提供无需 API key 的 JSON API，包括 company submissions 和 XBRL companyfacts，更新随 filings disseminated。 | 财报解析 baseline 使用官方 `submissions/CIK##########.json` 和 `api/xbrl/companyfacts/CIK##########.json`，保留 CIK、accession、form、period、unit 和 filing URL。 |
 | SEC ticker/CIK mapping files | SEC “Accessing EDGAR Data” 页面列出 `company_tickers.json` 和 `company_tickers_exchange.json`，用于 ticker、CIK 和 company name association。 | `parse-earnings <ticker>` 先通过 SEC mapping 解析 CIK；没有可靠映射时失败，不猜。 |
@@ -114,25 +115,48 @@
 28. AlphaCheck 的产品启发是：用户真正关心频道级 track record，包括每个标的当时价格、当前价格、是否跑赢 benchmark、top winners/losers 和上下文理由。Seed 当前先落地 `*.finance-signals.json`，下一步再接行情 provider 和跨视频收益归因。
 29. “最近 10 天 top UP 都说了什么”不是单纯搜索问题，而是 date window + 批量 video pipeline + finance signals + channel digest。核心样本应由清单驱动，并在失败时保留原始平台错误与人工兜底策略。
 30. 行情后验应先做可解释 baseline：显式 `标的=ticker` mapping、发布日附近收盘价、最新收盘价、可选 benchmark、source URL 和价格日期。不要在没有可靠映射时猜 ticker，也不要把涨跌幅解释成交易建议。
-31. 下一步不要继续堆 summary 字段，应把 `finance-signals.json` 升级成观点事件 ledger：先判断是否存在 recommendation，再抽 ticker/entity、action、direction、horizon、conviction、entry/exit/invalidation、timestamp evidence 和 modality evidence。
-32. VideoConviction 的 action taxonomy 可直接作为 Seed 初版参考：buy、hold、don't buy、sell、short sell；Seed 还需要兼容 watch、add、reduce、allocate、unknown，因为中文财经 UP 经常是“观察/等回调/配置/减仓”。
-33. 后验评估不能只看 latest return。event 应根据 horizon 计算 1D/5D/20D/60D/latest、benchmark relative return 和风险指标；没有 horizon 时只输出 baseline，不做命中判断。
-34. 新闻检索不要从“观点总结”开始。GDELT 适合作为开放覆盖 baseline，但结果仍是媒体报道集合；Seed 的 `news-digest` 必须先分 facts、reported claims、source gaps，再写行业影响机制。
-35. 财报解析不要优先抓网页正文。SEC `submissions` 给 filing history，`companyfacts` 给可结构化 XBRL 指标；Seed 初版先把这两类 primary data 变成稳定 artifact，HTML filing/table 解析作为后续 provider。
-36. 通用能力新增前必须保留调研记录。新闻检索、财报解析、OCR、motion、行情、fact-check 这类常见能力都应先查官方或成熟开源项目，把选型写进 `docs/research-competitors.md`，再实现最小 provider。
-37. AI 方法论方向也应该作为 domain lens，而不是复制视频 pipeline。通用层继续负责采集、ASR、视觉、semantics、creator profile 和 DAG；AI practices 层只补充 practice events、belief events、capability signals、tooling patterns、个人/项目反补候选和证据缺口。
-38. AI 时代“牛人观点”的核心价值不在名言摘抄，而在可复用工作流。Anthropic 和 OpenAI 的 agent 文档共同指向：真实价值来自任务边界、工具调用、验证、权限、日志和 review；Seed 应把这些结构化成 `ai-practice-signals`，再反补到 skills/checks。
-39. 人物方法论要保留冲突和上下文。不同 AI 研究者、工程师、产品人对自动化程度、模型信任、eval、prompt/spec 和组织变革的观点可能相互冲突；digest 应聚合共识，也保留不一致和 evidence gaps。
-40. 读书能力应按 source-grounded 长文档合成来做，而不是新增一个“大摘要”。NotebookLM、LlamaIndex 和 LangChain 的共同点是：source/chunk 先结构化，再按问题合成；Seed 应先落 `B*` evidence blocks，再抽 stable principles、decision rules、mental models、agent checks 和 source gaps。
-41. Readwise/Zotero/Koreader 证明 reading ingestion 的主数据不是“整本书全文”，而是 highlights、annotations、notes、location、tags 和 source metadata。Seed 初版用本地 Markdown，后续 provider 应兼容这些来源，不把某一个平台格式写死到核心。
-42. Zettelkasten/evergreen note 的启发是：书籍价值在于长期可复用的原子原则和链接，而不是一次性摘要。Seed 的 book methods 应能和 creator profile、video semantics、news facts、earnings facts、finance digest 做 cross-source hooks。
-43. 微信读书接入建议先用官方 `weread-skills` 与 `WEREAD_API_KEY` 路径；非官方 cookie 逆向仅做备份能力，不作为主链路，先避免稳定性和合规风险。接入目标是可持续把书架与书籍笔记落入 `book-source`。
-44. 美股股价展望类报告应先做“事实-观点-后验”分层：先记录标的、时间、动作、置信度与证据引用，再给出情景化区间。目标位只用于研判输入草案，不应以确定值写入或作为交易信号，必须标注不确定和替代假设。
-45. 财经工作流不应把观点抽取和后验验证混为一体：先产出视频观点事件账本（transcript + visual + timeline），再补新闻与财报上下文，最后再做频道级复盘。  
-46. 财经检索链路建议固定为：视频证据 -> `GDELT` news facts -> `SEC filings`（submissions/companyfacts）-> 显式 `ticker map` 的行情。每一步都记录 source URL、时间窗口与映射失败原因。  
-47. 信号 taxonomy 建议以观点事件 ledger 为主：`recommendation_presence`、`ticker/entity`、`action`、`direction`、`horizon`、`conviction`、`entry/exit`、`risk_flags`、`modality_evidence`、`uncertainty`、`evidence_refs`。  
-48. 验证闭环建议：观点检测 -> 证据检索和评分 -> verdict（默认 `unverified`） -> 事件 outcome（1D/5D/20D/60D/latest）-> channel profile 回灌。  
-49. benchmark 参考统一为公开基准指数（如 SPY/QQQ）与公开事件仓库（VideoConviction/TickerReceipts），用于后验解释；单条搜索结果不作为交易胜率依据。
+31. 前瞻股价空间必须和后验收益分开：后验收益回答“观点发布后发生了什么”，`market_context` 回答“当前市场如何定价”，`market_scenarios` 回答“未来目标价/下行空间来自哪些外部锚点”。
+32. 报告动效选型：HyperFrames 官方以 GSAP 作为 animation runtime，并通过 frame adapter 做确定性 seek；Remotion 更适合 React 代码生成 MP4/视频 demo，且商业使用有 license/pricing 边界。网页报告里的金融图表应优先交给成熟图表库，不再为 K 线手写 SVG 动效。
+33. Seed 当前先把 TradingView Lightweight Charts 固定为本地 vendor，用于财经报告中的历史 K 线和目标价水平线。它是 TradingView 维护的开源金融图表库，npm 包 license 为 Apache-2.0，且官方说明 Lightweight Charts 本身不提供行情数据；因此报告必须另行保存股价/目标价来源。
+34. 财经前瞻报告必须把来源保存成 artifact：`market_context.source_refs` 记录来源列表，`price_source_note` / `target_price_source_note` 解释股价和目标价口径，必要时额外写 `library/reports/<slug>.source-lineage.md`。公开二级行情源只能用于 demo 或交叉验证，客户级报告要用交易所、公司 IR、券商终端或付费行情源复核。
+35. 成熟股票研报的共同骨架不是“写观点”，而是：理解业务 -> 预测经营 -> 选择估值模型 -> 转成目标价/情景 -> 披露风险与假设。CFA 的 equity valuation reading 明确要求研究报告及时、客观、区分事实和观点、关键假设可被质疑，并披露风险和潜在冲突。Seed 的 `finance-outlook` 因此必须新增方法论映射和自检模块。
+36. Morningstar 的启发是把 fair value、economic moat 和 uncertainty 绑定：先看公司能否长期维持超额收益，再看当前价格是否补偿不确定性。Seed 不直接复刻评级，但需要在“商业本质”里显式覆盖护城河、竞争压力、利润率、客户依赖和 AI 替代。
+37. TIKR/Koyfin 这类产品的关键是把历史实际值和未来一致预期放在同一屏，且保留 analyst count、average/median、目标价高低、估值倍数和趋势。Seed 报告新增 `consensus_diagnostics`：用当前价重算低/均/中/高目标收益，展示目标价跨度和平均/中位差，避免只拿平均目标价当结论。
+38. Quartr 的先进点是 first-party IR data：财报、电话会、PPT、公告和 transcript 都能结构化检索并回到原文。Seed 当前先要求 `market_context.source_refs` 可点击，后续应把 `market_context` 独立成 `*.market-context.json`，并补 metric-level lineage。
+39. FinRobot 的 equity report pipeline 值得借鉴：先抓财务数据，再做预测/DCF/同业比较，再由多个 agent 生成投资 thesis、风险、估值、催化和 HTML/PDF 报告。Seed 当前实现的是轻量版报告骨架，后续应该把“行情/一致预期 provider”和“报告 renderer”分开。
+40. SEC 对分析师报告的提醒要进入默认免责声明：不要仅依赖分析师 recommendation；需要阅读公司报告、核验披露、关注利益冲突和自身风险承受能力。Seed 的目标价只能写“外部一致预期锚点”，不能写成交易建议。
+41. 普通用户买单的不是“专业字段完整”，而是“少搜资料、看清风险、知道下一步盯什么、能不能分享给别人”。TipRanks 的首页强调把机构研究工具和数据开放给所有人；Seeking Alpha 的 Quant/Fator Grades 价值在 instant characterization 和研究入口；Simply Wall St 用视觉报告和 narrative update 降低理解门槛。Seed 的 finance report 需要先给 user value，再给方法论和原始证据。
+42. 用户价值层建议固定为：30 秒判断、来源数量、下一验证点、目标价分歧、适合谁、能做什么、不能替用户做什么。它不是投资建议，而是把“值得继续研究吗”变成可复述的入口。
+43. 检索能力本身要产品化。单 query 不足以支撑客户级金融报告，Seed 需要 query matrix：中文名/英文名/ticker/股票代码 + 目标价/研报/财报/经营更新/政策/AI/成本关键词 + 日期窗口 + `site:` 约束。每轮 query、候选 URL、采纳/拒绝原因都应落入 `search_log`。
+44. Brave Search API、Exa、Tavily 是三个值得评估的检索增强 provider：Brave 提供独立 web index、news/images/snippets 和 LLM context；Exa 提供 company/news/research paper/financial report category、highlights 和 deep structured search；Tavily 提供 domain include/exclude、日期范围和 cleaned raw content。它们不能替代财报/交易所主源，但可作为 discovery layer。
+45. FMP 值得作为结构化财经 provider 候选：官方文档覆盖 real-time/historical market data、financial statements、analyst estimates、price target、earnings transcripts 等 endpoint。限制是 API key、授权、港股覆盖和商业使用成本需要单独核验。
+46. 港股主源应优先用 HKEXnews 和公司 IR。HKEX FAQ 明确上市公司年报、半年报和财务报表会发布在 HKEXnews 和公司网站；公告可按 stock code、headline category、结果公告、分红等条件检索。Seed 后续应把 HKEXnews search 封成 provider，而不是靠人工找 PDF。
+47. 美股主源优先 SEC EDGAR data API。SEC data API 提供 EDGAR data via APIs，`companyfacts` / `submissions` 是结构化财报和 filing history 的基础；公开网页/新闻只能辅助解释，不替代 filed documents。
+48. 检索增强后的 artifact 应拆成 `*.search-log.json` 与 `*.market-context.json`：前者记录 query/result/rejected reason，后者记录 metric-level lineage（metric、value、unit、source_ref_id、accessed_at、confidence、limitation）。没有 metric lineage 的数字不能进入客户版 HTML。
+49. 本轮额外找到可补入小米/美图样例的研报线索：华创证券 2026-05-11 对美图给出 6.70 港元目标价，采用 2026 年核心主业收入 7x PS；第一上海 2026-04-14 对小米给出 36.3 港元目标价，方法是硬件 15x PE、互联网 20x PE、汽车 1.5x PS；交银国际 2026-03-13 把小米降至 Neutral、目标价 37 港元，核心风险是存储成本和 EV 竞争。这类券商单点目标价应作为分歧样本，不应覆盖聚合目标价。
+50. 下一步不要继续堆 summary 字段，应把 `finance-signals.json` 升级成观点事件 ledger：先判断是否存在 recommendation，再抽 ticker/entity、action、direction、horizon、conviction、entry/exit/invalidation、timestamp evidence 和 modality evidence。
+51. VideoConviction 的 action taxonomy 可直接作为 Seed 初版参考：buy、hold、don't buy、sell、short sell；Seed 还需要兼容 watch、add、reduce、allocate、unknown，因为中文财经 UP 经常是“观察/等回调/配置/减仓”。
+52. 后验评估不能只看 latest return。event 应根据 horizon 计算 1D/5D/20D/60D/latest、benchmark relative return 和风险指标；没有 horizon 时只输出 baseline，不做命中判断。
+53. 新闻检索不要从“观点总结”开始。GDELT 适合作为开放覆盖 baseline，但结果仍是媒体报道集合；Seed 的 `news-digest` 必须先分 facts、reported claims、source gaps，再写行业影响机制。
+54. 财报解析不要优先抓网页正文。SEC `submissions` 给 filing history，`companyfacts` 给可结构化 XBRL 指标；Seed 初版先把这两类 primary data 变成稳定 artifact，HTML filing/table 解析作为后续 provider。
+55. 通用能力新增前必须保留调研记录。新闻检索、财报解析、OCR、motion、行情、fact-check 这类常见能力都应先查官方或成熟开源项目，把选型写进 `docs/research-competitors.md`，再实现最小 provider。
+56. AI 方法论方向也应该作为 domain lens，而不是复制视频 pipeline。通用层继续负责采集、ASR、视觉、semantics、creator profile 和 DAG；AI practices 层只补充 practice events、belief events、capability signals、tooling patterns、个人/项目反补候选和证据缺口。
+57. AI 时代“牛人观点”的核心价值不在名言摘抄，而在可复用工作流。Anthropic 和 OpenAI 的 agent 文档共同指向：真实价值来自任务边界、工具调用、验证、权限、日志和 review；Seed 应把这些结构化成 `ai-practice-signals`，再反补到 skills/checks。
+58. 人物方法论要保留冲突和上下文。不同 AI 研究者、工程师、产品人对自动化程度、模型信任、eval、prompt/spec 和组织变革的观点可能相互冲突；digest 应聚合共识，也保留不一致和 evidence gaps。
+59. 读书能力应按 source-grounded 长文档合成来做，而不是新增一个“大摘要”。NotebookLM、LlamaIndex 和 LangChain 的共同点是：source/chunk 先结构化，再按问题合成；Seed 应先落 `B*` evidence blocks，再抽 stable principles、decision rules、mental models、agent checks 和 source gaps。
+60. Readwise/Zotero/Koreader 证明 reading ingestion 的主数据不是“整本书全文”，而是 highlights、annotations、notes、location、tags 和 source metadata。Seed 初版用本地 Markdown，后续 provider 应兼容这些来源，不把某一个平台格式写死到核心。
+61. Zettelkasten/evergreen note 的启发是：书籍价值在于长期可复用的原子原则和链接，而不是一次性摘要。Seed 的 book methods 应能和 creator profile、video semantics、news facts、earnings facts、finance digest 做 cross-source hooks。
+62. 微信读书接入建议先用官方 `weread-skills` 与 `WEREAD_API_KEY` 路径；非官方 cookie 逆向仅做备份能力，不作为主链路，先避免稳定性和合规风险。接入目标是可持续把书架与书籍笔记落入 `book-source`。
+63. 美股股价展望类报告应先做“事实-观点-后验”分层：先记录标的、时间、动作、置信度与证据引用，再给出情景化区间。目标位只用于研判输入草案，不应以确定值写入或作为交易信号，必须标注不确定和替代假设。
+64. 财经工作流不应把观点抽取和后验验证混为一体：先产出视频观点事件账本（transcript + visual + timeline），再补新闻与财报上下文，最后再做频道级复盘。
+65. 财经检索链路建议固定为：视频证据 -> `GDELT` news facts -> `SEC filings`（submissions/companyfacts）-> 显式 `ticker map` 的行情。每一步都记录 source URL、时间窗口与映射失败原因。
+66. 信号 taxonomy 建议以观点事件 ledger 为主：`recommendation_presence`、`ticker/entity`、`action`、`direction`、`horizon`、`conviction`、`entry/exit`、`risk_flags`、`modality_evidence`、`uncertainty`、`evidence_refs`。
+67. 验证闭环建议：观点检测 -> 证据检索和评分 -> verdict（默认 `unverified`） -> 事件 outcome（1D/5D/20D/60D/latest）-> channel profile 回灌。
+68. benchmark 参考统一为公开基准指数（如 SPY/QQQ）与公开事件仓库（VideoConviction/TickerReceipts），用于后验解释；单条搜索结果不作为交易胜率依据。
+69. 财经报告里的未来价位图应优先参考 TradingView Price Target，而不是画伪未来 K 线。TradingView Price Target 展示 Max/Avg/Min 三个目标价水平，标签显示预期百分比，点线连接到预测日期；这适合分析师目标价聚合。实现层面用 Lightweight Charts 的 candlestick series + price line，不复制 TradingView 闭源指标代码。要让图有意义，历史价格语境不能只看几周，默认至少展示约 3 年日线 OHLC，并在图上标注覆盖区间和交易日数；当前可用 Yahoo Finance chart API 作为二级行情补强候选，客户级交付仍应以交易所、券商终端或付费行情源复核。还需要把财报、产品、政策、AI 竞争等 `next_events` 标在同一时间轴，并用非 K 线情景路径说明“事件验证后可能向哪个目标/支撑锚点靠拢”。只有当有连续概率分布或置信区间数据时，才考虑 Highcharts fan chart 这类预测区间图；否则大面积扇形会误导为模型知道未来路径。
+70. 成熟行情产品通常把事件做成独立 chart layer，而不是把新闻正文塞进图。TradingView Lightweight Charts 官方 series markers 可把事件点挂到具体 K 线；Yahoo Finance 的 advanced chart 可打开 Corporate Events 并在时间线上悬停查看详情；Highcharts Stock 有 flags series，明确用于 stock chart 事件标记；ECharts 对应 markPoint/markLine/markArea；Stock Rover / GoCharting / ChartIQ 这类产品还会把 dividends、splits、earnings、news、analyst ratings 或 corporate actions 当成可开关的 event overlays。Seed 当前继续沿用 Lightweight Charts：`historical_events/chart_events` 以小圆点 marker 标在历史 K 线，图下列表承载来源链接和影响机制；未来事件不再只做卡片，必须进入同轴事件时间线，右侧未来观察窗放事件窗口、单点催化、关注内容和多情景触发；宏观/战争/油价事件先作为历史 marker 和说明，不直接画大面积背景带，除非后续有清晰时间区间和影响证据。
+70. 财经报告和 Seed 视频/UP 能力的有价值结合点是“时间戳证据 + 行情/新闻/财报 source lineage + 频道级后验复盘”。VideoConviction 证明金融视频推荐需要 segment-level action/conviction/ticker 标注；TickerReceipts 证明用户会为 time-stamped picks、stance flip 和 verdict 买单。Seed 应把 finance outlook 作为 `finance-signals`、`market-context`、news/earnings facts 和 creator profile 的消费端，而不是孤立 HTML。
+71. AlphaShot、AlphaResearch、Aiera 这类成熟投研工具的共同点是统一检索、可点击 citations、事件/财报 transcript、主题/KPI 抽取和可定制 workflow。对 Seed 的直接启发是：`search-log` 和 `market-context` 必须成为可复用 artifact，能同时喂给 outlook 报告、DAG、UP 主页和后验评估；单次报告里临时拼 web snippet 不够客户级。
 
 ## Sources
 
@@ -200,6 +224,29 @@
 - FinRobot: https://github.com/AI4Finance-Foundation/FinRobot
 - FinBERT: https://github.com/ProsusAI/finBERT
 - FinRL: https://github.com/AI4Finance-Foundation/FinRL
+- CFA Institute Equity Valuation: https://www.cfainstitute.org/insights/professional-learning/refresher-readings/2026/equity-valuation-applications-and-processes
+- Morningstar Economic Moat Ratings: https://www.morningstar.com/business/insights/blog/equity-economic-moat-ratings
+- TIKR Estimates feature: https://support.tikr.com/hc/en-us/articles/39071375390235-How-do-I-use-TIKR-s-Estimates-feature
+- Koyfin Actuals and Consensus: https://www.koyfin.com/help/actuals-consensus/
+- Koyfin data sources: https://www.koyfin.com/help/faq/where-do-you-get-your-data/
+- Quartr AI infrastructure for company research: https://quartr.com/
+- SEC Analyzing Analyst Recommendations: https://www.sec.gov/investor/pubs/analysts.htm
+- AlphaShot: https://www.alphashot.ai/
+- AlphaResearch: https://alpharesearch.io/
+- Aiera earnings calls and transcripts: https://learn.aiera.com/listen-live-earnings-call-transcripts/
+- TipRanks home: https://www.tipranks.com/
+- Seeking Alpha Quant Ratings and Factor Grades: https://seekingalpha.com/article/4263303-quant-ratings-and-factor-grades-faq/
+- Seeking Alpha Premium feature overview: https://help.seekingalpha.com/what-is-seeking-alpha-premium
+- Simply Wall St stock report example: https://simplywall.st/stocks/us/software/nyse-snow/snowflake
+- Exa Search API: https://exa.ai/docs/reference/search-api-guide
+- Tavily Search API: https://docs.tavily.com/documentation/api-reference/endpoint/search
+- Brave Search API: https://brave.com/search/api/
+- Financial Modeling Prep Financial Estimates API: https://site.financialmodelingprep.com/developer/docs/stable/financial-estimates
+- HKEX investor FAQ / listed company information: https://www.hkex.com.hk/Global/Exchange/FAQ/Getting-Started?sc_lang=en
+- SEC EDGAR Data APIs: https://data.sec.gov/
+- 华创证券美图目标价转引： https://finance.sina.com.cn/stock/hkstock/hkgg/2026-05-11/doc-inhxpati1888110.shtml
+- 第一上海小米 2026-04-14 PDF： https://pdf.dfcfw.com/pdf/H3_AP202604161821253833_1.pdf
+- 交银国际小米 2026-03-13 PDF： https://files.bocomgroup.com/download/mexp-260313e.pdf
 - Anthropic Building Effective Agents: https://www.anthropic.com/research/building-effective-agents
 - OpenAI Codex docs: https://platform.openai.com/docs/codex
 - OpenAI Running Codex safely: https://openai.com/index/running-codex-safely/
@@ -221,3 +268,7 @@
 - Zotero Web API: https://www.zotero.org/support/dev/web_api/v3/basics
 - NotebookLM source help: https://support.google.com/notebooklm/answer/16215270
 - Obsidian Zettelkasten overview: https://obsidian.rocks/getting-started-with-zettelkasten-in-obsidian/
+- TradingView Price Target indicator: https://www.tradingview.com/support/solutions/43000730980-price-target-indicator/
+- TradingView Lightweight Charts npm package: https://www.npmjs.com/package/lightweight-charts
+- TradingView Lightweight Charts price line: https://tradingview.github.io/lightweight-charts/tutorials/how_to/price-line
+- Highcharts fan chart demo: https://www.highcharts.com/demo/highcharts/fan-chart
