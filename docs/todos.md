@@ -232,6 +232,7 @@
   - 行情 provider 独立于视频分析；没有显式 ticker mapping 时保持 `missing_ticker`，不猜。
 - [x] 增加金融观点前瞻草案报告。
   - `seed build-finance-outlook-report` 从 `*.finance-digest*.json` 生成 `*.finance-outlook-report.html` 与 `*.finance-outlook.json`。
+  - `seed build-finance-business-analysis-report` 从 `*.finance-digest*.json` 或 `*.finance-outlook.json` 生成 `*.business-analysis.md/html`，把主营业务、收入来源、市场空间、竞争压力、AI 创作竞品状态和未来股价情景固化成可复现报告，不再依赖一次性手写脚本。
   - 报告输出标的级风险收益、上行/下行空间、利空因素、软件和 AI 行业变量与证据边界。
   - 报告新增用户价值层：先回答“这份报告有什么用、适合谁、下一步盯什么、不能替你做什么”，再进入专业方法论和证据。
   - 报告新增成熟研报方法论映射、一致预期与目标价分歧、数据覆盖度 / 交付自检模块；目标价显示平均/中位/高/低、样本数、跨度和来源，避免只拿均值当结论。

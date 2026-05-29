@@ -4,7 +4,7 @@ import json
 from html import escape
 from datetime import datetime
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 from urllib.parse import quote
 
 import typer
@@ -149,13 +149,21 @@ from seed.reports.finance_news import (
     write_finance_news_report_html,
 )
 from seed.reports.finance_outlook import (
+    build_finance_outlook_payload,
     build_finance_outlook_report_html,
+    build_finance_outlook_outputs_for_owner,
     finance_outlook_output_path,
     finance_outlook_payload_output_path,
-    build_finance_outlook_payload,
-    build_finance_outlook_outputs_for_owner,
     find_owner_finance_outlook_report_paths,
     write_finance_outlook_report,
+)
+from seed.reports.finance_business_analysis import (
+    build_finance_business_analysis_html,
+    build_finance_business_analysis_markdown,
+    finance_business_analysis_html_output_path,
+    finance_business_analysis_md_output_path,
+    write_finance_business_analysis_html,
+    write_finance_business_analysis_markdown,
 )
 from seed.reports.equity_research import (
     build_equity_research_report_html,
@@ -2509,6 +2517,63 @@ def build_finance_outlook_report(
         f"{len(events)}, priced events: "
         f"{sum(1 for event in events if isinstance(event, dict) and isinstance(event.get('event_outcomes'), dict) and event['event_outcomes'].get('status') == 'priced')}"
     )
+
+
+@app.command("build-finance-business-analysis-report")
+def build_finance_business_analysis_report(
+    source_path: Annotated[
+        Path,
+        typer.Argument(help="Path to *.finance-digest*.json or *.finance-outlook.json."),
+    ],
+    output: Annotated[Path | None, typer.Option("--output")] = None,
+    markdown_output: Annotated[Path | None, typer.Option("--markdown-output")] = None,
+    root: Annotated[Path, typer.Option("--root")] = Path("library"),
+) -> None:
+    source_data = json.loads(source_path.read_text(encoding="utf-8"))
+    source_digest: dict[str, Any] | None = None
+    if source_data.get("kind") == "finance_outlook":
+        outlook = source_data
+        source_digest_path = source_data.get("source_digest_path")
+        if isinstance(source_digest_path, str) and source_digest_path:
+            candidate = Path(source_digest_path)
+            if not candidate.is_absolute():
+                candidate = source_path.parent / candidate
+            if not candidate.exists():
+                candidate = Path(source_digest_path)
+            if candidate.exists():
+                source_digest = json.loads(candidate.read_text(encoding="utf-8"))
+    else:
+        source_digest = source_data
+        outlook = build_finance_outlook_payload(source_data, digest_path=source_path)
+
+    outlook_report_path = finance_outlook_output_path(
+        library_root=root,
+        digest_path=source_path,
+    )
+    resolved_output = output or finance_business_analysis_html_output_path(
+        library_root=root,
+        source_path=source_path,
+    )
+    resolved_markdown = markdown_output or finance_business_analysis_md_output_path(
+        library_root=root,
+        source_path=source_path,
+    )
+    markdown = build_finance_business_analysis_markdown(
+        outlook,
+        source=source_digest,
+        source_path=source_path,
+        outlook_report_path=outlook_report_path,
+    )
+    html = build_finance_business_analysis_html(
+        outlook,
+        source=source_digest,
+        source_path=source_path,
+        outlook_report_path=outlook_report_path,
+    )
+    write_finance_business_analysis_markdown(resolved_markdown, markdown)
+    write_finance_business_analysis_html(resolved_output, html)
+    console.print(f"created finance business analysis markdown at {resolved_markdown}")
+    console.print(f"created finance business analysis report at {resolved_output}")
 
 
 def parse_ticker_map(values: list[str]) -> dict[str, str]:

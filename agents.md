@@ -61,6 +61,7 @@ run-book-pipeline
 - 共享分析 lens 入口：`src/seed/skill_refs.py`
 - AI 方法论领域信号：`src/seed/domains/ai_practices.py`
 - 财经领域信号：`src/seed/domains/finance.py`
+- 财经业务分析报告：`src/seed/reports/finance_business_analysis.py`
 - 新闻检索与 facts 蒸馏：`src/seed/domains/news.py`
 - 财报解析与 SEC baseline：`src/seed/domains/earnings.py`
 - 视频证据锚点：`src/seed/semantics/evidence.py`
@@ -266,6 +267,8 @@ library/reflections/  Agent 使用方法论后的复盘记录
 .venv/bin/seed enrich-finance-prices --help
 .venv/bin/seed enrich-finance-news --help
 .venv/bin/seed build-finance-news-report --help
+.venv/bin/seed build-finance-outlook-report --help
+.venv/bin/seed build-finance-business-analysis-report --help
 .venv/bin/seed search-news --help
 .venv/bin/seed research-news --help
 .venv/bin/seed distill-news-facts --help
