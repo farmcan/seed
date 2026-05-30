@@ -1,6 +1,6 @@
 # 竞品与类似项目调研
 
-调研日期：2026-05-07；画布与计费补充：2026-05-10；架构复核补充：2026-05-11；视觉笔记、核验、编排补充：2026-05-11；短视频 shot 级分析补充：2026-05-12；运行可观测性补充：2026-05-13；财经 UP 蒸馏补充：2026-05-14；新闻检索与财报解析补充：2026-05-17；AI 方法论与 agent 工作流补充：2026-05-18；书籍/读书方法论补充：2026-05-18；微信读书接入补充：2026-05-18；财经报告与 UP 证据链结合补充：2026-05-20。
+调研日期：2026-05-07；画布与计费补充：2026-05-10；架构复核补充：2026-05-11；视觉笔记、核验、编排补充：2026-05-11；短视频 shot 级分析补充：2026-05-12；运行可观测性补充：2026-05-13；财经 UP 蒸馏补充：2026-05-14；新闻检索与财报解析补充：2026-05-17；AI 方法论与 agent 工作流补充：2026-05-18；书籍/读书方法论补充：2026-05-18；微信读书接入补充：2026-05-18；财经报告与 UP 证据链结合补充：2026-05-20；财经 UP 日报商业化补充：2026-05-31。
 
 ## 结论
 
@@ -17,6 +17,7 @@
 | Readwise Reader / Ghostreader | 对文章、PDF、YouTube 等资料做 AI 总结、自定义 prompt 和阅读辅助；Reader 支持视频旁边展示 time-synced transcript、点击片段跳转、highlight 和 enhanced transcript。 | 视频学习体验的关键不是“摘要按钮”，而是视频、转写、笔记、高亮和当前位置同步。 | seed 的 DAG/HTML 后续可以借鉴这种“媒体预览 + 当前证据片段 + 可回放”的交互。 |
 | Glasp / Eightify / summarize.tech | 轻量 YouTube 总结、转写、时间戳摘要。 | 入口简单，适合“粘贴 URL -> 立即得到摘要”。 | 这些产品偏消费工具，缺少长期方法论建模。 |
 | AlphaCheck | 面向金融 YouTube，提取股票提及、推荐强度、上下文理由，并把发布时价格和最新价格对齐；还支持按频道追踪历史表现。 | 财经方向要把“标的、动作、信念强度、理由、发布时间价格、后验表现”结构化，不要停留在自然语言摘要。 | Seed 先做多平台本地蒸馏和 evidence DAG；后验收益、benchmark 和行情数据作为财经 domain 后续 provider。 |
+| ShadowAlpha / StockCombos / Social Stock 类社交金融情报工具 | 连续追踪财经创作者、社媒讨论、stock picks、回测和共识信号。 | 说明“财经创作者观点雷达”有明确需求，但红海点是直接声称能给交易信号或排名。 | Seed 应优先卖 evidence-grounded daily brief、叙事变化、观点分歧和方法论对账，而不是把自己包装成荐股系统。 |
 
 ## 开源项目与组件
 
@@ -157,6 +158,11 @@
 70. 成熟行情产品通常把事件做成独立 chart layer，而不是把新闻正文塞进图。TradingView Lightweight Charts 官方 series markers 可把事件点挂到具体 K 线；Yahoo Finance 的 advanced chart 可打开 Corporate Events 并在时间线上悬停查看详情；Highcharts Stock 有 flags series，明确用于 stock chart 事件标记；ECharts 对应 markPoint/markLine/markArea；Stock Rover / GoCharting / ChartIQ 这类产品还会把 dividends、splits、earnings、news、analyst ratings 或 corporate actions 当成可开关的 event overlays。Seed 当前继续沿用 Lightweight Charts：`historical_events/chart_events` 以小圆点 marker 标在历史 K 线，图下列表承载来源链接和影响机制；未来事件不再只做卡片，必须进入同轴事件时间线，右侧未来观察窗放事件窗口、单点催化、关注内容和多情景触发；宏观/战争/油价事件先作为历史 marker 和说明，不直接画大面积背景带，除非后续有清晰时间区间和影响证据。
 70. 财经报告和 Seed 视频/UP 能力的有价值结合点是“时间戳证据 + 行情/新闻/财报 source lineage + 频道级后验复盘”。VideoConviction 证明金融视频推荐需要 segment-level action/conviction/ticker 标注；TickerReceipts 证明用户会为 time-stamped picks、stance flip 和 verdict 买单。Seed 应把 finance outlook 作为 `finance-signals`、`market-context`、news/earnings facts 和 creator profile 的消费端，而不是孤立 HTML。
 71. AlphaShot、AlphaResearch、Aiera 这类成熟投研工具的共同点是统一检索、可点击 citations、事件/财报 transcript、主题/KPI 抽取和可定制 workflow。对 Seed 的直接启发是：`search-log` 和 `market-context` 必须成为可复用 artifact，能同时喂给 outlook 报告、DAG、UP 主页和后验评估；单次报告里临时拼 web snippet 不够客户级。
+72. 财经 UP 日报可以商业化，但最小定位应是“财经内容情报 / 投资观点雷达 / 创作者观点对账”，不是“炒股神器”。优先客户不是大众散户，而是小型投研团队、独立研究员、财经内容创作者、投顾/财富管理内容团队和财经社群运营者；他们付费购买的是节省检索时间、看清共识/分歧、获得可引用证据和选题/复盘素材。
+73. 个人开发者的起步形态应先卖服务，再卖 SaaS：先固定 10-30 位财经 UP，每日或每周交付一份 `finance-creator-daily-brief`，包括每人一章、核心观点、同标的冲突、风险/证据缺口和方法论候选；用 20 个种子用户访谈验证愿付费人群、指定 UP 列表、报告频率和可接受价格。
+74. 商业定价建议从低承诺开始：个人内容创作者/社群版可试探 199-499 元/月；小团队定制版可试探 2000-10000 元/月，交付指定 UP、指定标的、周报复盘和 source-lineage；企业/券商/财富管理需要合规、数据授权和 SLA，等真实样本和客户反馈稳定后再接触。
+75. 合规边界必须前置。FINRA/SEC 对社交媒体影响投资和 finfluencer 风险持续提示；Seed 的产品文案、报告页和 artifact 都应坚持“创作者声称/市场叙事/研究辅助/非投资建议”，不输出买卖指令、不做未经验证的收益承诺、不在样本不足时排名“谁更准”。
+76. 商业化验证指标不要先看模型分数，应看用户行为：日报是否被转发、用户是否要求增加指定 UP、是否愿意为“证据链接 + 同标的分歧 + 观点后验”付费、是否把报告用于选题/晨会/社群内容。只有这些成立，再投入自动采集、登录态适配、行情授权和团队版前端。
 
 ## Sources
 
@@ -219,6 +225,11 @@
 - VideoConviction dataset: https://huggingface.co/datasets/gtfintechlab/VideoConviction
 - AlphaCheck: https://alphacheck.ai/
 - TickerReceipts: https://tickerreceipts.com/
+- ShadowAlpha: https://shadowalpha.ai/
+- StockCombos: https://stockcombos.com/
+- Social Stock: https://socialstock.app/
+- IAB 2025 Creator Economy Ad Spend & Strategy Report: https://www.iab.com/insights/2025-creator-economy-ad-spend-strategy-report/
+- FINRA Social Media topic: https://www.finra.org/rules-guidance/key-topics/social-media
 - FinCap paper: https://arxiv.org/abs/2509.25745
 - FinGPT: https://github.com/AI4Finance-Foundation/FinGPT
 - FinRobot: https://github.com/AI4Finance-Foundation/FinRobot

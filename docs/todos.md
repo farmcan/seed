@@ -274,6 +274,12 @@
   - DAG/report：先作为 creator/list 级报告节点接入，不把所有视频平铺到同一画布；点击 creator section 再回到单个 UP 主页、digest、news report 或 video DAG。
   - Artifact：brief 需要保留 digest refs、owner/platform、report date、window、共识/分歧规则、方法论证据 refs、风险和 source gaps。
   - 验证：用固定样本池验证“同一标的不同方向能标为 conflict”“缺 ticker 不猜”“无 evidence refs 时显示缺口”。
+- [ ] 验证财经 UP 日报商业化。
+  - 客户顺序：先找小型投研团队、独立研究员、财经内容创作者、财经社群运营者和投顾/财富管理内容团队；暂不先卖给大众散户。
+  - MVP：固定 10-30 位 UP，每日/每周交付 `finance-creator-daily-brief`，包含每人一章、同标的共识/分歧、证据链接、风险缺口和方法论候选。
+  - 定价试探：个人/创作者版 199-499 元/月；小团队定制版 2000-10000 元/月；企业版等合规、授权和 SLA 明确后再谈。
+  - 验证指标：是否被转发、是否要求增加指定 UP/标的、是否愿为 source-lineage 和后验复盘付费、是否用于选题/晨会/社群内容。
+  - 合规边界：文案和报告只写创作者观点、市场叙事和研究辅助，不写买卖建议、不承诺收益、不在样本不足时做 UP 投资能力排名。
 
 - [ ] 增加财经方法论回测/后验评估。
   - 当前 priced digest 已有 event-level 基础价格后验，缺少系统性回测框架。
