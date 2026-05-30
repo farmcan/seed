@@ -148,6 +148,14 @@ from seed.reports.finance_news import (
     find_owner_finance_news_report_paths,
     write_finance_news_report_html,
 )
+from seed.reports.finance_daily import (
+    build_finance_daily_brief_artifact,
+    build_finance_daily_brief_html,
+    finance_daily_brief_artifact_output_path,
+    finance_daily_brief_output_path,
+    write_finance_daily_brief_artifact,
+    write_finance_daily_brief_html,
+)
 from seed.reports.finance_outlook import (
     build_finance_outlook_payload,
     build_finance_outlook_report_html,
@@ -2474,6 +2482,49 @@ def build_finance_news_report(
     events_with_context = sum(1 for event in events if event.get("news_context"))
     console.print(f"created finance news report at {resolved_output}")
     console.print(f"events: {len(events)}, events with context: {events_with_context}")
+
+
+@app.command("build-finance-daily-brief")
+def build_finance_daily_brief(
+    digest_path: Annotated[
+        list[Path],
+        typer.Argument(help="One or more *.finance-digest*.json files, usually one per creator."),
+    ],
+    title: Annotated[str, typer.Option("--title", help="Report title.")] = "财经 UP 每日观点简报",
+    report_date: Annotated[str | None, typer.Option("--report-date", help="Report date label, e.g. 2026-05-31.")] = None,
+    output: Annotated[Path | None, typer.Option("--output", help="Output HTML path.")] = None,
+    artifact_output: Annotated[Path | None, typer.Option("--artifact", help="Output JSON artifact path.")] = None,
+    root: Annotated[Path, typer.Option("--root")] = Path("library"),
+) -> None:
+    if not digest_path:
+        raise typer.BadParameter("At least one finance digest path is required.")
+    missing_paths = [path for path in digest_path if not path.exists()]
+    if missing_paths:
+        raise typer.BadParameter(f"Finance digest path does not exist: {missing_paths[0]}")
+    digests = [json.loads(path.read_text(encoding="utf-8")) for path in digest_path]
+    artifact = build_finance_daily_brief_artifact(
+        digests,
+        digest_paths=digest_path,
+        title=title,
+        report_date=report_date,
+    )
+    resolved_artifact = artifact_output or finance_daily_brief_artifact_output_path(
+        library_root=root,
+        report_date=report_date,
+    )
+    resolved_output = output or finance_daily_brief_output_path(
+        library_root=root,
+        report_date=report_date,
+    )
+    write_finance_daily_brief_artifact(resolved_artifact, artifact)
+    write_finance_daily_brief_html(resolved_output, build_finance_daily_brief_html(artifact))
+    console.print(f"created finance daily brief artifact at {resolved_artifact}")
+    console.print(f"created finance daily brief HTML at {resolved_output}")
+    console.print(
+        f"creators: {artifact['totals'].get('creators', 0)}, "
+        f"events: {artifact['totals'].get('viewpoint_events', 0)}, "
+        f"instruments: {artifact['totals'].get('instruments', 0)}"
+    )
 
 
 @app.command("build-finance-outlook-report")
