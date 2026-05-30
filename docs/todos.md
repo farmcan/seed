@@ -239,6 +239,10 @@
   - `seed distill-up-list --domain finance` 默认可自动附带生成 outlook（新增可选 `--skip-finance-outlook-reports`）。
   - `run-creator-pipeline --domain finance` 现已在 creator 后处理阶段自动尝试构建 `*.finance-outlook*.json/report`，并在 `creator_steps` 中输出 `build_finance_outlook`。
   - 对应 skill 规范：`skills/finance-outlook-analyzer/SKILL.md`，用于统一 `event -> outlook` 的输出结构约束和复核清单。
+- [x] 增加财经 UP 每日/窗口化简报。
+  - `seed build-finance-daily-brief <finance-digest...>` 消费多位 UP/创作者的窗口 digest，输出 `library/distilled/*.finance-creator-daily-brief.json` 和 `library/reports/*.finance-creator-daily-brief.html`。
+  - 报告按每人一章展示核心观点、样本视频、风险和证据缺口，并在全局层汇总跨 UP 共识/分歧与方法论候选。
+  - 该能力先作为已有 digest 的 artifact consumer，不新增下载、ASR、模型调用或投资建议；后续再接入名单 pipeline 和 UP 主页。
 
 - [ ] 将市场锚点补强为独立 provider/artifact。
   - 当前小米、美图样例的 `market_context` 仍以人工检索后写入 digest/payload 为主，适合 demo 与方法论验证。
@@ -263,6 +267,13 @@
   - Agent 资产：只有通过 review 的 finance profile 才生成 draft checklist，例如“财经视频抽取 QA”“股票前瞻报告 preflight”“无来源数字阻断清单”；仍然只做研究辅助，不生成买卖建议。
   - Book/AI practices：只在有明确商业模式、AI 替代、生产力变化或行业迁移 claim 时引用 `book_methods.cross_source_hooks` / `ai-practice-digest`，作为假设和风险 lens；不要用书籍方法论或 AI 观点替代事实核验。
   - 明确不做：不为非财经内容强行加财经模块；不在样本不足时做 UP 投资能力排名；不把 event 后验收益当成未来目标价；不把 Seed 输出写成投资建议。
+
+- [ ] 把财经每日简报接入产品入口。
+  - Pipeline：`distill-up-list --domain finance` 和未来 `run-creator-batch` 可在同一时间窗口结束后自动收集各 UP 的 `*.finance-digest*.json`，生成一份全局 `finance-creator-daily-brief`。
+  - UP 主页：已有 brief 时显示“今日财经 UP 简报”入口；非财经名单不显示空模块。
+  - DAG/report：先作为 creator/list 级报告节点接入，不把所有视频平铺到同一画布；点击 creator section 再回到单个 UP 主页、digest、news report 或 video DAG。
+  - Artifact：brief 需要保留 digest refs、owner/platform、report date、window、共识/分歧规则、方法论证据 refs、风险和 source gaps。
+  - 验证：用固定样本池验证“同一标的不同方向能标为 conflict”“缺 ticker 不猜”“无 evidence refs 时显示缺口”。
 
 - [ ] 增加财经方法论回测/后验评估。
   - 当前 priced digest 已有 event-level 基础价格后验，缺少系统性回测框架。
